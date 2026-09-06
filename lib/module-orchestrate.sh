@@ -26,8 +26,19 @@ devkit_dispatch_state_write() {
     --arg terminalId "$terminal_id" \
     --argjson lastTextLength "$last_text_length" \
     --arg createdAt "$(devkit_iso_now)" \
-    '{host: $host, workspaceId: $workspaceId, terminalId: $terminalId, lastTextLength: $lastTextLength, createdAt: $createdAt}' \
+    '{host: $host, workspaceId: $workspaceId, terminalId: $terminalId, lastTextLength: $lastTextLength, lastMarkerStatus: "", lastMarkerText: "", createdAt: $createdAt}' \
     >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$state_path"
+}
+
+devkit_dispatch_state_update_marker() {
+  local state_path="$1" marker_status="$2" marker_text="$3" tmp
+  tmp="$(mktemp "$DEVKIT_DISPATCH_DIR/.dispatch.XXXXXX")" || return 1
+  if ! jq --arg markerStatus "$marker_status" --arg markerText "$marker_text" \
+    '.lastMarkerStatus = $markerStatus | .lastMarkerText = $markerText' "$state_path" >"$tmp"; then
     rm -f "$tmp"
     return 1
   fi
@@ -82,7 +93,7 @@ devkit_superset_terminal_read() {
 }
 
 devkit_dispatch_extract_marker() {
-  local new_text="$1" line
+  local previous_status="$1" previous_text="$2" new_text="$3" line marker_status marker_text
   DEVKIT_MARKER_STATUS=""
   DEVKIT_MARKER_TEXT=""
   while IFS= read -r line || [ -n "$line" ]; do
@@ -92,16 +103,21 @@ devkit_dispatch_extract_marker() {
     esac
     case "$line" in
       "DEVKIT_ASK: "*)
-        DEVKIT_MARKER_STATUS="waiting_for_reply"
-        DEVKIT_MARKER_TEXT="${line#DEVKIT_ASK: }"
-        return 0
+        marker_status="waiting_for_reply"
+        marker_text="${line#DEVKIT_ASK: }"
         ;;
       "DEVKIT_DONE: "*)
-        DEVKIT_MARKER_STATUS="done"
-        DEVKIT_MARKER_TEXT="${line#DEVKIT_DONE: }"
-        return 0
+        marker_status="done"
+        marker_text="${line#DEVKIT_DONE: }"
         ;;
+      *) continue ;;
     esac
+    if [ "$marker_status" = "$previous_status" ] && [ "$marker_text" = "$previous_text" ]; then
+      continue
+    fi
+    DEVKIT_MARKER_STATUS="$marker_status"
+    DEVKIT_MARKER_TEXT="$marker_text"
+    return 0
   done <<<"$new_text"
 }
 
@@ -117,7 +133,7 @@ devkit_dispatch_report() {
 
 devkit_dispatch_watch() {
   local dispatch_id="${1:-}" timeout=120 poll_interval=3 json=false arg state state_path workspace_id terminal_id
-  local last_text_length current_text new_text current_length start_time current_time tail_text
+  local last_text_length previous_marker_status previous_marker_text current_text new_text current_length start_time current_time tail_text
   [ -n "$dispatch_id" ] || { devkit_error "Usage: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
@@ -140,18 +156,27 @@ devkit_dispatch_watch() {
   workspace_id="$(printf '%s' "$state" | jq -r '.workspaceId')"
   terminal_id="$(printf '%s' "$state" | jq -r '.terminalId')"
   last_text_length="$(printf '%s' "$state" | jq -r '.lastTextLength // 0')"
+  previous_marker_status="$(printf '%s' "$state" | jq -r '.lastMarkerStatus // ""')"
+  previous_marker_text="$(printf '%s' "$state" | jq -r '.lastMarkerText // ""')"
   [[ "$last_text_length" =~ ^[0-9]+$ ]] || { devkit_error "dispatch state has an invalid lastTextLength: $dispatch_id"; return 1; }
   start_time="$(date +%s)"
   while true; do
     current_text="$(devkit_superset_terminal_read "$workspace_id" "$terminal_id")" || return 1
     new_text="${current_text:$last_text_length}"
-    devkit_dispatch_extract_marker "$new_text"
     current_length="${#current_text}"
+    devkit_dispatch_extract_marker "$previous_marker_status" "$previous_marker_text" "$new_text"
+    if [ -z "$DEVKIT_MARKER_STATUS" ]; then
+      devkit_dispatch_extract_marker "$previous_marker_status" "$previous_marker_text" "$current_text"
+    fi
     devkit_dispatch_state_update_length "$state_path" "$current_length" || {
       devkit_error "could not update dispatch state: $dispatch_id"
       return 1
     }
     if [ -n "$DEVKIT_MARKER_STATUS" ]; then
+      devkit_dispatch_state_update_marker "$state_path" "$DEVKIT_MARKER_STATUS" "$DEVKIT_MARKER_TEXT" || {
+        devkit_error "could not update dispatch marker state: $dispatch_id"
+        return 1
+      }
       devkit_dispatch_report "$dispatch_id" "$DEVKIT_MARKER_STATUS" "$DEVKIT_MARKER_TEXT" "$json"
       return 0
     fi
