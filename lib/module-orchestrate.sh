@@ -296,6 +296,10 @@ devkit_dispatch_close() {
 
 devkit_dispatch_child_message() {
   local type="$1" text="$2" dispatch_id
+  case "$type" in
+    ask|done) ;;
+    *) devkit_error "unsupported child message type: $type"; return "$DEVKIT_USAGE_ERROR" ;;
+  esac
   devkit_dispatch_find_child || return 1
   dispatch_id="$DEVKIT_FOUND_DISPATCH"
   devkit_dispatch_message_append "$dispatch_id" child "$type" "$text" "$DEVKIT_SESSION_ID" >/dev/null || return 1
