@@ -13,6 +13,8 @@ description: >-
 - If you need to install one devkit module, run: devkit install <module-id>
 - If you need to check all module prerequisites, run: devkit doctor
 - If you need to check one module prerequisite, run: devkit doctor <module-id>
+- If you need to install the child turn-end safety hooks, run: devkit install orchestration-hooks
+- If you need to check the child turn-end safety hooks, run: devkit doctor orchestration-hooks
 - If you need to identify the current orchestration host, run: devkit context --json
 - If you need to create a shared worktree, run: devkit worktree create --repo <name-or-path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>]
 - If you need to finish a shared worktree, run: devkit worktree finish <branch-or-path-or-slug> [--delete-branch] [--force]

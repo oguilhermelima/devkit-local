@@ -68,6 +68,8 @@ example `devkit doctor simulator-web`, to check only that module. A check is rep
 The available modules are:
 
 - `orchestration` checks that `orca status --json` and `superset workspaces list --json` work.
+- `orchestration-hooks` installs and checks the turn-end safety hook for each installed Claude,
+  Codex, agy, and Cursor CLI, preserving the other hooks in their configuration files.
 - `worktree` checks Orca, Superset.sh, and the configured Superset `worktreeBaseDir`.
 - `simulator-web` checks that `npx -y @playwright/mcp@latest --version` runs and that the
   Playwright MCP server is registered with installed Claude Code, Codex, and agy CLIs.
@@ -130,9 +132,15 @@ reported as not forwarded and the selected agent preset is used.
 The agy and gemini Superset presets currently reject prompt launches with unexpected argument;
 devkit reports this known preset limitation clearly and does not create a dispatch that can hang.
 
+The `orchestration-hooks` module is a safety net for silent child death: when an installed agent
+turn ends without `devkit ask` or `devkit done`, its final text is recorded as a stalled dispatch
+message. Installation edits hook configuration files also managed by Orca and Superset, while
+preserving their existing entries; run `devkit doctor orchestration-hooks` because those apps may
+rewrite the files during updates and drop the devkit entry.
+
 `devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>]`
-polls the file channel for the next child message and returns `waiting_for_reply`, `done`, or
-`timeout`; add `--json` for structured output. `reply` records and delivers the coordinator's
+polls the file channel for the next child message and returns `waiting_for_reply`, `done`, `stalled`,
+or `timeout`; add `--json` for structured output. `reply` records and delivers the coordinator's
 answer, while `close` disposes the native terminal and leaves all messages on disk. On Superset,
 closing disposes the session but the pane remains visible as `Desconectado` until the human
 dismisses it with the pane's X; there is no CLI verb to remove that pane.
