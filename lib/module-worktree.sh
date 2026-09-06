@@ -200,7 +200,7 @@ devkit_launch_agent() {
 }
 
 devkit_worktree_create() {
-  local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" prompt="" orchestrate=false
+  local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" prompt="" orchestrate=false json=false
   local arg repo_path shared_root worktree_path project_id workspace_id
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -214,8 +214,9 @@ devkit_worktree_create() {
       --effort) effort="${2:-}"; shift 2 ;;
       --prompt) prompt="${2:-}"; shift 2 ;;
       --orchestrate) orchestrate=true; shift ;;
+      --json) json=true; shift ;;
       -h|--help)
-        printf 'Usage: devkit worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>]\n'
+        printf 'Usage: devkit worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--json]\n'
         return 0
         ;;
       *) devkit_error "unknown worktree create option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
@@ -240,7 +241,12 @@ devkit_worktree_create() {
   worktree_path="$shared_root/$slug"
   [ ! -e "$worktree_path" ] || { devkit_error "worktree path already exists: $worktree_path"; return 1; }
   mkdir -p "$shared_root" || return 1
-  if ! git -C "$repo_path" worktree add "$worktree_path" -b "$branch" "$base"; then
+  if [ "$json" = true ]; then
+    git -C "$repo_path" worktree add "$worktree_path" -b "$branch" "$base" >/dev/null || {
+      devkit_error "could not create git worktree"
+      return 1
+    }
+  elif ! git -C "$repo_path" worktree add "$worktree_path" -b "$branch" "$base"; then
     devkit_error "could not create git worktree"
     return 1
   fi
@@ -254,12 +260,22 @@ devkit_worktree_create() {
     git -C "$repo_path" branch -D "$branch" >/dev/null 2>&1 || true
     return 1
   }
-  printf 'worktree: %s\nbranch: %s\nworkspace: %s\n' "$worktree_path" "$branch" "$workspace_id"
-  if [ -n "$agent" ]; then
-    devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" || return 1
+  if [ "$json" != true ]; then
+    printf 'worktree: %s\nbranch: %s\nworkspace: %s\n' "$worktree_path" "$branch" "$workspace_id"
   fi
-  if [ "$orchestrate" = true ]; then
+  if [ -n "$agent" ]; then
+    if [ "$json" = true ]; then
+      devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" >/dev/null || return 1
+    else
+      devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" || return 1
+    fi
+  fi
+  if [ "$orchestrate" = true ] && [ "$json" != true ]; then
     devkit_info "host: $(devkit_context_detect)"
+  fi
+  if [ "$json" = true ]; then
+    jq -n --arg worktree "$worktree_path" --arg branch "$branch" --arg workspace "$workspace_id" \
+      '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end)}'
   fi
   return 0
 }
@@ -289,18 +305,22 @@ devkit_find_worktree_path() {
 }
 
 devkit_worktree_finish() {
-  local target="${1:-}" delete_branch=false force=false arg shared_root path workspace_id repo_path branch base merged
-  [ -n "$target" ] || { devkit_error "Usage: devkit worktree finish <branch|path|slug> [--delete-branch] [--force]"; return "$DEVKIT_USAGE_ERROR"; }
-  shift
+  local target="" delete_branch=false force=false json=false arg shared_root path workspace_id repo_path branch base merged
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
+      --json) json=true; shift ;;
       --delete-branch) delete_branch=true; shift ;;
       --force) force=true; shift ;;
-      -h|--help) printf 'Usage: devkit worktree finish <branch|path|slug> [--delete-branch] [--force]\n'; return 0 ;;
-      *) devkit_error "unknown worktree finish option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      -h|--help) printf 'Usage: devkit worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]\n'; return 0 ;;
+      *)
+        [ -z "$target" ] || { devkit_error "unknown worktree finish option: $arg"; return "$DEVKIT_USAGE_ERROR"; }
+        target="$arg"
+        shift
+        ;;
     esac
   done
+  [ -n "$target" ] || { devkit_error "Usage: devkit worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
   shared_root="$(devkit_worktree_root 2>/dev/null || true)"
   path=""
   if devkit_superset_available; then
@@ -324,11 +344,23 @@ devkit_worktree_finish() {
   if [ -n "$workspace_id" ]; then
     local -a delete_args
     delete_args=(workspaces delete "$workspace_id" --local --json)
-    devkit_superset "${delete_args[@]}" || return 1
+    if [ "$json" = true ]; then
+      devkit_superset "${delete_args[@]}" >/dev/null || return 1
+    else
+      devkit_superset "${delete_args[@]}" || return 1
+    fi
   elif devkit_require_command orca; then
-    orca worktree rm --worktree "path:$path" $([ "$force" = true ] && printf '%s' --force) --json || return 1
+    if [ "$json" = true ]; then
+      orca worktree rm --worktree "path:$path" $([ "$force" = true ] && printf '%s' --force) --json >/dev/null || return 1
+    else
+      orca worktree rm --worktree "path:$path" $([ "$force" = true ] && printf '%s' --force) --json || return 1
+    fi
   else
-    git -C "$repo_path" worktree remove $([ "$force" = true ] && printf '%s' --force) "$path" || return 1
+    if [ "$json" = true ]; then
+      git -C "$repo_path" worktree remove $([ "$force" = true ] && printf '%s' --force) "$path" >/dev/null || return 1
+    else
+      git -C "$repo_path" worktree remove $([ "$force" = true ] && printf '%s' --force) "$path" || return 1
+    fi
   fi
   if [ "$delete_branch" = true ] && [ -n "$branch" ]; then
     base="$(devkit_repo_default_base "$repo_path")"
@@ -339,17 +371,26 @@ devkit_worktree_finish() {
         return 1
       fi
     fi
-    git -C "$repo_path" branch $([ "$force" = true ] && printf '%s' -D || printf '%s' -d) "$branch"
+    if [ "$json" = true ]; then
+      git -C "$repo_path" branch $([ "$force" = true ] && printf '%s' -D || printf '%s' -d) "$branch" >/dev/null
+    else
+      git -C "$repo_path" branch $([ "$force" = true ] && printf '%s' -D || printf '%s' -d) "$branch"
+    fi
+  fi
+  if [ "$json" = true ]; then
+    jq -n --arg branch "$branch" --arg path "$path" \
+      '{deleted: true, branch: (if $branch|length > 0 then $branch else null end), path: $path}'
   fi
 }
 
 devkit_worktree_list() {
-  local repo_selector="" arg shared_root repo_filter path branch in_superset workspaces_json
+  local repo_selector="" arg shared_root repo_filter path branch in_superset workspaces_json json=false entry entries
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --repo) repo_selector="${2:-}"; shift 2 ;;
-      -h|--help) printf 'Usage: devkit worktree list [--repo <name|path>]\n'; return 0 ;;
+      --json) json=true; shift ;;
+      -h|--help) printf 'Usage: devkit worktree list [--repo <name|path>] [--json]\n'; return 0 ;;
       *) devkit_error "unknown worktree list option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
@@ -362,7 +403,10 @@ devkit_worktree_list() {
   if devkit_superset_available; then
     workspaces_json="$(devkit_superset_workspaces_json || printf '[]')"
   fi
-  printf '%-52s %-32s %s\n' PATH BRANCH IN_SUPERSET
+  entries=''
+  if [ "$json" != true ]; then
+    printf '%-52s %-32s %s\n' PATH BRANCH IN_SUPERSET
+  fi
   for path in "$shared_root"/*; do
     [ -d "$path" ] || continue
     git -C "$path" rev-parse --show-toplevel >/dev/null 2>&1 || continue
@@ -373,15 +417,37 @@ devkit_worktree_list() {
     if printf '%s' "$workspaces_json" | jq -e --arg path "$path" 'any((if type == "array" then . else (.result.workspaces? // .workspaces? // .result? // []) end)[]?; (.worktreePath // .path // .worktree.path // "") == $path)' >/dev/null 2>&1; then
       in_superset="yes"
     fi
-    printf '%-52s %-32s %s\n' "$path" "$branch" "$in_superset"
+    if [ "$json" = true ]; then
+      if [ "$in_superset" = yes ]; then
+        entry="$(jq -n --arg path "$path" --arg branch "$branch" '{path: $path, branch: $branch, inSuperset: true}')"
+      else
+        entry="$(jq -n --arg path "$path" --arg branch "$branch" '{path: $path, branch: $branch, inSuperset: false}')"
+      fi
+      entries="${entries}${entry}"$'\n'
+    else
+      printf '%-52s %-32s %s\n' "$path" "$branch" "$in_superset"
+    fi
   done
+  if [ "$json" = true ]; then
+    printf '%s' "$entries" | jq -s .
+  fi
 }
 
 devkit_worktree_adopt() {
-  local target="${1:-}" arg shared_root path repo_path branch slug project_id workspace_id
-  [ -n "$target" ] || { devkit_error "Usage: devkit worktree adopt <path|branch>"; return "$DEVKIT_USAGE_ERROR"; }
-  shift
-  [ "$#" -eq 0 ] || { devkit_error "unknown worktree adopt option: $1"; return "$DEVKIT_USAGE_ERROR"; }
+  local target="" arg shared_root path repo_path branch slug project_id workspace_id json=false
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=true; shift ;;
+      -h|--help) printf 'Usage: devkit worktree adopt <path|branch> [--json]\n'; return 0 ;;
+      *)
+        [ -z "$target" ] || { devkit_error "unknown worktree adopt option: $arg"; return "$DEVKIT_USAGE_ERROR"; }
+        target="$arg"
+        shift
+        ;;
+    esac
+  done
+  [ -n "$target" ] || { devkit_error "Usage: devkit worktree adopt <path|branch> [--json]"; return "$DEVKIT_USAGE_ERROR"; }
   shared_root="$(devkit_worktree_root)" || return 1
   if [ -d "$target" ]; then
     path="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null || true)"
@@ -403,7 +469,12 @@ devkit_worktree_adopt() {
   slug="$(basename "$path")"
   project_id="$(devkit_ensure_superset_project "$repo_path")" || return 1
   workspace_id="$(devkit_workspace_create "$project_id" "$branch" "$slug")" || return 1
-  printf 'worktree: %s\nbranch: %s\nworkspace: %s\n' "$path" "$branch" "$workspace_id"
+  if [ "$json" = true ]; then
+    jq -n --arg worktree "$path" --arg branch "$branch" --arg workspace "$workspace_id" \
+      '{worktree: $worktree, branch: $branch, workspace: $workspace}'
+  else
+    printf 'worktree: %s\nbranch: %s\nworkspace: %s\n' "$path" "$branch" "$workspace_id"
+  fi
 }
 
 command_worktree() {

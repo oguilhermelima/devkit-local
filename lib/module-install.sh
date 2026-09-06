@@ -45,9 +45,15 @@ devkit_install_one() {
 
 devkit_doctor_one() {
   local module="$1"
+  local json="${2:-false}"
   devkit_module_doctor "$module"
   local rc=$?
-  devkit_status_line "$module" "$MODULE_STATUS" "$MODULE_REASON"
+  if [ "$json" = true ]; then
+    jq -n --arg module "$module" --arg status "$MODULE_STATUS" --arg reason "$MODULE_REASON" \
+      '{module: $module, status: $status, reason: $reason}'
+  else
+    devkit_status_line "$module" "$MODULE_STATUS" "$MODULE_REASON"
+  fi
   return "$rc"
 }
 
@@ -102,19 +108,43 @@ EOF
 }
 
 command_doctor() {
-  local module="${1:-}" rc=0 current
-  if [ "$#" -gt 1 ]; then
-    devkit_error "doctor accepts at most one module id"
-    return "$DEVKIT_USAGE_ERROR"
-  fi
+  local module="" rc=0 current json=false arg result results
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=true; shift ;;
+      -h|--help)
+        printf 'Usage: devkit doctor [module-id] [--json]\n'
+        return 0
+        ;;
+      *)
+        if [ -n "$module" ]; then
+          devkit_error "doctor accepts at most one module id"
+          return "$DEVKIT_USAGE_ERROR"
+        fi
+        module="$arg"
+        shift
+        ;;
+    esac
+  done
   if [ -n "$module" ]; then
     devkit_validate_module "$module" || { devkit_error "unknown module: $module"; return "$DEVKIT_USAGE_ERROR"; }
-    devkit_doctor_one "$module"
+    devkit_doctor_one "$module" "$json"
     return $?
   fi
+  results=''
   while IFS= read -r current; do
-    devkit_doctor_one "$current" || rc=1
+    if [ "$json" = true ]; then
+      result="$(devkit_doctor_one "$current" true)" || rc=1
+      results="${results}${result}
+"
+    else
+      devkit_doctor_one "$current" || rc=1
+    fi
   done < <(devkit_module_ids)
+  if [ "$json" = true ]; then
+    printf '%s' "$results" | jq -s .
+  fi
   return "$rc"
 }
 
