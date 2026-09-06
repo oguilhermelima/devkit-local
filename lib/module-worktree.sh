@@ -37,10 +37,21 @@ devkit_worktree_root() {
 
 devkit_repo_from_orca() {
   local selector="$1"
-  local selector_lower path display_name display_lower base_name
+  local selector_lower path display_name display_lower base_name git_root common_dir canonical_root
   selector_lower="$(devkit_lower "$selector")"
   if [ -d "$selector" ] && git -C "$selector" rev-parse --show-toplevel >/dev/null 2>&1; then
-    git -C "$selector" rev-parse --show-toplevel
+    git_root="$(git -C "$selector" rev-parse --show-toplevel)"
+    common_dir="$(git -C "$selector" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+    case "$common_dir" in
+      */.git)
+        canonical_root="${common_dir%/.git}"
+        if git -C "$canonical_root" rev-parse --show-toplevel >/dev/null 2>&1; then
+          printf '%s\n' "$(git -C "$canonical_root" rev-parse --show-toplevel)"
+          return 0
+        fi
+        ;;
+    esac
+    printf '%s\n' "$git_root"
     return 0
   fi
   if [ -f "$selector" ] && git -C "$(dirname "$selector")" rev-parse --show-toplevel >/dev/null 2>&1; then
@@ -520,7 +531,7 @@ devkit_worktree_adopt() {
     "$shared_root"/*) ;;
     *) devkit_error "worktree is outside Superset's shared root: $path"; return 1 ;;
   esac
-  repo_path="$(git -C "$path" rev-parse --show-toplevel)"
+  repo_path="$(devkit_repo_from_orca "$path")" || return 1
   branch="$(git -C "$path" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
   [ -n "$branch" ] || { devkit_error "cannot adopt detached worktree: $path"; return 1; }
   if [ -n "$(devkit_workspace_id_for_target "$path")" ]; then
