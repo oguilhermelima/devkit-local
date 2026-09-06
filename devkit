@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+DEVKIT_SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$DEVKIT_SOURCE" ]; do
+  DEVKIT_SOURCE_DIR="$(cd -P "$(dirname "$DEVKIT_SOURCE")" >/dev/null 2>&1 && pwd)"
+  DEVKIT_SOURCE="$(readlink "$DEVKIT_SOURCE")"
+  case "$DEVKIT_SOURCE" in
+    /*) ;;
+    *) DEVKIT_SOURCE="$DEVKIT_SOURCE_DIR/$DEVKIT_SOURCE" ;;
+  esac
+done
+DEVKIT_ROOT="$(cd -P "$(dirname "$DEVKIT_SOURCE")" && pwd)"
+DEVKIT_LIB_DIR="$DEVKIT_ROOT/lib"
+
+# shellcheck source=local/devkit/lib/common.sh
+source "$DEVKIT_LIB_DIR/common.sh"
+for devkit_module in "$DEVKIT_LIB_DIR"/module-*.sh; do
+  [ -f "$devkit_module" ] || continue
+  # shellcheck disable=SC1090
+  source "$devkit_module"
+done
+
+devkit_usage() {
+  cat <<'EOF'
+Usage: devkit <command> [options]
+
+Commands:
+  install [module-id]                  Install one module or choose modules interactively
+  doctor [module-id]                   Check one module or all modules
+  context [--json]                     Detect the current orchestration host
+  worktree create ...                  Create a shared Orca/Superset worktree
+  worktree finish ...                  Finish a shared worktree
+  worktree list [--repo <name|path>]   List shared-root worktrees
+  worktree adopt <path|branch>         Register an existing worktree in Superset
+  orchestrate spawn ...                Create a worktree and start an agent
+  orchestrate list [--json]            Merge active Orca and Superset terminals
+  native appium start|stop|status      Manage the shared Appium server
+  tv connect <ip> [--port <port>]      Connect an Android TV over adb
+  tv disconnect [<ip>]                 Disconnect an Android TV
+EOF
+}
+
+devkit_main() {
+  local command="${1:-help}"
+  shift || true
+
+  case "$command" in
+    install) command_install "$@" ;;
+    doctor) command_doctor "$@" ;;
+    context) command_context "$@" ;;
+    worktree) command_worktree "$@" ;;
+    orchestrate) command_orchestrate "$@" ;;
+    native) command_native "$@" ;;
+    tv) command_tv "$@" ;;
+    help|-h|--help) devkit_usage ;;
+    version|-V|--version) echo "devkit 1.0.0" ;;
+    *) devkit_error "unknown command: $command"; devkit_usage >&2; return "$DEVKIT_USAGE_ERROR" ;;
+  esac
+}
+
+devkit_main "$@"
