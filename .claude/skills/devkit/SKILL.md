@@ -20,6 +20,7 @@ description: >-
 - If you need to adopt an existing physical worktree, run: devkit worktree adopt <path|branch>
 - If you need to spawn an agent in a shared worktree, run: devkit orchestrate spawn --repo <name> --branch <branch> --agent <id> --model <model> --effort <level> --prompt <text> [--base <ref>] [--name <slug>]
 - If you need to list active Orca and Superset terminals, run: devkit orchestrate list [--json]
+- If you need to open a titled terminal tab in the right orchestrator, run: devkit terminal create --command <cmd> [--title <text>] [--worktree <path>]
 - If you need to start the shared Appium server, run: devkit native appium start
 - If you need to stop the shared Appium server, run: devkit native appium stop
 - If you need to check the shared Appium server, run: devkit native appium status
@@ -28,3 +29,5 @@ description: >-
 - If you need to connect an Android TV, run: devkit tv connect <ip> [--port 5555]
 - If you need to disconnect an Android TV, run: devkit tv disconnect [<ip>]
 - If you need to configure web browser testing through Playwright MCP, run: devkit install simulator-web
+
+Superset tabs are not titled; only Orca tabs are.

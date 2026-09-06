@@ -104,6 +104,12 @@ agent launch configuration. The host is inferred from the current terminal. Use 
 `--name` as with worktree creation. `devkit orchestrate list` combines live Orca and Superset
 terminals into one table; `--json` emits an array suitable for scripts.
 
+`devkit terminal create --command <cmd> [--title <text>] [--worktree <path>]` opens a terminal tab
+in the orchestrator where the caller is running. The worktree defaults to the current Git
+checkout, and `--json` emits the selected host, resolved worktree, and title. Superset tabs are
+not titled; only Orca tabs are. When running under Superset, the worktree must already be
+registered; run `devkit worktree adopt <path>` first when needed.
+
 ### Native simulators
 
 `devkit native appium start` starts the shared Appium server on port 4723 after verifying the
