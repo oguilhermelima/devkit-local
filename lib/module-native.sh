@@ -6,7 +6,7 @@ DEVKIT_APPIUM_LOG="$DEVKIT_STATE_DIR/appium.log"
 
 devkit_appium_driver_ready() {
   devkit_require_command appium || return 1
-  appium driver list --installed 2>/dev/null | grep -Eiq 'xcuitest([[:space:]]|$)'
+  appium driver list --installed 2>&1 | grep -Eiq '(^|[[:space:]])xcuitest(@|[[:space:]]|$)'
 }
 
 module_simulator_native_doctor() {
@@ -35,7 +35,7 @@ module_simulator_native_install() {
   if ! devkit_require_command appium; then
     npm install -g appium || return 1
   fi
-  appium driver list --installed 2>/dev/null | grep -Eiq 'xcuitest([[:space:]]|$)' || appium driver install xcuitest || return 1
+  appium driver list --installed 2>&1 | grep -Eiq '(^|[[:space:]])xcuitest(@|[[:space:]]|$)' || appium driver install xcuitest || return 1
   module_simulator_native_doctor
 }
 
