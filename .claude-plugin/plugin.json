@@ -1,0 +1,20 @@
+{
+  "name": "devkit",
+  "version": "0.1.0",
+  "description": "Shared tooling for Git worktrees, agent orchestration, native simulators, and browser testing.",
+  "author": {
+    "name": "oguilhermelima"
+  },
+  "repository": "https://github.com/oguilhermelima/devkit-local",
+  "license": "MIT",
+  "keywords": [
+    "devkit",
+    "worktrees",
+    "orchestration",
+    "orca",
+    "superset",
+    "appium",
+    "playwright"
+  ],
+  "homepage": "https://github.com/oguilhermelima/devkit-local#readme"
+}
