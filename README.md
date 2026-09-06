@@ -25,13 +25,25 @@ From a checkout, run:
 ./install.sh
 ```
 
-The installer links `devkit` into `$HOME/.local/bin`, then asks whether to install the Claude
-Code skill and the AGENTS.md snippet globally or in the project where the installer was run.
+The installer links `devkit` into `$HOME/.local/bin`, detects the installed agent CLIs
+(`claude`, `codex`, and `agy`), and asks which ones to configure. Claude's global mode
+registers this checkout as the `devkit-local` marketplace and installs `devkit@devkit-local`;
+Claude's project mode keeps a project-local bare skill copy because Claude marketplace plugins
+are user-scoped. The AGENTS.md snippet is independent and can still be installed globally or in
+the current project.
+
 Use flags for an unattended install:
 
 ```sh
-./install.sh --skill global --agents-md global --yes
+./install.sh --agents claude,codex,agy --skill global --agents-md global --yes
 ```
+
+Pass `--agents none` to install only the CLI symlink and optional AGENTS.md snippet. The
+multi-agent package keeps one shared skill at `skills/devkit/SKILL.md`, with Claude and Codex
+manifests at `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json`. Claude discovers its
+marketplace manifest at `.claude-plugin/marketplace.json`; Codex uses the companion
+`.agents/plugins/marketplace.json` manifest, and both point to this repository as the local
+plugin source.
 
 The same installer can be run directly from the repository with curl; it clones the repository
 to `$HOME/.devkit-local` before continuing:

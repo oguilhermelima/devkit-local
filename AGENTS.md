@@ -22,3 +22,12 @@ For worktree/orchestration/native-sim/browser tooling shared across repos, read 
 - If you need to configure web browser testing through Playwright MCP, run: devkit install simulator-web
 
 Superset tabs are not titled; only Orca tabs are.
+
+## devkit plugin distribution
+
+This repository ships one shared skill at `skills/devkit/SKILL.md`. Claude Code uses
+`.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, while Codex uses
+`.codex-plugin/plugin.json` and `.agents/plugins/marketplace.json`; both marketplace manifests
+point at this repository and both agent manifests load the shared `skills/` directory. Use
+`install.sh --agents claude,codex,agy --skill global` to register the installed agent CLIs, or
+`--skill project` for Claude's project-local bare skill fallback.
