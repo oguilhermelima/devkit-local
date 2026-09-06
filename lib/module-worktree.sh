@@ -199,6 +199,67 @@ devkit_launch_agent() {
   esac
 }
 
+devkit_terminal_create() {
+  local worktree_selector="" command_text="" title="" json=false arg worktree_path host workspace_id response
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --worktree) worktree_selector="${2:-}"; shift 2 ;;
+      --command) command_text="${2:-}"; shift 2 ;;
+      --title) title="${2:-}"; shift 2 ;;
+      --json) json=true; shift ;;
+      -h|--help)
+        printf 'Usage: devkit terminal create [--worktree <path>] --command <cmd> [--title <text>] [--json]\n'
+        printf 'Superset tabs are not titled; only Orca tabs are.\n'
+        return 0
+        ;;
+      *) devkit_error "unknown terminal create option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+    esac
+  done
+  [ -n "$command_text" ] || { devkit_error "--command is required"; return "$DEVKIT_USAGE_ERROR"; }
+  if [ -n "$worktree_selector" ]; then
+    if [ -d "$worktree_selector" ]; then
+      worktree_path="$(git -C "$worktree_selector" rev-parse --show-toplevel 2>/dev/null || true)"
+    else
+      devkit_error "worktree path is not a Git directory: $worktree_selector"
+      return 1
+    fi
+  else
+    worktree_path="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
+  fi
+  [ -n "$worktree_path" ] || { devkit_error "could not resolve a Git worktree from ${worktree_selector:-$PWD}"; return 1; }
+  host="$(devkit_context_detect)"
+  case "$host" in
+    orca)
+      devkit_require_command orca || { devkit_error "orca CLI is not available"; return 1; }
+      if [ -n "$title" ]; then
+        response="$(orca terminal create --worktree "path:$worktree_path" --title "$title" --command "$command_text" --json)" || return 1
+      else
+        response="$(orca terminal create --worktree "path:$worktree_path" --command "$command_text" --json)" || return 1
+      fi
+      ;;
+    superset)
+      devkit_superset_available || { devkit_error "superset CLI is not available"; return 1; }
+      workspace_id="$(devkit_workspace_id_for_target "$worktree_path")"
+      if [ -z "$workspace_id" ]; then
+        devkit_error "no Superset workspace is registered for $worktree_path; run devkit worktree adopt $worktree_path first"
+        return 1
+      fi
+      response="$(devkit_superset terminals create --workspace "$workspace_id" --command "$command_text" --json)" || return 1
+      ;;
+    *)
+      devkit_error "cannot create terminal from unknown orchestration host"
+      return 1
+      ;;
+  esac
+  if [ "$json" = true ]; then
+    jq -n --arg host "$host" --arg worktree "$worktree_path" --arg title "$title" \
+      '{host: $host, worktree: $worktree, title: (if $title|length > 0 then $title else null end)}'
+  else
+    printf '%s\n' "$response"
+  fi
+}
+
 devkit_worktree_create() {
   local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" prompt="" orchestrate=false json=false
   local arg repo_path shared_root worktree_path project_id workspace_id
@@ -489,6 +550,19 @@ command_worktree() {
       printf 'Usage: devkit worktree create|finish|list|adopt ...\n'
       ;;
     *) devkit_error "unknown worktree command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
+  esac
+}
+
+command_terminal() {
+  local subcommand="${1:-}"
+  shift || true
+  case "$subcommand" in
+    create) devkit_terminal_create "$@" ;;
+    -h|--help|"")
+      printf 'Usage: devkit terminal create [--worktree <path>] --command <cmd> [--title <text>] [--json]\n'
+      printf 'Superset tabs are not titled; only Orca tabs are.\n'
+      ;;
+    *) devkit_error "unknown terminal command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
   esac
 }
 

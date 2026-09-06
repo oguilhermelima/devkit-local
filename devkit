@@ -34,6 +34,7 @@ Commands:
   worktree finish ...                  Finish a shared worktree
   worktree list [--repo <name|path>]   List shared-root worktrees
   worktree adopt <path|branch>         Register an existing worktree in Superset
+  terminal create ...                  Open a terminal in the current orchestrator
   orchestrate spawn ...                Create a worktree and start an agent
   orchestrate list [--json]            Merge active Orca and Superset terminals
   native appium start|stop|status      Manage the shared Appium server
@@ -51,6 +52,7 @@ devkit_main() {
     doctor) command_doctor "$@" ;;
     context) command_context "$@" ;;
     worktree) command_worktree "$@" ;;
+    terminal) command_terminal "$@" ;;
     orchestrate) command_orchestrate "$@" ;;
     native) command_native "$@" ;;
     tv) command_tv "$@" ;;
