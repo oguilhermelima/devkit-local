@@ -388,7 +388,6 @@ devkit_worktree_create() {
       worktree_path="$(git -C "$worktree_selector" rev-parse --show-toplevel 2>/dev/null || true)"
     else
       shared_root="$(devkit_worktree_root --read-only 2>/dev/null || true)"
-      [ -n "$shared_root" ] || { devkit_error "cannot resolve existing worktree: $worktree_selector"; return 1; }
       worktree_path="$(devkit_find_worktree_path "$worktree_selector" "$shared_root" 2>/dev/null || true)"
     fi
     [ -n "$worktree_path" ] || { devkit_error "existing Git worktree not found: $worktree_selector"; return 1; }
