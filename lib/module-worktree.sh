@@ -201,7 +201,9 @@ devkit_project_run_command() {
 
 devkit_launch_agent() {
   local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6"
-  local context command_text
+  local context command_text response session_id final_prompt
+  local -a agent_args
+  DEVKIT_LAST_DISPATCH=""
   context="$(devkit_context_detect)"
   command_text="$(devkit_agent_command "$agent" "$model" "$effort" "$prompt")"
   case "$context" in
@@ -211,12 +213,23 @@ devkit_launch_agent() {
       ;;
     superset)
       devkit_superset_available || { devkit_error "superset CLI is not available"; return 1; }
-      if devkit_superset terminals create --help >/dev/null 2>&1; then
-        devkit_superset terminals create --workspace "$workspace_id" --command "$command_text" --json
-      else
-        devkit_error "Superset CLI has no terminals create command; agent launch is unavailable"
-        return 1
+      final_prompt="${DEVKIT_SUPERSET_PROTOCOL}
+
+${prompt}"
+      agent_args=(agents create --workspace "$workspace_id" --agent "$agent" --prompt "$final_prompt")
+      [ -n "$effort" ] && agent_args+=(--effort "$effort")
+      if [ -n "$model" ]; then
+        devkit_error "Superset agents create does not accept --model; requested model '$model' was not forwarded"
       fi
+      response="$(devkit_superset "${agent_args[@]}" --json)" || return 1
+      session_id="$(printf '%s' "$response" | jq -r '.sessionId // .result.sessionId // .terminal.sessionId // .result.terminal.sessionId // empty' 2>/dev/null)"
+      [ -n "$session_id" ] || { devkit_error "Superset agents create returned no sessionId"; return 1; }
+      devkit_dispatch_state_write "$session_id" "$workspace_id" "$session_id" 0 || {
+        devkit_error "could not persist Superset dispatch state: $session_id"
+        return 1
+      }
+      DEVKIT_LAST_DISPATCH="$session_id"
+      printf '%s\n' "$response"
       ;;
     *)
       devkit_error "cannot launch agent from unknown orchestration host"
@@ -295,7 +308,7 @@ devkit_terminal_create() {
 
 devkit_worktree_create() {
   local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" prompt="" orchestrate=false json=false
-  local arg repo_path shared_root worktree_path project_id workspace_id
+  local arg repo_path shared_root worktree_path project_id workspace_id dispatch
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -363,13 +376,17 @@ devkit_worktree_create() {
     else
       devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" || return 1
     fi
+    dispatch="$DEVKIT_LAST_DISPATCH"
+    if [ -n "$dispatch" ] && [ "$json" != true ]; then
+      printf 'dispatch: %s\n' "$dispatch"
+    fi
   fi
   if [ "$orchestrate" = true ] && [ "$json" != true ]; then
     devkit_info "host: $(devkit_context_detect)"
   fi
   if [ "$json" = true ]; then
-    jq -n --arg worktree "$worktree_path" --arg branch "$branch" --arg workspace "$workspace_id" \
-      '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end)}'
+    jq -n --arg worktree "$worktree_path" --arg branch "$branch" --arg workspace "$workspace_id" --arg dispatch "${dispatch:-}" \
+      '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end), dispatch: (if $dispatch|length > 0 then $dispatch else null end)}'
   fi
   return 0
 }
