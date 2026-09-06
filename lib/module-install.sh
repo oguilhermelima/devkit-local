@@ -4,6 +4,7 @@ devkit_module_doctor() {
   local module="$1"
   case "$module" in
     orchestration) module_orchestration_doctor ;;
+    orchestration-hooks) module_orchestration_hooks_doctor ;;
     worktree) module_worktree_doctor ;;
     simulator-web) module_simulator_web_doctor ;;
     simulator-native) module_simulator_native_doctor ;;
@@ -17,6 +18,7 @@ devkit_module_install() {
   local module="$1"
   case "$module" in
     orchestration) module_orchestration_install ;;
+    orchestration-hooks) module_orchestration_hooks_install ;;
     worktree) module_worktree_install ;;
     simulator-web) module_simulator_web_install ;;
     simulator-native) module_simulator_native_install ;;
@@ -77,8 +79,15 @@ devkit_interactive_modules() {
   fi
   for index in $selected; do
     case "$index" in
-      1|2|3|4|5|6) printf '%s\n' "${ids[$((index - 1))]}" ;;
-      *) devkit_error "invalid module selection: $index"; return 1 ;;
+      '') devkit_error "invalid module selection: $index"; return 1 ;;
+      *)
+        if [[ "$index" =~ ^[0-9]+$ ]] && [ "$index" -ge 1 ] && [ "$index" -le "${#ids[@]}" ]; then
+          printf '%s\n' "${ids[$((index - 1))]}"
+        else
+          devkit_error "invalid module selection: $index"
+          return 1
+        fi
+        ;;
     esac
   done
 }

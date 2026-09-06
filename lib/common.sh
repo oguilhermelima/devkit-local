@@ -141,11 +141,11 @@ devkit_superset_json() {
 
 devkit_validate_module() {
   case "$1" in
-    orchestration|worktree|simulator-web|simulator-native|simulator-tv|tv-adb) return 0 ;;
+    orchestration|orchestration-hooks|worktree|simulator-web|simulator-native|simulator-tv|tv-adb) return 0 ;;
     *) return 1 ;;
   esac
 }
 
 devkit_module_ids() {
-  printf '%s\n' orchestration worktree simulator-web simulator-native simulator-tv tv-adb
+  printf '%s\n' orchestration orchestration-hooks worktree simulator-web simulator-native simulator-tv tv-adb
 }
