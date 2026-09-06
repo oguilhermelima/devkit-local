@@ -52,8 +52,14 @@ command_orchestrate() {
   case "$subcommand" in
     spawn) command_worktree create --orchestrate "$@" ;;
     list) command_orchestrate_list "$@" ;;
+    watch) devkit_dispatch_watch "$@" ;;
+    reply) devkit_dispatch_reply "$@" ;;
+    close) devkit_dispatch_close "$@" ;;
     -h|--help|"")
       printf 'Usage: devkit orchestrate spawn ... | devkit orchestrate list [--json]\n'
+      printf '       devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]\n'
+      printf '       devkit orchestrate reply <dispatch-id> --text <answer> [--json]\n'
+      printf '       devkit orchestrate close <dispatch-id> [--json]\n'
       ;;
     *) devkit_error "unknown orchestrate command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
   esac

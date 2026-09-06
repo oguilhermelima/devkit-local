@@ -37,6 +37,9 @@ Commands:
   terminal create ...                  Open a terminal in the current orchestrator
   orchestrate spawn ...                Create a worktree and start an agent
   orchestrate list [--json]            Merge active Orca and Superset terminals
+  orchestrate watch <dispatch-id> ...  Watch a Superset dispatch for ask/done markers
+  orchestrate reply <dispatch-id> ...  Reply to a waiting Superset dispatch
+  orchestrate close <dispatch-id> ...  Close a Superset dispatch terminal
   native appium start|stop|status      Manage the shared Appium server
   tv connect <ip> [--port <port>]      Connect an Android TV over adb
   tv disconnect [<ip>]                 Disconnect an Android TV
