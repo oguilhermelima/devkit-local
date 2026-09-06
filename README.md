@@ -99,6 +99,10 @@ prints the resulting paths and ids. The base defaults to the repository's origin
 branch, then Git's configured default branch, then `main`; use `--base <ref>` to override it.
 Use `--name <slug>` to choose the directory name. `--agent <id>` starts an agent terminal in
 the new worktree; combine it with `--model`, `--effort`, and `--prompt` to forward agent options.
+The model and effort options use each agent CLI's native syntax: Codex receives
+`-c model="<model>"` and `-c model_reasoning_effort="<level>"`, while Claude and agy receive
+`--model <model>` and `--effort <level>`. Unknown agents retain the generic `--model` and
+`--effort` flags.
 
 `devkit worktree list` lists Git worktrees under the shared root and shows whether each has a
 Superset workspace. Add `--repo <name-or-path>` to filter the list. `devkit worktree adopt
@@ -127,8 +131,11 @@ Only the direct parent may reply or close; a grandparent cannot mutate a grandch
 must run `devkit ask "question"` and `devkit done "summary"`, rather than printing protocol markers.
 The parent can run `devkit orchestrate watch <dispatch-id>`, then reply with
 `devkit orchestrate reply <dispatch-id> --text <answer>` and finish with `devkit orchestrate close`.
-Superset `agents create` has no `--model` option; if a model is requested through devkit, it is
-reported as not forwarded and the selected agent preset is used.
+Superset `agents create` has no `--model` option. When a requested model matches the model string
+in a configured instance's args or environment, devkit passes that instance id as `--agent` and
+records the match in dispatch metadata. If no configured instance pins the requested model, devkit
+uses the selected preset and reports that the model was not forwarded; `--model` remains required
+so every dispatch records an unambiguous request.
 The agy and gemini Superset presets currently reject prompt launches with unexpected argument;
 devkit reports this known preset limitation clearly and does not create a dispatch that can hang.
 
