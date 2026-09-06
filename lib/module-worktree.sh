@@ -184,6 +184,21 @@ devkit_agent_command() {
   printf '%q ' "${command_parts[@]}"
 }
 
+devkit_project_run_command() {
+  local repo_root="$1" config_path="$1/.superset/config.json" command_text
+  [ -f "$config_path" ] || return 1
+  command_text="$(jq -er '
+    if (.run? | type) == "array" then
+      [.run[]? | select(type == "string" and length > 0)] |
+      if length > 0 then join(" && ") else empty end
+    else
+      empty
+    end
+  ' "$config_path" 2>/dev/null)" || return 1
+  [ -n "$command_text" ] || return 1
+  printf '%s\n' "$command_text"
+}
+
 devkit_launch_agent() {
   local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6"
   local context command_text
@@ -220,14 +235,14 @@ devkit_terminal_create() {
       --title) title="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
       -h|--help)
-        printf 'Usage: devkit terminal create [--worktree <path>] --command <cmd> [--title <text>] [--json]\n'
+        printf 'Usage: devkit terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]\n'
+        printf 'Without --command, use the worktree .superset/config.json run script.\n'
         printf 'Superset tabs are not titled; only Orca tabs are.\n'
         return 0
         ;;
       *) devkit_error "unknown terminal create option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
-  [ -n "$command_text" ] || { devkit_error "--command is required"; return "$DEVKIT_USAGE_ERROR"; }
   if [ -n "$worktree_selector" ]; then
     if [ -d "$worktree_selector" ]; then
       worktree_path="$(git -C "$worktree_selector" rev-parse --show-toplevel 2>/dev/null || true)"
@@ -239,6 +254,13 @@ devkit_terminal_create() {
     worktree_path="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
   fi
   [ -n "$worktree_path" ] || { devkit_error "could not resolve a Git worktree from ${worktree_selector:-$PWD}"; return 1; }
+  if [ -z "$command_text" ]; then
+    command_text="$(devkit_project_run_command "$worktree_path" || true)"
+    [ -n "$command_text" ] || {
+      devkit_error "no --command given and no .superset/config.json run script found in $worktree_path"
+      return "$DEVKIT_USAGE_ERROR"
+    }
+  fi
   host="$(devkit_context_detect)"
   case "$host" in
     orca)

@@ -11,7 +11,7 @@ For worktree/orchestration/native-sim/browser tooling shared across repos, read 
 - If you need to adopt an existing physical worktree, run: devkit worktree adopt <path|branch>
 - If you need to spawn an agent in a shared worktree, run: devkit orchestrate spawn --repo <name> --branch <branch> --agent <id> --model <model> --effort <level> --prompt <text> [--base <ref>] [--name <slug>]
 - If you need to list active Orca and Superset terminals, run: devkit orchestrate list [--json]
-- If you need to open a titled terminal tab in the right orchestrator, run: devkit terminal create --command <cmd> [--title <text>] [--worktree <path>]
+- If you need to open a titled terminal tab in the right orchestrator, run: devkit terminal create [--command <cmd>] [--title <text>] [--worktree <path>] (omitting --command uses the worktree's .superset/config.json run script)
 - If you need to start the shared Appium server, run: devkit native appium start
 - If you need to stop the shared Appium server, run: devkit native appium stop
 - If you need to check the shared Appium server, run: devkit native appium status
