@@ -3,6 +3,8 @@
 DEVKIT_AGENT_OPTION_TEMPLATES='codex|-c|model="%s"|-c|model_reasoning_effort="%s"
 claude|--model|%s|--effort|%s
 agy|--model|%s|--effort|%s'
+# Codex has no --model or --effort flags, so its overrides use -c.
+DEVKIT_AGENT_LAUNCH_ARGS='codex|--dangerously-bypass-hook-trust'
 
 devkit_worktree_root() {
   local raw read_only=false
@@ -201,9 +203,18 @@ devkit_agent_command() {
   local agent="$1" model="$2" effort="$3" prompt="$4"
   local agent_lower model_flag model_format effort_flag effort_format model_value effort_value
   local option_template known_agent known_model_flag known_model_format known_effort_flag known_effort_format
+  local launch_agent launch_arg
   local -a command_parts
   command_parts=("$agent")
   agent_lower="$(devkit_lower "$agent")"
+  while IFS='|' read -r launch_agent launch_arg; do
+    if [ "$launch_agent" = "$agent_lower" ]; then
+      command_parts+=("$launch_arg")
+      break
+    fi
+  done <<EOF
+$DEVKIT_AGENT_LAUNCH_ARGS
+EOF
   option_template='--model|%s|--effort|%s'
   while IFS='|' read -r known_agent known_model_flag known_model_format known_effort_flag known_effort_format; do
     if [ "$known_agent" = "$agent_lower" ]; then

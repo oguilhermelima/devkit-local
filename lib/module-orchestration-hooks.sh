@@ -56,6 +56,21 @@ devkit_hooks_config_has_entry() {
   esac
 }
 
+devkit_hooks_trust_detail() {
+  case "$1" in
+    codex) printf 'Codex shows a "Hooks need review" prompt on its next launch' ;;
+    claude) printf 'a trust prompt can appear on its next launch' ;;
+    agy) printf 'a trust prompt can appear on its next launch' ;;
+    cursor) printf 'a hook review prompt can appear on its next launch' ;;
+    *) printf 'a trust prompt can appear on its next launch' ;;
+  esac
+}
+
+devkit_hooks_trust_warning() {
+  local agent="$1"
+  devkit_info "Warning: $agent may require a one-time human trust action for the devkit hook; $(devkit_hooks_trust_detail "$agent")."
+}
+
 devkit_hooks_write_config() {
   local agent="$1" path command tmp
   path="$(devkit_hooks_config_path "$agent")" || return 1
@@ -148,9 +163,9 @@ module_orchestration_hooks_doctor() {
     details="$details$status"
   done
   if [ "$rc" -eq 0 ]; then
-    devkit_set_status ok "$details"
+    devkit_set_status ok "$details; Codex caveat: $(devkit_hooks_trust_detail codex)."
   else
-    devkit_set_status misconfigured "$details"
+    devkit_set_status misconfigured "$details; Codex caveat: $(devkit_hooks_trust_detail codex)."
   fi
   return "$rc"
 }
@@ -160,6 +175,7 @@ module_orchestration_hooks_install() {
   for agent in claude codex agy cursor; do
     devkit_hooks_agent_available "$agent" || continue
     devkit_hooks_write_config "$agent" || return 1
+    devkit_hooks_trust_warning "$agent"
   done
   return 0
 }
