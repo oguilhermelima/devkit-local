@@ -187,12 +187,12 @@ devkit_dispatch_reply() {
   state_path="$(devkit_dispatch_state_path "$dispatch_id")" || return 1
   workspace_id="$(printf '%s' "$state" | jq -r '.workspaceId')"
   terminal_id="$(printf '%s' "$state" | jq -r '.terminalId')"
-  devkit_superset terminals send --workspace "$workspace_id" --terminal "$terminal_id" --text "$answer" --json >/dev/null || return 1
   current_text="$(devkit_superset_terminal_read "$workspace_id" "$terminal_id")" || return 1
   devkit_dispatch_state_update_length "$state_path" "${#current_text}" || {
     devkit_error "could not update dispatch state: $dispatch_id"
     return 1
   }
+  devkit_superset terminals send --workspace "$workspace_id" --terminal "$terminal_id" --text "$answer" --json >/dev/null || return 1
   if [ "$json" = true ]; then
     jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "replied"}'
   else
