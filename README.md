@@ -116,6 +116,21 @@ agent launch configuration. The host is inferred from the current terminal. Use 
 `--name` as with worktree creation. `devkit orchestrate list` combines live Orca and Superset
 terminals into one table; `--json` emits an array suitable for scripts.
 
+For Superset-hosted dispatches, devkit starts the agent with a DEVKIT_ASK/DEVKIT_DONE marker
+protocol and prepends the marker instructions to the prompt. A caller using `devkit worktree
+create --agent ...` receives the dispatch id and can run `devkit orchestrate watch <dispatch-id>`;
+when the agent asks a question, use `devkit orchestrate reply <dispatch-id> --text <answer>`, and
+finish with `devkit orchestrate close <dispatch-id>`. A hand-written `superset agents create`
+does not receive these instructions automatically, so its prompt must mention the markers itself.
+Superset `agents create` has no `--model` option; if a model is requested through devkit, it is
+reported as not forwarded and the selected agent preset is used.
+
+`devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>]`
+polls a Superset terminal for the next marker and returns `waiting_for_reply`, `done`, or
+`timeout`; add `--json` for structured output. `reply` sends the coordinator's answer and
+advances the local read position, while `close` disposes the Superset terminal and its local
+dispatch state.
+
 `devkit terminal create [--command <cmd>] [--title <text>] [--worktree <path>]` opens a terminal
 tab in the orchestrator where the caller is running, using the worktree's `.superset/config.json`
 `run` script when `--command` is omitted. The worktree defaults to the current Git checkout, and

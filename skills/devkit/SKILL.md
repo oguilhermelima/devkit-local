@@ -20,6 +20,9 @@ description: >-
 - If you need to adopt an existing physical worktree, run: devkit worktree adopt <path|branch>
 - If you need to spawn an agent in a shared worktree, run: devkit orchestrate spawn --repo <name> --branch <branch> --agent <id> --model <model> --effort <level> --prompt <text> [--base <ref>] [--name <slug>]
 - If you need to list active Orca and Superset terminals, run: devkit orchestrate list [--json]
+- If you need to watch a Superset dispatch, run: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]
+- If you need to reply to a Superset dispatch, run: devkit orchestrate reply <dispatch-id> --text <answer> [--json]
+- If you need to close a Superset dispatch, run: devkit orchestrate close <dispatch-id> [--json]
 - If you need to open a titled terminal tab in the right orchestrator, run: devkit terminal create [--command <cmd>] [--title <text>] [--worktree <path>] (omitting --command uses the worktree's .superset/config.json run script)
 - If you need to start the shared Appium server, run: devkit native appium start
 - If you need to stop the shared Appium server, run: devkit native appium stop
