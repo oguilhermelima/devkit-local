@@ -111,7 +111,7 @@ base. `--force` permits removal and deletion when that safety check must be over
 ### Agent orchestration
 
 `devkit orchestrate spawn --repo <name> --branch <branch> --agent <id> --model <model>
---effort <level> --prompt <text>` is the convenience form of worktree creation with a required
+--effort <level> --prompt <text> [--label <text>]` is the convenience form of worktree creation with a required
 agent launch configuration. The host is inferred from the current terminal. Use `--base` and
 `--name` as with worktree creation. `devkit orchestrate list` combines live Orca and Superset
 terminals into one table; `--json` emits an array suitable for scripts.
@@ -124,6 +124,8 @@ finish with `devkit orchestrate close <dispatch-id>`. A hand-written `superset a
 does not receive these instructions automatically, so its prompt must mention the markers itself.
 Superset `agents create` has no `--model` option; if a model is requested through devkit, it is
 reported as not forwarded and the selected agent preset is used.
+The agy and gemini Superset presets currently reject prompt launches with unexpected argument;
+devkit reports this known preset limitation clearly and does not create a dispatch that can hang.
 
 `devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>]`
 polls a Superset terminal for the next marker and returns `waiting_for_reply`, `done`, or

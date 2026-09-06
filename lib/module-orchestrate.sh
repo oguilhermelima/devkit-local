@@ -3,6 +3,20 @@
 DEVKIT_SUPERSET_PROTOCOL="When you need the coordinator's input mid-task, print a line starting with 'DEVKIT_ASK: ' followed by your question, nothing else on that line, then stop and wait — do not guess or proceed past that point until you see a reply appear as your next input. When you have finished all requested work, print a line starting with 'DEVKIT_DONE: ' followed by a short outcome summary, then stop."
 DEVKIT_LAST_DISPATCH=""
 
+devkit_dispatch_default_label() {
+  local user_name host_name timestamp
+  user_name="${USER:-$(id -un 2>/dev/null || true)}"
+  host_name="$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)"
+  timestamp="$(devkit_iso_now)"
+  if [ -n "$user_name" ] && [ -n "$host_name" ]; then
+    printf '%s@%s %s\n' "$user_name" "$host_name" "$timestamp"
+  elif [ -n "$timestamp" ]; then
+    printf 'devkit-dispatch-%s\n' "$timestamp"
+  else
+    printf 'devkit-dispatch\n'
+  fi
+}
+
 devkit_dispatch_state_path() {
   local dispatch_id="$1"
   case "$dispatch_id" in
@@ -15,7 +29,7 @@ devkit_dispatch_state_path() {
 }
 
 devkit_dispatch_state_write() {
-  local dispatch_id="$1" workspace_id="$2" terminal_id="$3" last_text_length="$4"
+  local dispatch_id="$1" workspace_id="$2" terminal_id="$3" last_text_length="$4" label="${5:-}"
   local state_path tmp
   state_path="$(devkit_dispatch_state_path "$dispatch_id")" || return 1
   mkdir -p "$DEVKIT_DISPATCH_DIR" || return 1
@@ -24,9 +38,10 @@ devkit_dispatch_state_write() {
     --arg host superset \
     --arg workspaceId "$workspace_id" \
     --arg terminalId "$terminal_id" \
+    --arg label "$label" \
     --argjson lastTextLength "$last_text_length" \
     --arg createdAt "$(devkit_iso_now)" \
-    '{host: $host, workspaceId: $workspaceId, terminalId: $terminalId, lastTextLength: $lastTextLength, lastMarkerStatus: "", lastMarkerText: "", createdAt: $createdAt}' \
+    '{host: $host, workspaceId: $workspaceId, terminalId: $terminalId, label: $label, lastTextLength: $lastTextLength, lastMarkerStatus: "", lastMarkerText: "", createdAt: $createdAt}' \
     >"$tmp"; then
     rm -f "$tmp"
     return 1

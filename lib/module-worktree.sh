@@ -200,8 +200,8 @@ devkit_project_run_command() {
 }
 
 devkit_launch_agent() {
-  local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6"
-  local context command_text response session_id final_prompt
+  local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
+  local context command_text response session_id final_prompt agent_lower
   local -a agent_args
   DEVKIT_LAST_DISPATCH=""
   context="$(devkit_context_detect)"
@@ -213,7 +213,13 @@ devkit_launch_agent() {
       ;;
     superset)
       devkit_superset_available || { devkit_error "superset CLI is not available"; return 1; }
-      final_prompt="${DEVKIT_SUPERSET_PROTOCOL}
+      [ -n "$label" ] || label="$(devkit_dispatch_default_label)"
+      case "$label" in
+        *$'\n'*) devkit_error "dispatch label cannot contain a newline"; return "$DEVKIT_USAGE_ERROR" ;;
+      esac
+      final_prompt="[devkit dispatch: ${label}]
+
+${DEVKIT_SUPERSET_PROTOCOL}
 
 ${prompt}"
       agent_args=(agents create --workspace "$workspace_id" --agent "$agent" --prompt "$final_prompt")
@@ -221,10 +227,19 @@ ${prompt}"
       if [ -n "$model" ]; then
         devkit_error "Superset agents create does not accept --model; requested model '$model' was not forwarded"
       fi
-      response="$(devkit_superset "${agent_args[@]}" --json)" || return 1
+      agent_lower="$(devkit_lower "$agent")"
+      if ! response="$(devkit_superset "${agent_args[@]}" --json 2>&1)"; then
+        case "$agent_lower" in
+          agy|gemini)
+            devkit_error "agy/gemini cannot accept prompt via superset agents create (limitation of the Superset preset itself; not fixable here)"
+            ;;
+          *) printf '%s\n' "$response" >&2 ;;
+        esac
+        return 1
+      fi
       session_id="$(printf '%s' "$response" | jq -r '.sessionId // .result.sessionId // .terminal.sessionId // .result.terminal.sessionId // empty' 2>/dev/null)"
       [ -n "$session_id" ] || { devkit_error "Superset agents create returned no sessionId"; return 1; }
-      devkit_dispatch_state_write "$session_id" "$workspace_id" "$session_id" 0 || {
+      devkit_dispatch_state_write "$session_id" "$workspace_id" "$session_id" 0 "$label" || {
         devkit_error "could not persist Superset dispatch state: $session_id"
         return 1
       }
@@ -307,8 +322,8 @@ devkit_terminal_create() {
 }
 
 devkit_worktree_create() {
-  local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" prompt="" orchestrate=false json=false
-  local arg repo_path shared_root worktree_path project_id workspace_id dispatch
+  local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" prompt="" label="" orchestrate=false json=false
+  local arg repo_path shared_root worktree_path project_id workspace_id dispatch host
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -320,10 +335,11 @@ devkit_worktree_create() {
       --model) model="${2:-}"; shift 2 ;;
       --effort) effort="${2:-}"; shift 2 ;;
       --prompt) prompt="${2:-}"; shift 2 ;;
+      --label) label="${2:-}"; shift 2 ;;
       --orchestrate) orchestrate=true; shift ;;
       --json) json=true; shift ;;
       -h|--help)
-        printf 'Usage: devkit worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--json]\n'
+        printf 'Usage: devkit worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--json]\n'
         return 0
         ;;
       *) devkit_error "unknown worktree create option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
@@ -337,7 +353,11 @@ devkit_worktree_create() {
     [ -n "$effort" ] || { devkit_error "--effort is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
     [ -n "$prompt" ] || { devkit_error "--prompt is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
   fi
-  [ -n "$agent" ] && ! devkit_require_command "$agent" && { devkit_error "agent is not on PATH: $agent"; return 1; }
+  host="$(devkit_context_detect)"
+  if [ "$host" != superset ] && [ -n "$agent" ] && ! devkit_require_command "$agent"; then
+    devkit_error "agent is not on PATH: $agent"
+    return 1
+  fi
   repo_path="$(devkit_repo_from_orca "$repo_selector")" || return 1
   shared_root="$(devkit_worktree_root)" || return 1
   [ -n "$base" ] || base="$(devkit_repo_default_base "$repo_path")"
@@ -372,9 +392,9 @@ devkit_worktree_create() {
   fi
   if [ -n "$agent" ]; then
     if [ "$json" = true ]; then
-      devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" >/dev/null || return 1
+      devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" >/dev/null || return 1
     else
-      devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" || return 1
+      devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" || return 1
     fi
     dispatch="$DEVKIT_LAST_DISPATCH"
     if [ -n "$dispatch" ] && [ "$json" != true ]; then
