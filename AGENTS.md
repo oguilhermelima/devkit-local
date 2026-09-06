@@ -27,6 +27,10 @@ For worktree/orchestration/native-sim/browser tooling shared across repos, read 
 
 Superset tabs are not titled; only Orca tabs are.
 
+Managed dispatches use the append-only channel under $DEVKIT_STATE_DIR/dispatches/ and direct
+parent ownership. On Superset, devkit orchestrate close disposes the session but leaves the pane
+visible as Desconectado until the human dismisses it with the pane X; the CLI cannot remove it.
+
 ## devkit plugin distribution
 
 This repository ships one shared skill at `skills/devkit/SKILL.md`. Claude Code uses

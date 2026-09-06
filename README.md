@@ -113,25 +113,29 @@ base. `--force` permits removal and deletion when that safety check must be over
 `devkit orchestrate spawn --repo <name> --branch <branch> --agent <id> --model <model>
 --effort <level> --prompt <text> [--label <text>]` is the convenience form of worktree creation with a required
 agent launch configuration. The host is inferred from the current terminal. Use `--base` and
-`--name` as with worktree creation. `devkit orchestrate list` combines live Orca and Superset
-terminals into one table; `--json` emits an array suitable for scripts.
+`--name` as with worktree creation. To launch into an existing checkout, pass
+`--worktree <path|branch>`; it must already have a Superset workspace, so run `devkit worktree adopt`
+first when needed. `devkit orchestrate list` shows managed dispatches owned by the current parent;
+`--all` includes other owners and marks them as not-owned, while `--orphans` filters dead parents.
 
-For Superset-hosted dispatches, devkit starts the agent with a DEVKIT_ASK/DEVKIT_DONE marker
-protocol and prepends the marker instructions to the prompt. A caller using `devkit worktree
-create --agent ...` receives the dispatch id and can run `devkit orchestrate watch <dispatch-id>`;
-when the agent asks a question, use `devkit orchestrate reply <dispatch-id> --text <answer>`, and
-finish with `devkit orchestrate close <dispatch-id>`. A hand-written `superset agents create`
-does not receive these instructions automatically, so its prompt must mention the markers itself.
+Managed dispatches use the caller's native terminal identity and an append-only file channel at
+`$DEVKIT_STATE_DIR/dispatches/<dispatch-id>/`. Each directory contains immutable `messages/` audit
+records, `meta.json` lifecycle and ownership metadata, and a separate `cursor.json` read position.
+Only the direct parent may reply or close; a grandparent cannot mutate a grandchild. Child agents
+must run `devkit ask "question"` and `devkit done "summary"`, rather than printing protocol markers.
+The parent can run `devkit orchestrate watch <dispatch-id>`, then reply with
+`devkit orchestrate reply <dispatch-id> --text <answer>` and finish with `devkit orchestrate close`.
 Superset `agents create` has no `--model` option; if a model is requested through devkit, it is
 reported as not forwarded and the selected agent preset is used.
 The agy and gemini Superset presets currently reject prompt launches with unexpected argument;
 devkit reports this known preset limitation clearly and does not create a dispatch that can hang.
 
 `devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>]`
-polls a Superset terminal for the next marker and returns `waiting_for_reply`, `done`, or
-`timeout`; add `--json` for structured output. `reply` sends the coordinator's answer and
-advances the local read position, while `close` disposes the Superset terminal and its local
-dispatch state.
+polls the file channel for the next child message and returns `waiting_for_reply`, `done`, or
+`timeout`; add `--json` for structured output. `reply` records and delivers the coordinator's
+answer, while `close` disposes the native terminal and leaves all messages on disk. On Superset,
+closing disposes the session but the pane remains visible as `Desconectado` until the human
+dismisses it with the pane's X; there is no CLI verb to remove that pane.
 
 `devkit terminal create [--command <cmd>] [--title <text>] [--worktree <path>]` opens a terminal
 tab in the orchestrator where the caller is running, using the worktree's `.superset/config.json`
