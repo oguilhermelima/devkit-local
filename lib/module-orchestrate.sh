@@ -241,7 +241,7 @@ devkit_dispatch_watch() {
 }
 
 devkit_dispatch_reply() {
-  local dispatch_id="${1:-}" answer="" json=false arg meta
+  local dispatch_id="${1:-}" answer="" json=false arg meta state
   [ -n "$dispatch_id" ] || { devkit_error "Usage: devkit orchestrate reply <dispatch-id> --text <answer> [--json]"; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
@@ -255,6 +255,8 @@ devkit_dispatch_reply() {
   done
   [ -n "$answer" ] || { devkit_error "--text is required"; return "$DEVKIT_USAGE_ERROR"; }
   meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
+  state="$(printf '%s' "$meta" | jq -r '.state // empty')"
+  [ "$state" = waiting_for_reply ] || { devkit_error "dispatch $dispatch_id is not waiting_for_reply (state: $state)"; return 1; }
   devkit_dispatch_native_send "$meta" "$answer" || { devkit_error "could not deliver reply to dispatch $dispatch_id"; return 1; }
   devkit_dispatch_message_append "$dispatch_id" parent reply "$answer" "$DEVKIT_SESSION_ID" >/dev/null || return 1
   devkit_dispatch_meta_update_state "$dispatch_id" running || return 1
