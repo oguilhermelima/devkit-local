@@ -82,7 +82,7 @@ devkit_dispatch_parent_alive() {
 }
 
 command_orchestrate_list() {
-  local json=false all=false orphans=false arg caller_id caller_host meta_path meta owned orphan entries='[]' state
+  local json=false all=false orphans=false arg caller_id caller_host meta_path meta owned orphan entries='[]' state dispatch_id
   for arg in "$@"; do
     case "$arg" in
       --json) json=true ;;
@@ -98,6 +98,7 @@ command_orchestrate_list() {
   for meta_path in "$DEVKIT_DISPATCH_DIR"/*/meta.json; do
     [ -f "$meta_path" ] || continue
     meta="$(cat "$meta_path")"
+    dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId')"
     owned=false
     if [ -n "$caller_id" ] && printf '%s' "$meta" | jq -e --arg id "$caller_id" --arg host "$caller_host" '.parentSessionId == $id and .parentHost == $host' >/dev/null 2>&1; then
       owned=true
