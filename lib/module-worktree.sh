@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+DEVKIT_AGENT_OPTION_TEMPLATES='codex|-c|model="%s"|-c|model_reasoning_effort="%s"
+claude|--model|%s|--effort|%s
+agy|--model|%s|--effort|%s'
+
 devkit_worktree_root() {
   local raw read_only=false
   if [ "${1:-}" = --read-only ]; then
@@ -176,10 +180,29 @@ devkit_workspace_create() {
 
 devkit_agent_command() {
   local agent="$1" model="$2" effort="$3" prompt="$4"
+  local agent_lower model_flag model_format effort_flag effort_format model_value effort_value
+  local option_template known_agent known_model_flag known_model_format known_effort_flag known_effort_format
   local -a command_parts
   command_parts=("$agent")
-  [ -n "$model" ] && command_parts+=(--model "$model")
-  [ -n "$effort" ] && command_parts+=(--effort "$effort")
+  agent_lower="$(devkit_lower "$agent")"
+  option_template='--model|%s|--effort|%s'
+  while IFS='|' read -r known_agent known_model_flag known_model_format known_effort_flag known_effort_format; do
+    if [ "$known_agent" = "$agent_lower" ]; then
+      option_template="$known_model_flag|$known_model_format|$known_effort_flag|$known_effort_format"
+      break
+    fi
+  done <<EOF
+$DEVKIT_AGENT_OPTION_TEMPLATES
+EOF
+  IFS='|' read -r model_flag model_format effort_flag effort_format <<<"$option_template"
+  if [ -n "$model" ]; then
+    printf -v model_value "$model_format" "$model"
+    command_parts+=("$model_flag" "$model_value")
+  fi
+  if [ -n "$effort" ]; then
+    printf -v effort_value "$effort_format" "$effort"
+    command_parts+=("$effort_flag" "$effort_value")
+  fi
   [ -n "$prompt" ] && command_parts+=("$prompt")
   printf '%q ' "${command_parts[@]}"
 }
