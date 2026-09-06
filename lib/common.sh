@@ -5,6 +5,8 @@ DEVKIT_STATE_DIR="${DEVKIT_STATE_DIR:-$HOME/.devkit}"
 DEVKIT_STATE_FILE="$DEVKIT_STATE_DIR/state.json"
 DEVKIT_DISPATCH_DIR="$DEVKIT_STATE_DIR/dispatches"
 DEVKIT_SHARED_ROOT=""
+DEVKIT_SESSION_ID=""
+DEVKIT_SESSION_HOST=""
 MODULE_STATUS=""
 MODULE_REASON=""
 MODULE_DETAILS=""
@@ -44,6 +46,19 @@ devkit_superset() {
 
 devkit_iso_now() {
   date -u '+%Y-%m-%dT%H:%M:%SZ'
+}
+
+devkit_session_id() {
+  DEVKIT_SESSION_ID=""
+  DEVKIT_SESSION_HOST="unknown"
+  if [ -n "${SUPERSET_TERMINAL_ID:-}" ]; then
+    DEVKIT_SESSION_ID="$SUPERSET_TERMINAL_ID"
+    DEVKIT_SESSION_HOST="superset"
+  elif [ -n "${ORCA_TERMINAL_HANDLE:-}" ]; then
+    DEVKIT_SESSION_ID="$ORCA_TERMINAL_HANDLE"
+    DEVKIT_SESSION_HOST="orca"
+  fi
+  printf '%s\n' "$DEVKIT_SESSION_ID"
 }
 
 devkit_json_value() {

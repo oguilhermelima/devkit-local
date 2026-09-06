@@ -36,10 +36,12 @@ Commands:
   worktree adopt <path|branch>         Register an existing worktree in Superset
   terminal create ...                  Open a terminal in the current orchestrator
   orchestrate spawn ...                Create a worktree and start an agent
-  orchestrate list [--json]            Merge active Orca and Superset terminals
-  orchestrate watch <dispatch-id> ...  Watch a Superset dispatch for ask/done markers
+  orchestrate list [--json]            List managed dispatches
+  orchestrate watch <dispatch-id> ...  Watch a dispatch file channel for child messages
   orchestrate reply <dispatch-id> ...  Reply to a waiting Superset dispatch
   orchestrate close <dispatch-id> ...  Close a Superset dispatch terminal
+  ask "question"                       Ask the direct coordinator from a child dispatch
+  done "summary"                        Mark a child dispatch done
   native appium start|stop|status      Manage the shared Appium server
   tv connect <ip> [--port <port>]      Connect an Android TV over adb
   tv disconnect [<ip>]                 Disconnect an Android TV
@@ -57,6 +59,8 @@ devkit_main() {
     worktree) command_worktree "$@" ;;
     terminal) command_terminal "$@" ;;
     orchestrate) command_orchestrate "$@" ;;
+    ask) command_ask "$@" ;;
+    done) command_done "$@" ;;
     native) command_native "$@" ;;
     tv) command_tv "$@" ;;
     help|-h|--help) devkit_usage ;;
