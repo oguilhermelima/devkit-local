@@ -86,6 +86,10 @@ devkit_dispatch_extract_marker() {
   DEVKIT_MARKER_STATUS=""
   DEVKIT_MARKER_TEXT=""
   while IFS= read -r line || [ -n "$line" ]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    case "$line" in
+      "• DEVKIT_ASK: "*|"• DEVKIT_DONE: "*) line="${line#• }" ;;
+    esac
     case "$line" in
       "DEVKIT_ASK: "*)
         DEVKIT_MARKER_STATUS="waiting_for_reply"

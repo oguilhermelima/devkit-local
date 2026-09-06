@@ -385,8 +385,13 @@ devkit_worktree_create() {
     devkit_info "host: $(devkit_context_detect)"
   fi
   if [ "$json" = true ]; then
-    jq -n --arg worktree "$worktree_path" --arg branch "$branch" --arg workspace "$workspace_id" --arg dispatch "${dispatch:-}" \
-      '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end), dispatch: (if $dispatch|length > 0 then $dispatch else null end)}'
+    if [ -n "${dispatch:-}" ]; then
+      jq -n --arg worktree "$worktree_path" --arg branch "$branch" --arg workspace "$workspace_id" --arg dispatch "$dispatch" \
+        '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end), dispatch: $dispatch}'
+    else
+      jq -n --arg worktree "$worktree_path" --arg branch "$branch" --arg workspace "$workspace_id" \
+        '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end)}'
+    fi
   fi
   return 0
 }
