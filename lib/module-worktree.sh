@@ -337,7 +337,7 @@ devkit_terminal_create() {
 
 devkit_worktree_create() {
   local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" prompt="" label="" worktree_selector="" orchestrate=false json=false reused=false
-  local arg repo_path shared_root worktree_path project_id workspace_id dispatch host
+  local arg repo_path shared_root worktree_path project_id workspace_id dispatch="" host
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
