@@ -201,15 +201,22 @@ devkit_project_run_command() {
 
 devkit_launch_agent() {
   local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
-  local context command_text response session_id final_prompt agent_lower
+  local context command_text response session_id final_prompt agent_lower parent_id parent_host child_host branch
   local -a agent_args
   DEVKIT_LAST_DISPATCH=""
-  context="$(devkit_context_detect)"
+  devkit_session_id >/dev/null
+  parent_id="$DEVKIT_SESSION_ID"
+  parent_host="$DEVKIT_SESSION_HOST"
+  [ -n "$parent_id" ] || { devkit_error "cannot spawn a managed dispatch from an unmanaged shell"; return 1; }
+  context="$parent_host"
   command_text="$(devkit_agent_command "$agent" "$model" "$effort" "$prompt")"
+  branch="$(git -C "$worktree_path" symbolic-ref --quiet --short HEAD 2>/dev/null || printf 'detached')"
   case "$context" in
     orca)
       devkit_require_command orca || { devkit_error "orca CLI is not available"; return 1; }
-      orca terminal create --worktree "path:$worktree_path" --title "$agent $worktree_path" --command "$command_text" --json
+      response="$(orca terminal create --worktree "path:$worktree_path" --title "$agent $worktree_path" --command "$command_text" --json)" || return 1
+      session_id="$(printf '%s' "$response" | jq -r '.result.terminal.handle // .terminal.handle // .handle // empty' 2>/dev/null)"
+      child_host=orca
       ;;
     superset)
       devkit_superset_available || { devkit_error "superset CLI is not available"; return 1; }
@@ -239,18 +246,25 @@ ${prompt}"
       fi
       session_id="$(printf '%s' "$response" | jq -r '.sessionId // .result.sessionId // .terminal.sessionId // .result.terminal.sessionId // empty' 2>/dev/null)"
       [ -n "$session_id" ] || { devkit_error "Superset agents create returned no sessionId"; return 1; }
-      devkit_dispatch_state_write "$session_id" "$workspace_id" "$session_id" 0 "$label" || {
-        devkit_error "could not persist Superset dispatch state: $session_id"
-        return 1
-      }
-      DEVKIT_LAST_DISPATCH="$session_id"
-      printf '%s\n' "$response"
+      child_host=superset
       ;;
     *)
       devkit_error "cannot launch agent from unknown orchestration host"
       return 1
       ;;
   esac
+  [ -n "$session_id" ] || { devkit_error "agent launch returned no terminal identity"; return 1; }
+  devkit_dispatch_meta_write "$session_id" "$parent_id" "$parent_host" "$child_host" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning >/dev/null || {
+    devkit_error "could not persist dispatch metadata: $session_id"
+    return 1
+  }
+  devkit_dispatch_meta_update_state "$session_id" running || {
+        devkit_error "could not persist Superset dispatch state: $session_id"
+        return 1
+      }
+      DEVKIT_LAST_DISPATCH="$session_id"
+      printf '%s\n' "$response"
+  return 0
 }
 
 devkit_terminal_create() {
@@ -322,7 +336,7 @@ devkit_terminal_create() {
 }
 
 devkit_worktree_create() {
-  local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" prompt="" label="" orchestrate=false json=false
+  local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" prompt="" label="" worktree_selector="" orchestrate=false json=false reused=false
   local arg repo_path shared_root worktree_path project_id workspace_id dispatch host
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -336,6 +350,7 @@ devkit_worktree_create() {
       --effort) effort="${2:-}"; shift 2 ;;
       --prompt) prompt="${2:-}"; shift 2 ;;
       --label) label="${2:-}"; shift 2 ;;
+      --worktree) worktree_selector="${2:-}"; shift 2 ;;
       --orchestrate) orchestrate=true; shift ;;
       --json) json=true; shift ;;
       -h|--help)
@@ -345,8 +360,18 @@ devkit_worktree_create() {
       *) devkit_error "unknown worktree create option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
-  [ -n "$repo_selector" ] || { devkit_error "--repo is required"; return "$DEVKIT_USAGE_ERROR"; }
-  [ -n "$branch" ] || { devkit_error "--branch is required"; return "$DEVKIT_USAGE_ERROR"; }
+  if [ "$orchestrate" = true ]; then
+    devkit_session_id >/dev/null
+    [ -n "$DEVKIT_SESSION_ID" ] || { devkit_error "cannot spawn a managed dispatch from an unmanaged shell"; return 1; }
+  fi
+  if [ -n "$worktree_selector" ] && [ "$orchestrate" != true ]; then
+    devkit_error "--worktree is only supported by orchestrate spawn"
+    return "$DEVKIT_USAGE_ERROR"
+  fi
+  if [ -z "$worktree_selector" ]; then
+    [ -n "$repo_selector" ] || { devkit_error "--repo is required"; return "$DEVKIT_USAGE_ERROR"; }
+    [ -n "$branch" ] || { devkit_error "--branch is required"; return "$DEVKIT_USAGE_ERROR"; }
+  fi
   if [ "$orchestrate" = true ]; then
     [ -n "$agent" ] || { devkit_error "--agent is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
     [ -n "$model" ] || { devkit_error "--model is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
@@ -358,37 +383,54 @@ devkit_worktree_create() {
     devkit_error "agent is not on PATH: $agent"
     return 1
   fi
-  repo_path="$(devkit_repo_from_orca "$repo_selector")" || return 1
-  shared_root="$(devkit_worktree_root)" || return 1
-  [ -n "$base" ] || base="$(devkit_repo_default_base "$repo_path")"
-  [ -n "$slug" ] || slug="$(devkit_slug_from_branch "$branch")" || { devkit_error "branch cannot produce a safe slug"; return 1; }
-  case "$slug" in
-    .|..|*/*|*"$'\n'"*) devkit_error "invalid worktree name: $slug"; return 1 ;;
-  esac
-  worktree_path="$shared_root/$slug"
-  [ ! -e "$worktree_path" ] || { devkit_error "worktree path already exists: $worktree_path"; return 1; }
-  mkdir -p "$shared_root" || return 1
-  if [ "$json" = true ]; then
-    git -C "$repo_path" worktree add "$worktree_path" -b "$branch" "$base" >/dev/null || {
+  if [ -n "$worktree_selector" ]; then
+    if [ -d "$worktree_selector" ]; then
+      worktree_path="$(git -C "$worktree_selector" rev-parse --show-toplevel 2>/dev/null || true)"
+    else
+      shared_root="$(devkit_worktree_root --read-only 2>/dev/null || true)"
+      [ -n "$shared_root" ] || { devkit_error "cannot resolve existing worktree: $worktree_selector"; return 1; }
+      worktree_path="$(devkit_find_worktree_path "$worktree_selector" "$shared_root" 2>/dev/null || true)"
+    fi
+    [ -n "$worktree_path" ] || { devkit_error "existing Git worktree not found: $worktree_selector"; return 1; }
+    reused=true
+    branch="$(git -C "$worktree_path" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+    [ -n "$branch" ] || { devkit_error "cannot spawn in detached worktree: $worktree_path"; return 1; }
+    workspace_id="$(devkit_workspace_id_for_target "$worktree_path" 2>/dev/null || true)"
+    if [ "$host" = superset ] && [ -z "$workspace_id" ]; then
+      devkit_error "no Superset workspace is registered for $worktree_path; run devkit worktree adopt $worktree_path first"
+      return 1
+    fi
+    repo_path="$(git -C "$worktree_path" rev-parse --show-toplevel)"
+  else
+    repo_path="$(devkit_repo_from_orca "$repo_selector")" || return 1
+    shared_root="$(devkit_worktree_root)" || return 1
+    [ -n "$base" ] || base="$(devkit_repo_default_base "$repo_path")"
+    [ -n "$slug" ] || slug="$(devkit_slug_from_branch "$branch")" || { devkit_error "branch cannot produce a safe slug"; return 1; }
+    case "$slug" in
+      .|..|*/*|*"$'\n'"*) devkit_error "invalid worktree name: $slug"; return 1 ;;
+    esac
+    worktree_path="$shared_root/$slug"
+    [ ! -e "$worktree_path" ] || { devkit_error "worktree path already exists: $worktree_path"; return 1; }
+    mkdir -p "$shared_root" || return 1
+    if [ "$json" = true ]; then
+      git -C "$repo_path" worktree add "$worktree_path" -b "$branch" "$base" >/dev/null || { devkit_error "could not create git worktree"; return 1; }
+    elif ! git -C "$repo_path" worktree add "$worktree_path" -b "$branch" "$base"; then
       devkit_error "could not create git worktree"
       return 1
+    fi
+    project_id="$(devkit_ensure_superset_project "$repo_path")" || {
+      git -C "$repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+      git -C "$repo_path" branch -D "$branch" >/dev/null 2>&1 || true
+      return 1
     }
-  elif ! git -C "$repo_path" worktree add "$worktree_path" -b "$branch" "$base"; then
-    devkit_error "could not create git worktree"
-    return 1
+    workspace_id="$(devkit_workspace_create "$project_id" "$branch" "$slug")" || {
+      git -C "$repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+      git -C "$repo_path" branch -D "$branch" >/dev/null 2>&1 || true
+      return 1
+    }
   fi
-  project_id="$(devkit_ensure_superset_project "$repo_path")" || {
-    git -C "$repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
-    git -C "$repo_path" branch -D "$branch" >/dev/null 2>&1 || true
-    return 1
-  }
-  workspace_id="$(devkit_workspace_create "$project_id" "$branch" "$slug")" || {
-    git -C "$repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
-    git -C "$repo_path" branch -D "$branch" >/dev/null 2>&1 || true
-    return 1
-  }
   if [ "$json" != true ]; then
-    printf 'worktree: %s\nbranch: %s\nworkspace: %s\n' "$worktree_path" "$branch" "$workspace_id"
+    printf 'worktree: %s\nbranch: %s\nworkspace: %s\nreused: %s\n' "$worktree_path" "$branch" "$workspace_id" "$reused"
   fi
   if [ -n "$agent" ]; then
     if [ "$json" = true ]; then
@@ -406,11 +448,11 @@ devkit_worktree_create() {
   fi
   if [ "$json" = true ]; then
     if [ -n "${dispatch:-}" ]; then
-      jq -n --arg worktree "$worktree_path" --arg branch "$branch" --arg workspace "$workspace_id" --arg dispatch "$dispatch" \
-        '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end), dispatch: $dispatch}'
+      jq -n --arg worktree "$worktree_path" --arg branch "$branch" --arg workspace "$workspace_id" --arg dispatch "$dispatch" --arg reused "$reused" \
+        '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end), dispatch: $dispatch, reused: ($reused == "true")}'
     else
-      jq -n --arg worktree "$worktree_path" --arg branch "$branch" --arg workspace "$workspace_id" \
-        '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end)}'
+      jq -n --arg worktree "$worktree_path" --arg branch "$branch" --arg workspace "$workspace_id" --arg reused "$reused" \
+        '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end), reused: ($reused == "true")}'
     fi
   fi
   return 0
@@ -425,6 +467,13 @@ devkit_find_worktree_path() {
   local target="$1" shared_root="$2" path branch line current_path current_branch
   if [ -d "$target" ] && git -C "$target" rev-parse --show-toplevel >/dev/null 2>&1; then
     git -C "$target" rev-parse --show-toplevel
+    return 0
+  fi
+  if [ -z "$shared_root" ]; then
+    git worktree list --porcelain 2>/dev/null | awk -v target="$target" '
+      /^worktree / { path = $2 }
+      /^branch / { branch = $2; sub("refs/heads/", "", branch); if (branch == target || path ~ "/" target "$" ) print path }
+    ' | head -n 1
     return 0
   fi
   for path in "$shared_root"/*; do
