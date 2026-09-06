@@ -35,7 +35,8 @@ devkit_dispatch_cursor_path() { printf '%s/cursor.json\n' "$(devkit_dispatch_dir
 devkit_dispatch_meta_write() {
   local dispatch_id="$1" parent_session="$2" parent_host="$3" child_host="$4"
   local workspace_id="$5" terminal_id="$6" worktree_path="$7" branch="$8"
-  local agent="$9" label="${10}" state="${11}" dispatch_dir tmp
+  local agent="$9" label="${10}" state="${11}" model="${12:-}" model_honored="${13:-false}"
+  local agent_id="${14:-$agent}" dispatch_dir tmp
   dispatch_dir="$(devkit_dispatch_dir "$dispatch_id")" || return 1
   mkdir -p "$dispatch_dir/messages" || return 1
   devkit_dispatch_cursor_write "$dispatch_id" 0 || return 1
@@ -46,8 +47,10 @@ devkit_dispatch_meta_write() {
     --arg workspaceId "$workspace_id" --arg terminalId "$terminal_id" \
     --arg worktreePath "$worktree_path" --arg branch "$branch" \
     --arg agent "$agent" --arg label "$label" --arg state "$state" \
+    --arg model "$model" --arg agentId "$agent_id" \
+    --argjson modelHonored "$(devkit_bool_json "$model_honored")" \
     --arg now "$(devkit_iso_now)" \
-    '{dispatchId: $dispatchId, parentSessionId: $parentSessionId, parentHost: $parentHost, childHost: $childHost, workspaceId: $workspaceId, terminalId: $terminalId, worktreePath: $worktreePath, branch: $branch, agent: $agent, label: $label, state: $state, createdAt: $now, updatedAt: $now}' \
+    '{dispatchId: $dispatchId, parentSessionId: $parentSessionId, parentHost: $parentHost, childHost: $childHost, workspaceId: $workspaceId, terminalId: $terminalId, worktreePath: $worktreePath, branch: $branch, agent: $agent, agentId: $agentId, model: $model, modelHonored: $modelHonored, label: $label, state: $state, createdAt: $now, updatedAt: $now}' \
     >"$tmp"; then
     rm -f "$tmp"
     return 1

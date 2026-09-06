@@ -178,6 +178,25 @@ devkit_workspace_create() {
   printf '%s\n' "$id"
 }
 
+devkit_superset_agent_for_model() {
+  local requested_agent="$1" model="$2" response agent_id
+  [ -n "$model" ] || return 0
+  response="$(devkit_superset agents list --local --json 2>/dev/null)" || return 0
+  agent_id="$(printf '%s' "$response" | jq -r --arg requestedAgent "$requested_agent" --arg model "$model" '
+    def text_values:
+      if type == "string" then [.]
+      elif type == "array" then [ .[]? | text_values[] ]
+      elif type == "object" then [ .[]? | text_values[] ]
+      else []
+      end;
+    (if type == "array" then . else (.result.agents? // .agents? // .result? // []) end)[]? |
+    select((.presetId // .command // "" | ascii_downcase) == ($requestedAgent | ascii_downcase)) |
+    select([(.args? | text_values[]), (.env? | text_values[])] | any(.[]; contains($model))) |
+    (.id // .agentId // .instanceId // empty)
+  ' 2>/dev/null | head -n 1)"
+  [ -n "$agent_id" ] && printf '%s\n' "$agent_id"
+}
+
 devkit_agent_command() {
   local agent="$1" model="$2" effort="$3" prompt="$4"
   local agent_lower model_flag model_format effort_flag effort_format model_value effort_value
@@ -225,6 +244,7 @@ devkit_project_run_command() {
 devkit_launch_agent() {
   local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
   local context command_text response session_id final_prompt agent_lower parent_id parent_host child_host branch
+  local agent_used model_honored=false
   local -a agent_args
   DEVKIT_LAST_DISPATCH=""
   devkit_session_id >/dev/null
@@ -233,6 +253,7 @@ devkit_launch_agent() {
   [ -n "$parent_id" ] || { devkit_error "cannot spawn a managed dispatch from an unmanaged shell"; return 1; }
   context="$parent_host"
   command_text="$(devkit_agent_command "$agent" "$model" "$effort" "$prompt")"
+  agent_used="$agent"
   branch="$(git -C "$worktree_path" symbolic-ref --quiet --short HEAD 2>/dev/null || printf 'detached')"
   case "$context" in
     orca)
@@ -252,9 +273,15 @@ devkit_launch_agent() {
 ${DEVKIT_SUPERSET_PROTOCOL}
 
 ${prompt}"
-      agent_args=(agents create --workspace "$workspace_id" --agent "$agent" --prompt "$final_prompt")
+      agent_used="$(devkit_superset_agent_for_model "$agent" "$model")"
+      if [ -n "$agent_used" ]; then
+        model_honored=true
+      else
+        agent_used="$agent"
+      fi
+      agent_args=(agents create --workspace "$workspace_id" --agent "$agent_used" --prompt "$final_prompt")
       [ -n "$effort" ] && agent_args+=(--effort "$effort")
-      if [ -n "$model" ]; then
+      if [ -n "$model" ] && [ "$model_honored" != true ]; then
         devkit_error "Superset agents create does not accept --model; requested model '$model' was not forwarded"
       fi
       agent_lower="$(devkit_lower "$agent")"
@@ -277,7 +304,10 @@ ${prompt}"
       ;;
   esac
   [ -n "$session_id" ] || { devkit_error "agent launch returned no terminal identity"; return 1; }
-  devkit_dispatch_meta_write "$session_id" "$parent_id" "$parent_host" "$child_host" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning >/dev/null || {
+  if [ -n "$model" ] && [ "$child_host" = orca ]; then
+    model_honored=true
+  fi
+  devkit_dispatch_meta_write "$session_id" "$parent_id" "$parent_host" "$child_host" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" "$model_honored" "$agent_used" >/dev/null || {
     devkit_error "could not persist dispatch metadata: $session_id"
     return 1
   }
