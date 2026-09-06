@@ -592,7 +592,7 @@ command_terminal() {
   case "$subcommand" in
     create) devkit_terminal_create "$@" ;;
     -h|--help|"")
-      printf 'Usage: devkit terminal create [--worktree <path>] --command <cmd> [--title <text>] [--json]\n'
+      printf 'Usage: devkit terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]\n'
       printf 'Superset tabs are not titled; only Orca tabs are.\n'
       ;;
     *) devkit_error "unknown terminal command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
