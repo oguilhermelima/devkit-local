@@ -228,6 +228,7 @@ devkit_dispatch_watch() {
       case "$type" in
         ask) text="$(jq -r '.text // empty' "$path")"; devkit_dispatch_cursor_write "$dispatch_id" "$seq" || return 1; devkit_dispatch_report "$dispatch_id" waiting_for_reply "$text" "$json"; reported=true ;;
         done) text="$(jq -r '.text // empty' "$path")"; devkit_dispatch_cursor_write "$dispatch_id" "$seq" || return 1; devkit_dispatch_report "$dispatch_id" done "$text" "$json"; reported=true ;;
+        stalled) text="$(jq -r '.text // empty' "$path")"; devkit_dispatch_cursor_write "$dispatch_id" "$seq" || return 1; devkit_dispatch_report "$dispatch_id" stalled "$text" "$json"; reported=true ;;
       esac
       [ "$reported" = true ] && return 0
     done
