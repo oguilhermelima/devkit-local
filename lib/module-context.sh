@@ -293,9 +293,7 @@ devkit_dispatch_terminal_status() {
 
 command_orchestrate_list() {
   local json=false all=false orphans=false arg caller_id caller_host meta_path
-  local meta_summary dispatch_id state child_host parent_host open_dispatches=''
-  local need_orca=false need_superset=false entries final_orca_ids final_superset_ids
-  local orca_known=false superset_known=false
+  local entries
   local -a meta_paths
   for arg in "$@"; do
     case "$arg" in
@@ -323,64 +321,19 @@ command_orchestrate_list() {
     return 0
   fi
 
-  # One slurp keeps field extraction linear instead of spawning jq for each field.
-  meta_summary="$(jq -s -r '
-    .[] | [(.dispatchId // ""), (.state // ""), (.childHost // ""), (.parentHost // "")] | @tsv
-  ' "${meta_paths[@]}")" || return 1
-  while IFS=$'\t' read -r dispatch_id state child_host parent_host; do
-    [ -n "$dispatch_id" ] || continue
-    [ "$state" = closed ] || open_dispatches="${open_dispatches}${dispatch_id}"$'\n'
-    case "$child_host:$parent_host" in
-      orca:*) need_orca=true ;;
-      superset:*) need_superset=true ;;
-    esac
-    case "$parent_host" in
-      orca|superset)
-        [ "$parent_host" = orca ] && need_orca=true
-        [ "$parent_host" = superset ] && need_superset=true
-        ;;
-    esac
-  done <<EOF
-$meta_summary
-EOF
-
-  devkit_dispatch_list_cache_reset
-  [ "$need_orca" = true ] && devkit_dispatch_list_cache_prepare_host orca
-  [ "$need_superset" = true ] && devkit_dispatch_list_cache_prepare_host superset
-  while IFS= read -r dispatch_id; do
-    [ -n "$dispatch_id" ] || continue
-    devkit_dispatch_reconcile_one "$dispatch_id" >/dev/null 2>&1 || true
-  done <<EOF
-$open_dispatches
-EOF
-
-  final_orca_ids="$DEVKIT_DISPATCH_LIST_ORCA_IDS"
-  final_superset_ids="$DEVKIT_DISPATCH_LIST_SUPERSET_IDS"
-  [ "$DEVKIT_DISPATCH_LIST_ORCA_AVAILABLE" = true ] && [ "$DEVKIT_DISPATCH_LIST_ORCA_VALID" = true ] && orca_known=true
-  [ "$DEVKIT_DISPATCH_LIST_SUPERSET_AVAILABLE" = true ] && [ "$DEVKIT_DISPATCH_LIST_SUPERSET_VALID" = true ] && superset_known=true
+  # WHY: Listing is an inventory operation; explicit reconcile owns live terminal queries.
   entries="$(jq -s \
     --arg callerId "$caller_id" --arg callerHost "$caller_host" \
-    --arg orcaIds "$final_orca_ids" --arg supersetIds "$final_superset_ids" \
-    --argjson orcaKnown "$orca_known" --argjson supersetKnown "$superset_known" \
     --argjson all "$all" --argjson orphans "$orphans" '
-    def ids($value): $value | split("\n") | map(select(length > 0));
     map(. as $item
-      | ($item.parentSessionId // "") as $parentId
       | ($item.parentHost // "") as $parentHost
       | (($callerId != "") and ($item.parentSessionId == $callerId) and ($parentHost == $callerHost)) as $owned
-      | (if $parentHost == "orca" and $orcaKnown then
-           (ids($orcaIds) | index($parentId) == null)
-         elif $parentHost == "superset" and $supersetKnown then
-           (ids($supersetIds) | index($parentId) == null)
-         else false
-         end) as $orphan
+      | (($item.state // "") == "orphaned") as $orphan
       | $item + {ownedByCaller: $owned, orphan: $orphan, reconcileResult: ($item.reconcileOutcome // "unchanged")})
     | map(select(($all or $orphans or .ownedByCaller) and (($orphans | not) or .orphan)))
   ' "${meta_paths[@]}")" || {
-    devkit_dispatch_list_cache_disable
     return 1
   }
-  devkit_dispatch_list_cache_disable
   if [ "$json" = true ]; then
     printf '%s\n' "$entries"
     return 0

@@ -213,7 +213,7 @@ quoting.
 | `processState` | `starting`, `start-unproven`, `running`, `stopping`, `stop-unproven`, `stopped`, `succeeded`, `failed`, or `abandoned`; the child process outcome. `abandoned` ends devkit's logical authority without asserting that the process died. |
 | `terminalState` | `owned`, `retained`, `missing`, or `released`; the terminal resource state. `retained` blocks release and reuse when terminal identity is unproven or the parent is gone. |
 
-`orchestrate list` reconciles open dispatches before showing these fields. Use
+`orchestrate list` reads the durable dispatch inventory without querying live terminal state. Use
 `orchestrate reconcile <dispatch-id>` to reconcile one explicitly; it never respawns a child.
 `orchestrate close` refuses a retained terminal unless the explicit `--force-release` flag is
 provided after manual verification. `doctor` is read-only and reports uncertain dispatch and
