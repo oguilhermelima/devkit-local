@@ -205,6 +205,17 @@ devkit_dispatch_seq_acknowledged() {
   return 1
 }
 
+devkit_dispatch_delivery_fence() {
+  local path="$1" tmp now
+  now="$(devkit_iso_now)"
+  tmp="$(mktemp "$(dirname "$path")/.delivery.XXXXXX")" || return 1
+  if ! jq --arg now "$now" '.status = "fenced" | .fencedAt = $now | .updatedAt = $now' "$path" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$path"
+}
+
 devkit_dispatch_delivery_report() {
   local dispatch_id="$1" delivery_id="$2" replayed="$3" json="$4"
   local record messages_dir deliveries_dir message_seqs messages='[]' path seq from type text status='done'
@@ -443,9 +454,7 @@ devkit_dispatch_watch() {
         devkit_dispatch_delivery_report "$dispatch_id" "$delivery_id" true "$json"
         return $?
       fi
-      rmdir "$lock"
-      devkit_error "delivery $delivery_id is outstanding for consumer $outstanding_consumer generation $outstanding_generation"
-      return 1
+      devkit_dispatch_delivery_fence "$outstanding_path" || { rmdir "$lock"; return 1; }
     fi
     message_seqs='[]'
     while IFS=$'\t' read -r seq path; do
@@ -501,6 +510,7 @@ devkit_dispatch_ack() {
   status="$(jq -r '.status // empty' "$path")"
   case "$status" in
     acknowledged)
+      # Idempotent acknowledgement makes retries safe after a lost connection.
       message_seqs="$(jq -c '.messageSeqs // []' "$path")"
       rmdir "$lock"
       if [ "$json" = true ]; then
@@ -512,6 +522,7 @@ devkit_dispatch_ack() {
       return 0
       ;;
     fenced)
+      # A fenced delivery must stay refused so an old generation cannot acknowledge a replacement batch.
       rmdir "$lock"
       devkit_error "delivery $delivery_id refused: delivery is fenced"
       return 1
