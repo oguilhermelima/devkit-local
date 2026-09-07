@@ -7,6 +7,9 @@ DEVKIT_TMUX_ENTER_WAIT="${DEVKIT_TMUX_ENTER_WAIT:-0.5}"
 DEVKIT_TMUX_TUNE_START='# >>> devkit tmux tuning >>>'
 DEVKIT_TMUX_TUNE_END='# <<< devkit tmux tuning <<<'
 DEVKIT_TMUX_TUNE_SOURCE='source-file ~/.devkit/tmux/devkit.tmux.conf'
+DEVKIT_TMUX_WRAPPER_START='# >>> devkit tmux wrapper >>>'
+DEVKIT_TMUX_WRAPPER_END='# <<< devkit tmux wrapper <<<'
+DEVKIT_TMUX_WRAPPER_SOURCE='source ~/.devkit/zsh/devkit-agent-tmux.zsh'
 
 devkit_tmux_available() {
   devkit_require_command tmux
@@ -465,13 +468,296 @@ devkit_tmux_tune() {
   fi
 }
 
+devkit_tmux_wrapper_repo_path() {
+  printf '%s/zsh/devkit-agent-tmux.zsh\n' "$DEVKIT_ROOT"
+}
+
+devkit_tmux_wrapper_install_path() {
+  printf '%s/.devkit/zsh/devkit-agent-tmux.zsh\n' "$HOME"
+}
+
+devkit_tmux_wrapper_config_path() {
+  printf '%s/.zshrc\n' "$HOME"
+}
+
+devkit_tmux_wrapper_validate_config() {
+  local config="$1" starts ends
+  [ -e "$config" ] || return 0
+  [ -f "$config" ] || {
+    devkit_error "zsh config exists but is not a regular file: $config"
+    return 1
+  }
+  starts="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_START" "$config" 2>/dev/null || true)"
+  ends="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_END" "$config" 2>/dev/null || true)"
+  if [ "$starts" -ne "$ends" ]; then
+    devkit_error "zsh config has an incomplete devkit tmux wrapper block: $config"
+    return 1
+  fi
+}
+
+devkit_tmux_wrapper_block_present() {
+  local config="$1" starts ends source_lines
+  [ -f "$config" ] || return 1
+  starts="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_START" "$config" 2>/dev/null || true)"
+  ends="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_END" "$config" 2>/dev/null || true)"
+  source_lines="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_SOURCE" "$config" 2>/dev/null || true)"
+  [ "$starts" -eq 1 ] && [ "$ends" -eq 1 ] && [ "$source_lines" -eq 1 ]
+}
+
+devkit_tmux_wrapper_installed_current() {
+  cmp -s "$(devkit_tmux_wrapper_repo_path)" "$(devkit_tmux_wrapper_install_path)"
+}
+
+devkit_tmux_wrapper_next_backup_path() {
+  local config="$1" stamp path suffix=1
+  [ -f "$config" ] || return 0
+  stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+  path="${config}.devkit-backup-${stamp}"
+  while [ -e "$path" ]; do
+    path="${config}.devkit-backup-${stamp}-${suffix}"
+    suffix=$((suffix + 1))
+  done
+  printf '%s\n' "$path"
+}
+
+devkit_tmux_wrapper_backup_paths() {
+  local path
+  for path in "$HOME"/.zshrc.devkit-backup-*; do
+    [ -f "$path" ] || continue
+    printf '%s\n' "$path"
+  done
+}
+
+devkit_tmux_wrapper_backup_paths_json() {
+  devkit_tmux_wrapper_backup_paths | jq -Rsc 'split("\n") | map(select(length > 0))'
+}
+
+devkit_tmux_wrapper_install_file() {
+  local repo="$1" install_path temp
+  install_path="$(devkit_tmux_wrapper_install_path)"
+  mkdir -p "$(dirname "$install_path")" || return 1
+  temp="$(mktemp "${install_path}.XXXXXX")" || return 1
+  if ! cp "$repo" "$temp" || ! mv -f "$temp" "$install_path"; then
+    rm -f "$temp"
+    return 1
+  fi
+}
+
+devkit_tmux_wrapper_write_config() {
+  local config="$1" temp
+  temp="$(mktemp "${config}.XXXXXX")" || return 1
+  if [ -f "$config" ]; then
+    set -- "$config"
+  else
+    set -- /dev/null
+  fi
+  if ! awk -v start="$DEVKIT_TMUX_WRAPPER_START" \
+    -v end="$DEVKIT_TMUX_WRAPPER_END" \
+    -v source="$DEVKIT_TMUX_WRAPPER_SOURCE" '
+    $0 == start {
+      if (!replaced) {
+        print start
+        print source
+        print end
+        replaced = 1
+      }
+      in_block = 1
+      next
+    }
+    in_block && $0 == end { in_block = 0; next }
+    !in_block { print }
+    END {
+      if (!replaced) {
+        print start
+        print source
+        print end
+      }
+    }
+  ' "$1" >"$temp"; then
+    rm -f "$temp"
+    return 1
+  fi
+  if ! mv -f "$temp" "$config"; then
+    rm -f "$temp"
+    return 1
+  fi
+}
+
+devkit_tmux_wrapper_remove_block() {
+  local config="$1" temp
+  temp="$(mktemp "${config}.XXXXXX")" || return 1
+  if ! awk -v start="$DEVKIT_TMUX_WRAPPER_START" -v end="$DEVKIT_TMUX_WRAPPER_END" '
+    $0 == start { in_block = 1; next }
+    in_block && $0 == end { in_block = 0; next }
+    !in_block { print }
+  ' "$config" >"$temp"; then
+    rm -f "$temp"
+    return 1
+  fi
+  if ! mv -f "$temp" "$config"; then
+    rm -f "$temp"
+    return 1
+  fi
+}
+
+devkit_tmux_wrapper_apply() {
+  local config repo install_path backup_path="${1:-}"
+  config="$(devkit_tmux_wrapper_config_path)"
+  repo="$(devkit_tmux_wrapper_repo_path)"
+  install_path="$(devkit_tmux_wrapper_install_path)"
+  [ -f "$repo" ] || { devkit_error "tmux wrapper file is missing: $repo"; return 1; }
+  devkit_tmux_wrapper_validate_config "$config" || return 1
+  if [ -f "$config" ]; then
+    [ -n "$backup_path" ] || backup_path="$(devkit_tmux_wrapper_next_backup_path "$config")"
+    while [ -e "$backup_path" ]; do
+      backup_path="$(devkit_tmux_wrapper_next_backup_path "$config")"
+    done
+    cp -p "$config" "$backup_path" || {
+      devkit_error "could not back up $config to $backup_path"
+      return 1
+    }
+  fi
+  devkit_tmux_wrapper_install_file "$repo" || {
+    devkit_error "could not install tmux wrapper file at $install_path"
+    return 1
+  }
+  if ! devkit_tmux_wrapper_write_config "$config"; then
+    devkit_error "could not update $config"
+    return 1
+  fi
+  DEVKIT_TMUX_WRAPPER_BACKUP_PATH="$backup_path"
+}
+
+devkit_tmux_wrapper_revert() {
+  local config
+  config="$(devkit_tmux_wrapper_config_path)"
+  [ -e "$config" ] || return 0
+  devkit_tmux_wrapper_validate_config "$config" || return 1
+  devkit_tmux_wrapper_block_present "$config" || return 0
+  devkit_tmux_wrapper_remove_block "$config" || {
+    devkit_error "could not remove the devkit tmux wrapper block from $config"
+    return 1
+  }
+  DEVKIT_TMUX_WRAPPER_REVERTED=true
+}
+
+devkit_tmux_wrapper_print_plan() {
+  local config="$1" backup_path="$2"
+  printf 'Recommended tmux agent wrapper:\n'
+  printf '  - install the wrapper file at %s\n' "$(devkit_tmux_wrapper_install_path)"
+  printf '  - add a source block to %s\n' "$config"
+  printf 'Warning: this defines shell functions named claude, codex and agy that take over those commands in every new interactive zsh. DEVKIT_NO_TMUX=1 or "command claude" bypasses them.\n'
+  if [ -n "$backup_path" ]; then
+    printf '  - back up %s to %s\n' "$config" "$backup_path"
+  else
+    printf '  - no backup: %s does not exist\n' "$config"
+  fi
+}
+
+devkit_tmux_wrapper() {
+  local yes=false dry_run=false revert=false json=false arg config backup_path answer input
+  local block_present=false installed_current=false
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --yes) yes=true; shift ;;
+      --dry-run) dry_run=true; shift ;;
+      --revert) revert=true; shift ;;
+      --json) json=true; shift ;;
+      -h|--help)
+        printf 'Usage: devkit tmux wrapper [--yes] [--dry-run] [--revert] [--json]\n'
+        return 0
+        ;;
+      *)
+        devkit_error "unknown tmux wrapper option: $arg"
+        return "$DEVKIT_USAGE_ERROR"
+        ;;
+    esac
+  done
+  if [ "$dry_run" = true ] && [ "$revert" = true ]; then
+    devkit_error '--dry-run and --revert cannot be combined'
+    return "$DEVKIT_USAGE_ERROR"
+  fi
+  config="$(devkit_tmux_wrapper_config_path)"
+  devkit_tmux_wrapper_block_present "$config" && block_present=true
+  devkit_tmux_wrapper_installed_current && installed_current=true
+  if [ "$dry_run" = true ]; then
+    if [ "$json" = true ]; then
+      jq -n --arg config "$config" --arg installed "$(devkit_tmux_wrapper_install_path)" \
+        --argjson block "$block_present" --argjson installedCurrent "$installed_current" \
+        '{ok: true, action: "dry-run", changed: false, wouldChange: (($block | not) or ($installedCurrent | not)), configPath: $config, installedPath: $installed, blockPresent: $block, installedCurrent: $installedCurrent}'
+    else
+      devkit_tmux_wrapper_print_plan "$config" "$(devkit_tmux_wrapper_next_backup_path "$config")"
+      printf '  - dry-run: no files will change\n'
+    fi
+    return 0
+  fi
+  if [ "$revert" = true ]; then
+    if ! devkit_tmux_wrapper_revert; then
+      [ "$json" = true ] && jq -n '{ok: false, action: "revert", error: "could not revert tmux wrapper"}'
+      return 1
+    fi
+    if [ "$json" = true ]; then
+      jq -n --arg config "$config" --argjson backups "$(devkit_tmux_wrapper_backup_paths_json)" \
+        --argjson changed "${DEVKIT_TMUX_WRAPPER_REVERTED:-false}" \
+        '{ok: true, action: "revert", changed: $changed, configPath: $config, backupPaths: $backups}'
+    else
+      printf 'tmux agent wrapper reverted from %s\n' "$config"
+      printf 'backups remain available:\n'
+      devkit_tmux_wrapper_backup_paths | sed 's/^/  /'
+    fi
+    return 0
+  fi
+  if [ "$yes" != true ]; then
+    backup_path="$(devkit_tmux_wrapper_next_backup_path "$config")"
+    if [ "$json" = true ]; then
+      jq -n --arg config "$config" --arg installed "$(devkit_tmux_wrapper_install_path)" \
+        '{ok: true, action: "apply", status: "confirmation-required", changed: false, configPath: $config, installedPath: $installed}'
+      return 0
+    fi
+    if [ -t 0 ]; then
+      input=/dev/stdin
+    elif [ -r /dev/tty ] && { : </dev/tty; } 2>/dev/null; then
+      input=/dev/tty
+    else
+      printf 'tmux agent wrapper skipped (non-interactive); run: devkit tmux wrapper --yes\n'
+      return 0
+    fi
+    devkit_tmux_wrapper_print_plan "$config" "$backup_path"
+    printf 'Apply tmux agent wrapper? [y/N] '
+    read -r answer <"$input" || answer=''
+    case "$answer" in
+      y|Y|yes|YES|Yes) ;;
+      *) printf 'tmux agent wrapper skipped; run: devkit tmux wrapper --yes\n'; return 0 ;;
+    esac
+  fi
+  if ! devkit_tmux_wrapper_apply "${backup_path:-}"; then
+    [ "$json" = true ] && jq -n '{ok: false, action: "apply", error: "could not apply tmux wrapper"}'
+    return 1
+  fi
+  if [ "$json" = true ]; then
+    jq -n --arg config "$config" --arg installed "$(devkit_tmux_wrapper_install_path)" \
+      --arg backup "${DEVKIT_TMUX_WRAPPER_BACKUP_PATH:-}" \
+      '{ok: true, action: "apply", changed: true, configPath: $config, installedPath: $installed, backupPath: (if $backup == "" then null else $backup end)}'
+  else
+    printf 'tmux agent wrapper applied\n'
+    if [ -n "${DEVKIT_TMUX_WRAPPER_BACKUP_PATH:-}" ]; then
+      printf 'backup: %s\n' "$DEVKIT_TMUX_WRAPPER_BACKUP_PATH"
+    else
+      printf 'backup: none (%s did not exist)\n' "$config"
+    fi
+  fi
+}
+
 command_tmux() {
   local subcommand="${1:-}"
   shift || true
   case "$subcommand" in
     tune) devkit_tmux_tune "$@" ;;
+    wrapper) devkit_tmux_wrapper "$@" ;;
     -h|--help|"")
       printf 'Usage: devkit tmux tune [--yes] [--dry-run] [--revert] [--json]\n'
+      printf '       devkit tmux wrapper [--yes] [--dry-run] [--revert] [--json]\n'
       ;;
     *) devkit_error "unknown tmux command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
   esac
