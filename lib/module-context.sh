@@ -150,30 +150,30 @@ devkit_dispatch_terminal_status() {
   dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId')"
   terminal_id="$(printf '%s' "$meta" | jq -r '.terminalId // empty')"
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  if [ "$runtime" = tmux ]; then
+    tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
+    tmux_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
+    if ! devkit_require_command tmux || ! devkit_tmux_session_exists "$tmux_session"; then
+      DEVKIT_TERMINAL_STATUS=missing
+      return 0
+    fi
+    if ! tmux list-panes -t "$tmux_session" -F '#{pane_id}' 2>/dev/null | grep -Fx "$tmux_pane" >/dev/null 2>&1; then
+      DEVKIT_TERMINAL_STATUS=missing
+      return 0
+    fi
+    pane_pid="$(tmux display-message -p -t "$tmux_pane" '#{pane_pid}' 2>/dev/null || true)"
+    if [ -n "$pane_pid" ] && ps eww -p "$pane_pid" 2>/dev/null | grep -F "DEVKIT_DISPATCH_ID=$dispatch_id" >/dev/null 2>&1; then
+      DEVKIT_TERMINAL_STATUS=proven
+    fi
+    return 0
+  fi
   records="$(devkit_dispatch_host_terminal_records "$meta" 2>/dev/null || true)"
   printf '%s' "$records" | jq -e . >/dev/null 2>&1 || return 0
   if ! devkit_dispatch_terminal_id_exists "$records" "$terminal_id"; then
     DEVKIT_TERMINAL_STATUS=missing
     return 0
   fi
-  if [ "$runtime" != tmux ]; then
-    if devkit_dispatch_terminal_identity_matches "$records" "$terminal_id" "$dispatch_id"; then
-      DEVKIT_TERMINAL_STATUS=proven
-    fi
-    return 0
-  fi
-  tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
-  tmux_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
-  if ! devkit_require_command tmux || ! devkit_tmux_session_exists "$tmux_session"; then
-    DEVKIT_TERMINAL_STATUS=missing
-    return 0
-  fi
-  if ! tmux list-panes -t "$tmux_session" -F '#{pane_id}' 2>/dev/null | grep -Fx "$tmux_pane" >/dev/null 2>&1; then
-    DEVKIT_TERMINAL_STATUS=missing
-    return 0
-  fi
-  pane_pid="$(tmux display-message -p -t "$tmux_pane" '#{pane_pid}' 2>/dev/null || true)"
-  if [ -n "$pane_pid" ] && ps eww -p "$pane_pid" 2>/dev/null | grep -F "DEVKIT_DISPATCH_ID=$dispatch_id" >/dev/null 2>&1; then
+  if devkit_dispatch_terminal_identity_matches "$records" "$terminal_id" "$dispatch_id"; then
     DEVKIT_TERMINAL_STATUS=proven
   fi
 }

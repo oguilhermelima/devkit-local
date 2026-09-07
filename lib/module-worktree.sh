@@ -323,7 +323,6 @@ devkit_launch_agent() {
     if [ -n "$existing_session" ]; then
       tmux_session="$existing_session"
       session_id="$(devkit_tmux_host_terminal_for_session "$tmux_session" 2>/dev/null || true)"
-      [ -n "$session_id" ] || { devkit_error "tmux session $tmux_session has no managed host terminal"; return 1; }
       tmux_pane="$(devkit_tmux_split_pane "$tmux_session" "$worktree_path")" || {
         devkit_error "could not split tmux session $tmux_session"
         return 1

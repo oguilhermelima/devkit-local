@@ -19,7 +19,8 @@ _devkit_tmux_wrap() {
   local cmd="${(j: :)${(@q)parts}}"
   local session="devkit-${agent}-$$"
   local pane cwd state_dir sessions_dir record_path temp host
-  if ! tmux new-session -d -s "$session" -c "$PWD" "$cmd" \; set -g mouse on \; set -g status off; then
+  if ! tmux new-session -d -A -s "$session" -c "$PWD" "$cmd" \; set -g mouse on \; set -g status off; then
+    command $agent "$@"
     return
   fi
   pane="$(tmux list-panes -t "$session" -F '#{pane_id}' 2>/dev/null | head -n 1)"

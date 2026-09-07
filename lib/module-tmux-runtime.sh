@@ -46,6 +46,64 @@ devkit_tmux_settle_pane() {
   done
 }
 
+devkit_tmux_session_registry_remove() {
+  local session="$1"
+  [ -n "$session" ] || return 1
+  rm -f "$DEVKIT_TMUX_SESSION_DIR/$session.json"
+}
+
+devkit_tmux_session_registry_prune() {
+  local record_path record session
+  for record_path in "$DEVKIT_TMUX_SESSION_DIR"/*.json; do
+    [ -f "$record_path" ] || continue
+    record="$(cat "$record_path" 2>/dev/null || true)"
+    session="$(printf '%s' "$record" | jq -r '.tmuxSession // empty' 2>/dev/null || true)"
+    if [ -z "$session" ] || ! devkit_tmux_session_exists "$session"; then
+      rm -f "$record_path"
+    fi
+  done
+}
+
+devkit_tmux_registry_session_for_worktree() {
+  local worktree_path="$1" target record_path record session directory role
+  target="$(cd "$worktree_path" 2>/dev/null && pwd -P || printf '%s' "$worktree_path")"
+  devkit_tmux_session_registry_prune
+  for record_path in "$DEVKIT_TMUX_SESSION_DIR"/*.json; do
+    [ -f "$record_path" ] || continue
+    record="$(cat "$record_path" 2>/dev/null || true)"
+    session="$(printf '%s' "$record" | jq -r '.tmuxSession // empty' 2>/dev/null || true)"
+    directory="$(printf '%s' "$record" | jq -r '.workingDirectory // empty' 2>/dev/null || true)"
+    role="$(printf '%s' "$record" | jq -r '.role // empty' 2>/dev/null || true)"
+    [ "$role" = main ] || continue
+    [ -n "$session" ] && [ -n "$directory" ] || continue
+    directory="$(cd "$directory" 2>/dev/null && pwd -P || printf '%s' "$directory")"
+    if [ "$directory" = "$target" ] && devkit_tmux_session_exists "$session"; then
+      printf '%s\n' "$session"
+      return 0
+    fi
+  done
+  return 1
+}
+
+devkit_tmux_registry_main_pane_for_session() {
+  local session="$1" record_path record pane role
+  devkit_tmux_session_exists "$session" || return 1
+  devkit_tmux_session_registry_prune
+  for record_path in "$DEVKIT_TMUX_SESSION_DIR"/*.json; do
+    [ -f "$record_path" ] || continue
+    record="$(cat "$record_path" 2>/dev/null || true)"
+    role="$(printf '%s' "$record" | jq -r '.role // empty' 2>/dev/null || true)"
+    [ "$role" = main ] || continue
+    pane="$(printf '%s' "$record" | jq -r --arg session "$session" 'select(.tmuxSession == $session) | .tmuxPane // empty' 2>/dev/null || true)"
+    [ -n "$pane" ] || continue
+    if tmux list-panes -t "$session" -F '#{pane_id}' 2>/dev/null | grep -Fx "$pane" >/dev/null 2>&1; then
+      printf '%s\n' "$pane"
+      return 0
+    fi
+  done
+  return 1
+}
+
 devkit_tmux_existing_session_for_worktree() {
   local worktree_path="$1" meta_path meta session state
   DEVKIT_TMUX_EXISTING_SESSION=""
@@ -62,6 +120,11 @@ devkit_tmux_existing_session_for_worktree() {
       return 0
     fi
   done
+  session="$(devkit_tmux_registry_session_for_worktree "$worktree_path" 2>/dev/null || true)"
+  if [ -n "$session" ]; then
+    DEVKIT_TMUX_EXISTING_SESSION="$session"
+    return 0
+  fi
   return 1
 }
 
