@@ -13,7 +13,7 @@ devkit_dispatch_transition_allowed() {
     dispatch:spawning:spawning|dispatch:spawning:running|dispatch:spawning:failed|dispatch:spawning:closed) return 0 ;;
     dispatch:running:running|dispatch:running:waiting_for_reply|dispatch:running:done|dispatch:running:failed|dispatch:running:orphaned|dispatch:running:stalled|dispatch:running:timeout|dispatch:running:closed) return 0 ;;
     dispatch:waiting_for_reply:waiting_for_reply|dispatch:waiting_for_reply:running|dispatch:waiting_for_reply:done|dispatch:waiting_for_reply:failed|dispatch:waiting_for_reply:orphaned|dispatch:waiting_for_reply:stalled|dispatch:waiting_for_reply:timeout|dispatch:waiting_for_reply:closed) return 0 ;;
-    dispatch:done:done|dispatch:done:closed) return 0 ;;
+    dispatch:done:done|dispatch:done:failed|dispatch:done:orphaned|dispatch:done:closed) return 0 ;;
     dispatch:failed:failed|dispatch:failed:circuit_broken|dispatch:failed:closed) return 0 ;;
     dispatch:orphaned:orphaned|dispatch:orphaned:running|dispatch:orphaned:failed|dispatch:orphaned:circuit_broken|dispatch:orphaned:closed) return 0 ;;
     dispatch:stalled:stalled|dispatch:stalled:failed|dispatch:stalled:circuit_broken|dispatch:stalled:closed) return 0 ;;
@@ -25,8 +25,8 @@ devkit_dispatch_transition_allowed() {
     process:stopping:stopping|process:stopping:stopped|process:stopping:stop-unproven|process:stopping:running|process:stopping:failed|process:stopping:abandoned) return 0 ;;
     process:stop-unproven:stop-unproven|process:stop-unproven:failed|process:stop-unproven:stopped|process:stop-unproven:abandoned) return 0 ;;
     process:succeeded:succeeded|process:failed:failed|process:stopped:stopped|process:abandoned:abandoned) return 0 ;;
-    terminal:owned:owned|terminal:owned:retained|terminal:owned:released) return 0 ;;
-    terminal:retained:retained|terminal:retained:released) return 0 ;;
+    terminal:owned:owned|terminal:owned:missing|terminal:owned:retained|terminal:owned:released) return 0 ;;
+    terminal:retained:retained|terminal:retained:missing|terminal:retained:released) return 0 ;;
     terminal:missing:missing|terminal:missing:retained|terminal:missing:released|terminal:released:released) return 0 ;;
     *) return 1 ;;
   esac
@@ -183,17 +183,195 @@ devkit_dispatch_meta_read() {
 }
 
 devkit_dispatch_meta_update_state() {
-  local dispatch_id="$1" state="$2" path tmp current_state
+  local dispatch_id="$1" state="$2" path current_state
   path="$(devkit_dispatch_meta_path "$dispatch_id")" || return 1
+  devkit_dispatch_meta_normalize "$dispatch_id" || return 1
   current_state="$(jq -r '.state // empty' "$path" 2>/dev/null || true)"
   [ -n "$current_state" ] || { devkit_error "dispatch state is missing: $dispatch_id"; return 1; }
   devkit_dispatch_validate_transition dispatch "$current_state" "$state" || return 1
+  devkit_dispatch_meta_update_fields "$dispatch_id" "$state" "__keep__" "__keep__" "__keep__" "__keep__" "__keep__" "__keep__" "__keep__"
+}
+
+devkit_dispatch_meta_update_fields() {
+  local dispatch_id="$1" state="$2" process_state="$3" terminal_state="$4"
+  local stage="$5" reason="$6" outcome="$7" terminal_reason="$8" failure_count="$9"
+  local path current_state current_process current_terminal tmp
+  path="$(devkit_dispatch_meta_path "$dispatch_id")" || return 1
+  current_state="$(jq -r '.state // empty' "$path" 2>/dev/null || true)"
+  current_process="$(jq -r '.processState // empty' "$path" 2>/dev/null || true)"
+  current_terminal="$(jq -r '.terminalState // empty' "$path" 2>/dev/null || true)"
+  [ "$state" = __keep__ ] || devkit_dispatch_validate_transition dispatch "$current_state" "$state" || return 1
+  [ "$process_state" = __keep__ ] || devkit_dispatch_validate_transition process "$current_process" "$process_state" || return 1
+  [ "$terminal_state" = __keep__ ] || devkit_dispatch_validate_transition terminal "$current_terminal" "$terminal_state" || return 1
   tmp="$(mktemp "$(devkit_dispatch_dir "$dispatch_id")/.meta.XXXXXX")" || return 1
-  if ! jq --arg state "$state" --arg now "$(devkit_iso_now)" '.state = $state | .updatedAt = $now' "$path" >"$tmp"; then
+  if ! jq \
+    --arg state "$state" --arg processState "$process_state" --arg terminalState "$terminal_state" \
+    --arg stage "$stage" --arg reason "$reason" --arg outcome "$outcome" \
+    --arg terminalReason "$terminal_reason" --arg failureCount "$failure_count" --arg now "$(devkit_iso_now)" '
+      . as $before
+      | if $state == "__keep__" then . else .state = $state end
+      | if $processState == "__keep__" then . else .processState = $processState end
+      | if $terminalState == "__keep__" then . else .terminalState = $terminalState end
+      | if $stage == "__keep__" then . elif $stage == "__clear__" then .stage = null else .stage = $stage end
+      | if $reason == "__keep__" then . elif $reason == "__clear__" then .reason = null else .reason = $reason end
+      | if $outcome == "__keep__" then . elif $outcome == "__clear__" then .reconcileOutcome = null else .reconcileOutcome = $outcome end
+      | if $terminalReason == "__keep__" then . elif $terminalReason == "__clear__" then .terminalReason = null else .terminalReason = $terminalReason end
+      | if $failureCount == "__keep__" then . else .failureCount = ($failureCount | tonumber) end
+      | if . == $before then . else .updatedAt = $now end
+    ' "$path" >"$tmp"; then
     rm -f "$tmp"
     return 1
   fi
   mv -f "$tmp" "$path"
+}
+
+devkit_dispatch_meta_update_process_state() {
+  local dispatch_id="$1" process_state="$2"
+  devkit_dispatch_meta_update_fields "$dispatch_id" __keep__ "$process_state" __keep__ __keep__ __keep__ __keep__ __keep__ __keep__
+}
+
+devkit_dispatch_meta_update_terminal_state() {
+  local dispatch_id="$1" terminal_state="$2"
+  devkit_dispatch_meta_update_fields "$dispatch_id" __keep__ __keep__ "$terminal_state" __keep__ __keep__ __keep__ __keep__ __keep__
+}
+
+devkit_dispatch_meta_normalize() {
+  local dispatch_id="$1" path tmp
+  path="$(devkit_dispatch_meta_path "$dispatch_id")" || return 1
+  tmp="$(mktemp "$(devkit_dispatch_dir "$dispatch_id")/.meta.XXXXXX")" || return 1
+  if ! jq '
+    .processState //= (if .state == "spawning" then "starting" elif .state == "running" then "running" elif .state == "done" then "succeeded" elif .state == "failed" then "failed" elif .state == "closed" then "stopped" else "start-unproven" end)
+    | .terminalState //= "owned"
+    | .terminalReason //= null
+    | .failureCount //= 0
+    | .stage //= null
+    | .reason //= null
+    | .reconcileOutcome //= null
+  ' "$path" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  if cmp -s "$tmp" "$path"; then
+    rm -f "$tmp"
+  else
+    mv -f "$tmp" "$path"
+  fi
+}
+
+devkit_dispatch_reconcile_one() {
+  local dispatch_id="$1" meta state process_state terminal_status parent_status failure_count next_state next_process
+  local stage reason outcome terminal_state
+  DEVKIT_RECONCILE_OUTCOME=unchanged
+  devkit_dispatch_meta_normalize "$dispatch_id" || return 1
+  meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
+  state="$(printf '%s' "$meta" | jq -r '.state')"
+  process_state="$(printf '%s' "$meta" | jq -r '.processState')"
+  [ "$state" != closed ] || return 0
+  [ "$state" != circuit_broken ] || return 0
+  devkit_dispatch_terminal_status "$meta"
+  terminal_status="${DEVKIT_TERMINAL_STATUS:-unknown}"
+  case "$terminal_status" in
+    missing)
+      failure_count="$(printf '%s' "$meta" | jq -r '.failureCount // 0')"
+      failure_count=$((failure_count + 1))
+      next_state=failed
+      [ "$failure_count" -ge 3 ] && next_state=circuit_broken
+      next_process=abandoned
+      case "$process_state" in
+        succeeded|failed|stopped|abandoned) next_process=__keep__ ;;
+      esac
+      devkit_dispatch_meta_update_fields "$dispatch_id" "$next_state" "$next_process" missing terminal-missing terminal-missing terminal-missing terminal-missing "$failure_count" || return 1
+      DEVKIT_RECONCILE_OUTCOME=terminal-missing
+      ;;
+    proven)
+      devkit_dispatch_parent_status "$meta"
+      parent_status="${DEVKIT_PARENT_STATUS:-unknown}"
+      case "$parent_status" in
+        gone)
+          next_state=__keep__
+          case "$process_state:$state" in
+            starting:*|start-unproven:*|running:*|stopping:*|stop-unproven:*) next_state=orphaned ;;
+          esac
+          devkit_dispatch_meta_update_fields "$dispatch_id" "$next_state" __keep__ __keep__ parent-missing parent-missing orphaned __keep__ __keep__ || return 1
+          DEVKIT_RECONCILE_OUTCOME=orphaned
+          ;;
+        alive)
+          next_state=__keep__
+          next_process=__keep__
+          [ "$state" = spawning ] || [ "$state" = orphaned ] && next_state=running
+          case "$process_state" in
+            starting|start-unproven) next_process=running ;;
+          esac
+          devkit_dispatch_meta_update_fields "$dispatch_id" "$next_state" "$next_process" __keep__ terminal-proven identity-proven adopted __keep__ __keep__ || return 1
+          DEVKIT_RECONCILE_OUTCOME=adopted
+          ;;
+        *)
+          devkit_dispatch_meta_update_fields "$dispatch_id" __keep__ __keep__ __keep__ parent-unproven parent-unproven parent-unproven __keep__ __keep__ || return 1
+          DEVKIT_RECONCILE_OUTCOME=parent-unproven
+          ;;
+      esac
+      ;;
+    *)
+      next_process=__keep__
+      [ "$process_state" = starting ] && next_process=start-unproven
+      devkit_dispatch_meta_update_fields "$dispatch_id" __keep__ "$next_process" __keep__ identity-unproven identity-unproven identity-unproven __keep__ __keep__ || return 1
+      DEVKIT_RECONCILE_OUTCOME=identity-unproven
+      ;;
+  esac
+}
+
+devkit_dispatch_reconcile() {
+  local dispatch_id="" all=false json=false arg meta_path meta entries='[]' outcome
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --all) all=true; shift ;;
+      --json) json=true; shift ;;
+      -h|--help) printf 'Usage: devkit orchestrate reconcile <dispatch-id> [--json]\n'; return 0 ;;
+      *)
+        [ -z "$dispatch_id" ] || { devkit_error "unknown reconcile option: $arg"; return "$DEVKIT_USAGE_ERROR"; }
+        dispatch_id="$arg"
+        shift
+        ;;
+    esac
+  done
+  if [ "$all" = true ]; then
+    for meta_path in "$DEVKIT_DISPATCH_DIR"/*/meta.json; do
+      [ -f "$meta_path" ] || continue
+      dispatch_id="$(jq -r '.dispatchId' "$meta_path")"
+      devkit_dispatch_reconcile_one "$dispatch_id" || return 1
+      meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
+      outcome="${DEVKIT_RECONCILE_OUTCOME:-unchanged}"
+      entries="$(jq --argjson item "$meta" --arg outcome "$outcome" '. + [$item + {reconcileResult: $outcome}]' <<<"$entries")" || return 1
+    done
+  else
+    [ -n "$dispatch_id" ] || { devkit_error 'Usage: devkit orchestrate reconcile <dispatch-id> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+    devkit_dispatch_reconcile_one "$dispatch_id" || return 1
+    meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
+    outcome="${DEVKIT_RECONCILE_OUTCOME:-unchanged}"
+    entries="$(jq --argjson item "$meta" --arg outcome "$outcome" '. + [$item + {reconcileResult: $outcome}]' <<<"$entries")" || return 1
+  fi
+  if [ "$json" = true ]; then
+    printf '%s\n' "$entries" | jq 'if length == 1 then .[0] else . end'
+  else
+    printf '%s\n' "$entries" | jq -r '.[] | [.dispatchId, .reconcileResult, .state, .processState, .terminalState] | @tsv' | while IFS=$'\t' read -r dispatch outcome state process terminal; do
+      printf 'dispatch: %s\nresult: %s\nstate: %s\nprocess: %s\nterminal: %s\n' "$dispatch" "$outcome" "$state" "$process" "$terminal"
+    done
+  fi
+}
+
+devkit_dispatch_health_counts() {
+  local meta_path meta records='[]'
+  MODULE_UNCERTAIN_DISPATCHES=0
+  MODULE_RETAINED_TERMINALS=0
+  for meta_path in "$DEVKIT_DISPATCH_DIR"/*/meta.json; do
+    [ -f "$meta_path" ] || continue
+    meta="$(cat "$meta_path" 2>/dev/null || true)"
+    printf '%s' "$meta" | jq -e . >/dev/null 2>&1 || continue
+    records="$(jq --argjson item "$meta" '. + [$item]' <<<"$records")" || continue
+  done
+  MODULE_UNCERTAIN_DISPATCHES="$(printf '%s' "$records" | jq '[.[] | select((.processState // "") == "start-unproven" or (.processState // "") == "stop-unproven" or (.processState // "") == "abandoned")] | length')"
+  MODULE_RETAINED_TERMINALS="$(printf '%s' "$records" | jq '[.[] | select((.terminalState // "") == "retained")] | length')"
 }
 
 devkit_dispatch_cursor_read() {

@@ -50,11 +50,15 @@ devkit_install_one() {
 devkit_doctor_one() {
   local module="$1"
   local json="${2:-false}"
+  MODULE_UNCERTAIN_DISPATCHES=0
+  MODULE_RETAINED_TERMINALS=0
   devkit_module_doctor "$module"
   local rc=$?
   if [ "$json" = true ]; then
     jq -n --arg module "$module" --arg status "$MODULE_STATUS" --arg reason "$MODULE_REASON" \
-      '{module: $module, status: $status, reason: $reason}'
+      --argjson uncertainDispatches "${MODULE_UNCERTAIN_DISPATCHES:-0}" \
+      --argjson retainedTerminals "${MODULE_RETAINED_TERMINALS:-0}" \
+      '{module: $module, status: $status, reason: $reason, uncertainDispatches: $uncertainDispatches, retainedTerminals: $retainedTerminals}'
   else
     devkit_status_line "$module" "$MODULE_STATUS" "$MODULE_REASON"
   fi
@@ -174,24 +178,26 @@ command_doctor() {
 }
 
 module_orchestration_doctor() {
-  local orca_status superset_status
+  local orca_status superset_status counts_suffix
+  devkit_dispatch_health_counts
+  counts_suffix="; uncertain dispatches: $MODULE_UNCERTAIN_DISPATCHES; retained terminals: $MODULE_RETAINED_TERMINALS"
   if ! devkit_require_command orca; then
-    devkit_set_status missing "orca CLI is not on PATH"
+    devkit_set_status missing "orca CLI is not on PATH$counts_suffix"
     return 1
   fi
   if ! orca status --json >/dev/null 2>&1; then
-    devkit_set_status misconfigured "orca status --json failed"
+    devkit_set_status misconfigured "orca status --json failed$counts_suffix"
     return 1
   fi
   if ! devkit_superset_available; then
-    devkit_set_status missing "superset CLI is not on PATH and $HOME/.superset/bin/superset is unavailable"
+    devkit_set_status missing "superset CLI is not on PATH and $HOME/.superset/bin/superset is unavailable$counts_suffix"
     return 1
   fi
   if ! devkit_superset workspaces list --json >/dev/null 2>&1; then
-    devkit_set_status misconfigured "superset workspaces list --json failed"
+    devkit_set_status misconfigured "superset workspaces list --json failed$counts_suffix"
     return 1
   fi
-  devkit_set_status ok "orca and superset status checks passed"
+  devkit_set_status ok "orca and superset status checks passed$counts_suffix"
   return 0
 }
 
