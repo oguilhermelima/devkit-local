@@ -661,9 +661,9 @@ ${prompt}"
     return 1
   }
   if [ "$child_host" = orca ]; then
-    command_text="cd $(printf '%q' "$worktree_path") && DEVKIT_STATE_DIR=$(printf '%q' "$DEVKIT_STATE_DIR") ORCA_TERMINAL_HANDLE=$(printf '%q' "$session_id") DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") $command_text"
+    command_text="cd $(printf '%q' "$worktree_path") && env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR=$(printf '%q' "$DEVKIT_STATE_DIR") ORCA_TERMINAL_HANDLE=$(printf '%q' "$session_id") DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") $command_text"
   else
-    command_text="cd $(printf '%q' "$worktree_path") && DEVKIT_STATE_DIR=$(printf '%q' "$DEVKIT_STATE_DIR") SUPERSET_TERMINAL_ID=$(printf '%q' "$session_id") DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") $command_text"
+    command_text="cd $(printf '%q' "$worktree_path") && env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR=$(printf '%q' "$DEVKIT_STATE_DIR") SUPERSET_TERMINAL_ID=$(printf '%q' "$session_id") DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") $command_text"
   fi
   meta="$(devkit_dispatch_meta_read "$dispatch_id")" || {
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
