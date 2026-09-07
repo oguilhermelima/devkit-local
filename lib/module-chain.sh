@@ -16,14 +16,14 @@ devkit_chain_seed() {
       "when": {"parentAgent": "claude"},
       "steps": [
         {"agent": "codex", "model": "gpt-5.6-luna", "effort": "high", "until": {"usedPercent": 95, "window": "5h"}},
-        {"agent": "agy", "model": "gemini-3.8-flash-high", "effort": "high"}
+        {"agent": "agy", "model": "gemini-3.8-flash-high"}
       ]
     },
     "codex": {
       "when": {"parentAgent": "codex"},
       "steps": [
         {"agent": "claude", "model": "claude-sonnet-5", "effort": "high"},
-        {"agent": "agy", "model": "gemini-3.8-flash-high", "effort": "high"}
+        {"agent": "agy", "model": "gemini-3.8-flash-high"}
       ]
     },
     "agy": {
@@ -120,7 +120,7 @@ EOF
 }
 
 devkit_chain_validate_step() {
-  local chain="$1" index="$2" step="$3" strict="${4:-false}" key agent model effort until_json used_percent window unvalidated
+  local chain="$1" index="$2" step="$3" strict="${4:-false}" key agent model effort until_json used_percent window unvalidated has_effort
   if ! printf '%s' "$step" | jq -e 'type == "object"' >/dev/null 2>&1; then
     devkit_error "invalid chain $chain step $index: expected an object"
     return 1
@@ -137,11 +137,11 @@ devkit_chain_validate_step() {
   agent="$(printf '%s' "$step" | jq -r '.agent // empty')"
   model="$(printf '%s' "$step" | jq -r '.model // empty')"
   effort="$(printf '%s' "$step" | jq -r '.effort // empty')"
+  has_effort="$(printf '%s' "$step" | jq -r 'has("effort")')"
   unvalidated="$(printf '%s' "$step" | jq -r '.unvalidated // false')"
   [ -n "$agent" ] || { devkit_error "invalid chain $chain step $index: agent is required"; return 1; }
   devkit_chain_agent_known "$agent" || { devkit_error "invalid chain $chain step $index: unknown agent $agent"; return 1; }
   [ -n "$model" ] || { devkit_error "invalid chain $chain step $index: model is required"; return 1; }
-  [ -n "$effort" ] || { devkit_error "invalid chain $chain step $index: effort is required"; return 1; }
   if [ "$unvalidated" != true ] && ! devkit_model_known "$agent" "$model"; then
     if [ "$strict" = true ]; then
       devkit_model_validate_step "$chain" "$index" "$agent" "$model" "$effort" || return 1
@@ -150,7 +150,11 @@ devkit_chain_validate_step() {
       devkit_error "chain migration required: chain $chain step $index uses unknown model '$model' for agent '$agent'; run devkit chain repair $chain --step $index --model <valid-id> --effort <level>"
     fi
   elif [ "$unvalidated" != true ]; then
-    devkit_model_validate_reasoning "$agent" "$model" "$effort" || return 1
+    if [ "$has_effort" = true ] && ! devkit_model_effort_separate "$agent" "$model"; then
+      devkit_model_validate_reasoning "$agent" "$model" __supplied__ || return 1
+    else
+      devkit_model_validate_reasoning "$agent" "$model" "$effort" || return 1
+    fi
   fi
   if printf '%s' "$step" | jq -e 'has("until")' >/dev/null 2>&1; then
     until_json="$(printf '%s' "$step" | jq -c '.until')"
@@ -392,17 +396,17 @@ command_chain_delete() {
 }
 
 command_chain_repair() {
-  local name="${1:-}" step_number="" model="" effort="" json=false arg config result step agent
-  [ -n "$name" ] || { devkit_error 'Usage: devkit chain repair <name> --step <number> --model <id> --effort <level> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+  local name="${1:-}" step_number="" model="" effort="" json=false has_effort=false arg config result step agent
+  [ -n "$name" ] || { devkit_error 'Usage: devkit chain repair <name> --step <number> --model <id> [--effort <level>] [--json]'; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --step) step_number="${2:-}"; shift 2 ;;
       --model) model="${2:-}"; shift 2 ;;
-      --effort) effort="${2:-}"; shift 2 ;;
+      --effort) effort="${2:-}"; has_effort=true; shift 2 ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit chain repair <name> --step <number> --model <id> --effort <level> [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: devkit chain repair <name> --step <number> --model <id> [--effort <level>] [--json]\n'; return 0 ;;
       *) devkit_error "unknown chain repair option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
@@ -410,13 +414,12 @@ command_chain_repair() {
     ''|*[!0-9]*|0) devkit_error 'chain repair requires a positive --step number'; return "$DEVKIT_USAGE_ERROR" ;;
   esac
   [ -n "$model" ] || { devkit_error '--model is required for chain repair'; return "$DEVKIT_USAGE_ERROR"; }
-  [ -n "$effort" ] || { devkit_error '--effort is required for chain repair'; return "$DEVKIT_USAGE_ERROR"; }
   config="$(devkit_chain_read)" || return 1
   step="$(printf '%s' "$config" | jq -c --arg name "$name" --argjson index "$step_number" '.chains[$name].steps[$index - 1] // empty')"
   [ -n "$step" ] || { devkit_error "chain step not found: $name step $step_number"; return 1; }
   agent="$(printf '%s' "$step" | jq -r '.agent')"
   devkit_model_validate_step "$name" "$step_number" "$agent" "$model" "$effort" || return 1
-  result="$(printf '%s' "$config" | jq --arg name "$name" --argjson index "$step_number" --arg model "$model" --arg effort "$effort" '.chains[$name].steps[$index - 1] |= (.model = $model | .effort = $effort | del(.unvalidated))')"
+  result="$(printf '%s' "$config" | jq --arg name "$name" --argjson index "$step_number" --arg model "$model" --arg effort "$effort" --argjson hasEffort "$has_effort" '.chains[$name].steps[$index - 1] |= (.model = $model | if $hasEffort then .effort = $effort else del(.effort) end | del(.unvalidated))')"
   devkit_chain_validate_config "$result" || return 1
   devkit_chain_write "$result" || return 1
   if [ "$json" = true ]; then
@@ -1080,7 +1083,9 @@ devkit_chain_run_spawn() {
     [ -n "$base" ] && spawn_args+=(--base "$base")
     [ -n "$slug" ] && spawn_args+=(--name "$slug")
   fi
-  spawn_args+=(--agent "$agent" --model "$model" --effort "$effort" --prompt "$prompt" --json)
+  spawn_args+=(--agent "$agent" --model "$model")
+  [ -n "$effort" ] && spawn_args+=(--effort "$effort")
+  spawn_args+=(--prompt "$prompt" --json)
   [ -n "$label" ] && spawn_args+=(--label "$label")
   [ -n "$tmux_choice" ] && spawn_args+=(--tmux "$tmux_choice")
   if [ "${#agent_args[@]}" -gt 0 ]; then
@@ -1155,7 +1160,7 @@ command_chain_run() {
     index=$((index + 1))
     agent="$(printf '%s' "$step" | jq -r '.agent')"
     model="$(printf '%s' "$step" | jq -r '.model')"
-    effort="$(printf '%s' "$step" | jq -r '.effort')"
+    effort="$(printf '%s' "$step" | jq -r '.effort // empty')"
     until_json="$(printf '%s' "$step" | jq -c '.until // empty')"
     limit_reason=""
     DEVKIT_CHAIN_LIMIT_RESETS=""

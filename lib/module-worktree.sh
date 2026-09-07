@@ -774,7 +774,10 @@ devkit_worktree_create() {
   if [ "$orchestrate" = true ]; then
     [ -n "$agent" ] || { devkit_error "--agent is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
     [ -n "$model" ] || { devkit_error "--model is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
-    [ -n "$effort" ] || { devkit_error "--effort is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
+    if [ -z "$effort" ] && { ! devkit_model_known "$agent" "$model" || devkit_model_effort_separate "$agent" "$model"; }; then
+      devkit_error "--effort is required for orchestrate spawn"
+      return "$DEVKIT_USAGE_ERROR"
+    fi
     [ -n "$prompt" ] || { devkit_error "--prompt is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
     devkit_resolve_spawn_runtime "$tmux_choice" || return 1
     runtime="$DEVKIT_SPAWN_RUNTIME"
