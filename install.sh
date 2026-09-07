@@ -18,6 +18,7 @@ SOURCE_ROOT=""
 SOURCE_FROM_CHECKOUT=false
 INSTALL_ACTION="reconfigure"
 INSTALL_MANIFEST=""
+INSTALL_FRESH=false
 SUMMARY_LINES=()
 INSTALLER_MENU_OPTIONS=()
 INSTALLER_MENU_SELECTED=()
@@ -303,6 +304,7 @@ installer_source_root() {
   cp -R "$payload/." "$checkout_dir/" || { rm -rf "$temp_dir"; installer_error "could not install extracted archive at $checkout_dir"; return 1; }
   rm -rf "$temp_dir"
   SOURCE_ROOT="$checkout_dir"
+  INSTALL_FRESH=true
 }
 
 installer_manifest_path() {
@@ -323,17 +325,18 @@ installer_manifest_summary() {
 installer_prepare_existing_install() {
   local existing=false choice
   installer_manifest_path
+  [ "$INSTALL_FRESH" = true ] && return 0
   if [ -f "$INSTALL_MANIFEST" ] || [ -x "$INSTALL_ROOT/devkit" ]; then
     existing=true
   fi
   [ "$existing" = true ] || return 0
   installer_manifest_summary
-  if [ "$SOURCE_FROM_CHECKOUT" = true ] && [ "$SOURCE_ROOT" = "$INSTALL_ROOT" ]; then
+  if [ "$SOURCE_FROM_CHECKOUT" = true ] && [ "$(installer_canonical_path "$SOURCE_ROOT")" = "$(installer_canonical_path "$INSTALL_ROOT")" ]; then
     installer_summary "installation already current"
     return 0
   fi
   if [ ! -t 0 ]; then
-    installer_summary "existing installation reconfigured"
+    installer_summary "existing installation reconfigured (updated)"
     INSTALL_ACTION=reconfigure
     return 0
   fi
@@ -463,9 +466,22 @@ installer_link_devkit() {
     installer_error "refusing to replace directory: $link"
     return 1
   fi
+  local link_status=installed link_target
+  if [ -L "$link" ]; then
+    link_target="$(readlink "$link")"
+    case "$link_target" in
+      /*) ;;
+      *) link_target="$(dirname "$link")/$link_target" ;;
+    esac
+    if [ "$(installer_canonical_path "$link_target")" = "$(installer_canonical_path "$SOURCE_ROOT/devkit")" ]; then
+      link_status=already-current
+    else
+      link_status=updated
+    fi
+  fi
   rm -f "$link" || { installer_error "could not replace $link"; return 1; }
   ln -s "$SOURCE_ROOT/devkit" "$link" || { installer_error "could not link $link"; return 1; }
-  installer_summary "symlinked $link to $SOURCE_ROOT/devkit"
+  installer_summary "devkit link $link_status at $link"
   installer_warn_path
 }
 
@@ -530,6 +546,8 @@ installer_canonical_path() {
   local path="$1"
   if [ -d "$path" ]; then
     (cd -P "$path" && pwd)
+  elif [ -e "$path" ]; then
+    (cd -P "$(dirname "$path")" && printf '%s/%s\n' "$(pwd)" "$(basename "$path")")
   else
     printf '%s\n' "$path"
   fi
