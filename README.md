@@ -56,6 +56,26 @@ registers it, starts the child agent, and sends the prompt in one operation. The
 publishes a durable received message; spawn marks the prompt delivered only after that message is
 delivered and acknowledged.
 
+### Model registry
+
+The supported model registry is versioned in `.devkit/models.json` and copied to the active
+state directory on first use. Every entry records its agent, exact model identifier, supported
+reasoning levels, and provenance. A live entry records the command that produced it; curated
+codex and claude entries record manual curation and their observation date.
+
+Inspect and maintain the registry with:
+
+```sh
+devkit model list [--json]
+devkit model refresh agy
+devkit model add <agent> <model> --reasoning low,medium,high
+```
+
+Only agy has a live listing command, so `model refresh agy` runs `agy models` and replaces the agy
+entries with a new timestamp. Codex and claude remain visibly curated because neither provider
+offers a model-listing command. For agy, reasoning is encoded in the model identifier; the
+registry therefore records that it is not a separate axis.
+
 ### Agent chains
 
 `devkit chain` stores ordered fallback agents in `$DEVKIT_STATE_DIR/chains.json` (by default
@@ -72,12 +92,19 @@ devkit chain add <name> --when '{"parentAgent":"codex"}' \
   --steps '[{"agent":"agy","model":"gemini-3.1-pro-high","effort":"high"}]' [--json]
 devkit chain edit <name> [--json]
 devkit chain delete <name> [--json]
+devkit chain repair <name> --step <number> --model <id> --effort <level>
 ```
 
 `add` and `edit` validate the complete configuration before replacing the file. Steps require a
-known agent (`codex`, `claude`, or `agy`), model, effort, and, when present, an `until` object with
-`usedPercent` and `window` (`5h` or `weekly`). `edit` opens a temporary copy with `$EDITOR` and
-leaves the real file untouched when validation fails or the editor makes no change.
+known agent (`codex`, `claude`, or `agy`), a registered model for that agent, and a reasoning level
+that model supports. When present, an `until` object must contain `usedPercent` and `window` (`5h`
+or `weekly`). `edit` opens a temporary copy with `$EDITOR` and leaves the real file untouched when
+validation fails or the editor makes no change.
+
+To use a provider model before the registry has been refreshed, pass
+`--allow-unknown-model`. The resulting step is marked `unvalidated: true` so the exception remains
+visible. Existing configuration is never rewritten automatically. Loading an old configuration
+reports each chain, step, and unknown value; repair each step explicitly with `chain repair`.
 
 Run a chain with the same launch options as `orchestrate spawn`:
 
