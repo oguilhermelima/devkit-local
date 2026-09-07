@@ -337,11 +337,13 @@ DEVKIT_CHAIN_LIMIT_USED=""
 DEVKIT_CHAIN_LIMIT_RESETS=""
 DEVKIT_CHAIN_LIMIT_REASON=""
 DEVKIT_CHAIN_LIMIT_SOURCE=""
+DEVKIT_CHAIN_LIMIT_RESULT=""
+DEVKIT_CHAIN_LIMIT_FETCHED_AT=""
 
 devkit_chain_limit_capability() {
   case "$1" in
     codex) printf 'disk\n' ;;
-    claude|agy) printf 'unknown\n' ;;
+    claude|agy) printf 'provider\n' ;;
     *) printf 'unsupported\n' ;;
   esac
 }
@@ -363,16 +365,67 @@ devkit_chain_latest_codex_rollout() {
   devkit_chain_codex_rollouts | LC_ALL=C sort -k1,1nr -k2,2r | cut -f2- | head -n 1
 }
 
+devkit_chain_limit_unknown() {
+  local agent="$1" window="$2" reason="$3"
+  DEVKIT_CHAIN_LIMIT_STATUS=unknown
+  DEVKIT_CHAIN_LIMIT_USED=""
+  DEVKIT_CHAIN_LIMIT_RESETS=""
+  DEVKIT_CHAIN_LIMIT_SOURCE=unknown
+  DEVKIT_CHAIN_LIMIT_RESULT=""
+  DEVKIT_CHAIN_LIMIT_FETCHED_AT=""
+  DEVKIT_CHAIN_LIMIT_REASON="$agent $window window unknown ($reason)"
+}
+
+devkit_chain_limit_apply() {
+  local result="$1" agent="$2" window="$3" source="$4" entry
+  entry="$(printf '%s' "$result" | jq -c --arg window "$window" '
+    [.windows[]? | select(.name == $window)] | first // empty
+  ' 2>/dev/null)"
+  DEVKIT_CHAIN_LIMIT_RESULT="$result"
+  DEVKIT_CHAIN_LIMIT_FETCHED_AT="$(printf '%s' "$result" | jq -r '.fetchedAt // empty' 2>/dev/null)"
+  DEVKIT_CHAIN_LIMIT_SOURCE="$source"
+  if [ -z "$entry" ] || ! printf '%s' "$entry" | jq -e '
+    (.usedPercent | type == "number") and
+    (.remainingPercent | type == "number") and
+    (.resetsAt | type == "string") and (.resetsAt | length > 0)
+  ' >/dev/null 2>&1; then
+    devkit_chain_limit_unknown "$agent" "$window" 'provider response has no usable window'
+    DEVKIT_CHAIN_LIMIT_RESULT="$result"
+    DEVKIT_CHAIN_LIMIT_FETCHED_AT="$(printf '%s' "$result" | jq -r '.fetchedAt // empty' 2>/dev/null)"
+    return 0
+  fi
+  DEVKIT_CHAIN_LIMIT_USED="$(printf '%s' "$entry" | jq -r '.usedPercent')"
+  DEVKIT_CHAIN_LIMIT_RESETS="$(printf '%s' "$entry" | jq -r '.resetsAt')"
+  DEVKIT_CHAIN_LIMIT_STATUS=current
+  DEVKIT_CHAIN_LIMIT_REASON="$agent $window window at $DEVKIT_CHAIN_LIMIT_USED percent"
+}
+
+devkit_chain_limit_result_codex() {
+  local snapshot="$1" fetched_at="$2"
+  jq -cn --argjson snapshot "$snapshot" --argjson fetchedAt "$fetched_at" '
+    {provider: "codex", fetchedAt: $fetchedAt, windows: [
+      {name: "5h", bucket: "default", usedPercent: $snapshot.primary.used_percent,
+       remainingPercent: (100 - $snapshot.primary.used_percent),
+       resetsAt: ($snapshot.primary.resets_at | tostring)},
+      {name: "weekly", bucket: "default", usedPercent: $snapshot.secondary.used_percent,
+       remainingPercent: (100 - $snapshot.secondary.used_percent),
+       resetsAt: ($snapshot.secondary.resets_at | tostring)}
+    ]}
+  '
+}
+
 devkit_chain_limit_read() {
-  local agent="$1" window="$2" rollout snapshot field expected_minutes now
+  local agent="$1" window="$2" rollout snapshot field expected_minutes now fetched_at result
   DEVKIT_CHAIN_LIMIT_STATUS=unknown
   DEVKIT_CHAIN_LIMIT_USED=""
   DEVKIT_CHAIN_LIMIT_RESETS=""
   DEVKIT_CHAIN_LIMIT_REASON=""
   DEVKIT_CHAIN_LIMIT_SOURCE=""
+  DEVKIT_CHAIN_LIMIT_RESULT=""
+  DEVKIT_CHAIN_LIMIT_FETCHED_AT=""
   case "$agent" in
     claude|agy)
-      DEVKIT_CHAIN_LIMIT_REASON="$agent $window window unknown (provider unavailable)"
+      devkit_chain_limit_unknown "$agent" "$window" 'provider reader not installed'
       return 0
       ;;
     codex) ;;
@@ -405,25 +458,30 @@ devkit_chain_limit_read() {
     rollout=""
   done < <(devkit_chain_codex_rollouts 2>/dev/null | LC_ALL=C sort -k1,1nr -k2,2r | cut -f2- || true)
   if [ -z "$snapshot" ]; then
-    DEVKIT_CHAIN_LIMIT_REASON="codex $window window unknown (rollout has no rate limit snapshot)"
+    devkit_chain_limit_unknown codex "$window" 'rollout has no rate limit snapshot'
     return 0
   fi
   DEVKIT_CHAIN_LIMIT_USED="$(printf '%s' "$snapshot" | jq -r --arg field "$field" '.[$field].used_percent // empty')"
   DEVKIT_CHAIN_LIMIT_RESETS="$(printf '%s' "$snapshot" | jq -r --arg field "$field" '.[$field].resets_at // empty')"
   if [ -z "$DEVKIT_CHAIN_LIMIT_USED" ] || [ -z "$DEVKIT_CHAIN_LIMIT_RESETS" ]; then
-    DEVKIT_CHAIN_LIMIT_REASON="codex $window window unknown (snapshot is incomplete)"
+    devkit_chain_limit_unknown codex "$window" 'snapshot is incomplete'
     return 0
   fi
   now="$(date +%s)"
   # WHY: current Codex snapshots nest rate_limits under payload.
   if [ "$DEVKIT_CHAIN_LIMIT_RESETS" -le "$now" ]; then
-    DEVKIT_CHAIN_LIMIT_REASON="codex $window window unknown (snapshot stale; reset $DEVKIT_CHAIN_LIMIT_RESETS)"
-    DEVKIT_CHAIN_LIMIT_USED=""
-    DEVKIT_CHAIN_LIMIT_RESETS=""
+    devkit_chain_limit_unknown codex "$window" "snapshot stale; reset $DEVKIT_CHAIN_LIMIT_RESETS"
     return 0
   fi
+  fetched_at="$(stat -f '%m' "$rollout" 2>/dev/null || stat -c '%Y' "$rollout" 2>/dev/null || printf '%s' "$now")"
+  case "$fetched_at" in
+    ''|*[!0-9]*) fetched_at="$now" ;;
+  esac
+  result="$(devkit_chain_limit_result_codex "$snapshot" "$fetched_at")"
+  DEVKIT_CHAIN_LIMIT_RESULT="$result"
+  DEVKIT_CHAIN_LIMIT_FETCHED_AT="$fetched_at"
   DEVKIT_CHAIN_LIMIT_STATUS=current
-  DEVKIT_CHAIN_LIMIT_SOURCE="$rollout"
+  DEVKIT_CHAIN_LIMIT_SOURCE=disk
   DEVKIT_CHAIN_LIMIT_REASON="codex $window window at $DEVKIT_CHAIN_LIMIT_USED percent"
 }
 
