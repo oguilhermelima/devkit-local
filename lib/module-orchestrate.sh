@@ -3,6 +3,7 @@
 DEVKIT_SUPERSET_PROTOCOL="This is a managed devkit dispatch. If you need coordinator input, run devkit ask \"your question\" and stop until the coordinator replies. When the requested work is complete, run devkit done \"short outcome summary\". Do not print protocol markers and do not continue past an unanswered question."
 DEVKIT_LAST_DISPATCH=""
 DEVKIT_DISPATCH_CLOSE_LAST_PANE=false
+DEVKIT_DISPATCH_DELIVERY_BATCH_CAP="${DEVKIT_DISPATCH_DELIVERY_BATCH_CAP:-50}"
 
 devkit_dispatch_new_id() {
   local candidate suffix counter=0
@@ -43,6 +44,51 @@ devkit_dispatch_dir() {
 devkit_dispatch_meta_path() { printf '%s/meta.json\n' "$(devkit_dispatch_dir "$1")"; }
 devkit_dispatch_messages_dir() { printf '%s/messages\n' "$(devkit_dispatch_dir "$1")"; }
 devkit_dispatch_cursor_path() { printf '%s/cursor.json\n' "$(devkit_dispatch_dir "$1")"; }
+devkit_dispatch_deliveries_dir() { printf '%s/deliveries\n' "$(devkit_dispatch_dir "$1")"; }
+
+devkit_dispatch_delivery_path() {
+  local dispatch_id="$1" delivery_id="$2"
+  case "$delivery_id" in
+    ""|*[!A-Za-z0-9._-]*)
+      devkit_error "invalid delivery id: $delivery_id"
+      return 1
+      ;;
+  esac
+  printf '%s/%s.json\n' "$(devkit_dispatch_deliveries_dir "$dispatch_id")" "$delivery_id"
+}
+
+devkit_dispatch_new_delivery_id() {
+  local dispatch_id="$1" candidate suffix counter=0 deliveries_dir
+  deliveries_dir="$(devkit_dispatch_deliveries_dir "$dispatch_id")" || return 1
+  mkdir -p "$deliveries_dir" || return 1
+  suffix="$(date -u '+%Y%m%d%H%M%S')-$$-${RANDOM:-0}"
+  candidate="delivery-$suffix"
+  while [ -e "$deliveries_dir/$candidate.json" ]; do
+    counter=$((counter + 1))
+    candidate="delivery-$suffix-$counter"
+  done
+  printf '%s\n' "$candidate"
+}
+
+devkit_dispatch_delivery_write() {
+  local dispatch_id="$1" delivery_id="$2" consumer="$3" generation="$4" message_seqs="$5"
+  local deliveries_dir path tmp now
+  deliveries_dir="$(devkit_dispatch_deliveries_dir "$dispatch_id")" || return 1
+  mkdir -p "$deliveries_dir" || return 1
+  path="$(devkit_dispatch_delivery_path "$dispatch_id" "$delivery_id")" || return 1
+  now="$(devkit_iso_now)"
+  tmp="$(mktemp "$deliveries_dir/.delivery.XXXXXX")" || return 1
+  if ! jq -n \
+    --arg id "$delivery_id" --arg dispatchId "$dispatch_id" --arg consumer "$consumer" \
+    --argjson generation "$generation" --argjson messageSeqs "$message_seqs" \
+    --arg now "$now" \
+    '{id: $id, dispatchId: $dispatchId, consumer: $consumer, consumerGeneration: $generation, messageSeqs: $messageSeqs, status: "outstanding", createdAt: $now, updatedAt: $now, acknowledgedAt: null, fencedAt: null}' \
+    >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$path"
+}
 
 devkit_dispatch_meta_write() {
   local dispatch_id="$1" parent_session="$2" parent_host="$3" child_host="$4"
@@ -50,7 +96,7 @@ devkit_dispatch_meta_write() {
   local agent="$9" label="${10}" state="${11}" model="${12:-}" model_honored="${13:-false}"
   local agent_id="${14:-$agent}" tmux_session="${15:-}" tmux_pane="${16:-}" runtime="${17:-host}" dispatch_dir tmp
   dispatch_dir="$(devkit_dispatch_dir "$dispatch_id")" || return 1
-  mkdir -p "$dispatch_dir/messages" || return 1
+  mkdir -p "$dispatch_dir/messages" "$dispatch_dir/deliveries" || return 1
   devkit_dispatch_cursor_write "$dispatch_id" 0 || return 1
   tmp="$(mktemp "$dispatch_dir/.meta.XXXXXX")" || return 1
   if ! jq -n \
