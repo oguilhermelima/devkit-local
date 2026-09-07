@@ -4,17 +4,23 @@ DEVKIT_SUPERSET_PROTOCOL="This is a managed devkit dispatch. If you need coordin
 DEVKIT_LAST_DISPATCH=""
 DEVKIT_DISPATCH_CLOSE_LAST_PANE=false
 DEVKIT_DISPATCH_DELIVERY_BATCH_CAP="${DEVKIT_DISPATCH_DELIVERY_BATCH_CAP:-50}"
-DEVKIT_PROMPT_BUDGET_BYTES=512
+DEVKIT_PROMPT_BUDGET_ARGV_BYTES=262144
+DEVKIT_PROMPT_BUDGET_TMUX_BYTES=12000
 
 devkit_prompt_byte_length() {
   LC_ALL=C printf '%s' "$1" | wc -c | tr -d '[:space:]'
 }
 
 devkit_validate_prompt_budget() {
-  local text="$1" label="${2:-prompt}" actual
+  local text="$1" path="${2:-argv}" label="${3:-prompt}" actual limit
+  case "$path" in
+    argv) limit="$DEVKIT_PROMPT_BUDGET_ARGV_BYTES" ;;
+    tmux) limit="$DEVKIT_PROMPT_BUDGET_TMUX_BYTES" ;;
+    *) devkit_error "unknown prompt delivery path: $path"; return 1 ;;
+  esac
   actual="$(devkit_prompt_byte_length "$text")"
-  if [ "$actual" -gt "$DEVKIT_PROMPT_BUDGET_BYTES" ]; then
-    devkit_error "$label is too large: $actual bytes (limit: $DEVKIT_PROMPT_BUDGET_BYTES bytes)"
+  if [ "$actual" -gt "$limit" ]; then
+    devkit_error "$label is too large for $path delivery: $actual bytes (limit: $limit bytes)"
     return 1
   fi
 }

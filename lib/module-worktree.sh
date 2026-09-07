@@ -574,14 +574,18 @@ devkit_worktree_create() {
     [ -n "$repo_selector" ] || { devkit_error "--repo is required"; return "$DEVKIT_USAGE_ERROR"; }
     [ -n "$branch" ] || { devkit_error "--branch is required"; return "$DEVKIT_USAGE_ERROR"; }
   fi
+  host="$(devkit_context_detect)"
   if [ "$orchestrate" = true ]; then
     [ -n "$agent" ] || { devkit_error "--agent is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
     [ -n "$model" ] || { devkit_error "--model is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
     [ -n "$effort" ] || { devkit_error "--effort is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
     [ -n "$prompt" ] || { devkit_error "--prompt is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
-    devkit_validate_prompt_budget "$prompt" prompt || return 1
+    if devkit_runtime_enabled; then
+      devkit_validate_prompt_budget "$prompt" tmux prompt || return 1
+    else
+      devkit_validate_prompt_budget "$prompt" argv prompt || return 1
+    fi
   fi
-  host="$(devkit_context_detect)"
   if [ "$host" != superset ] && [ -n "$agent" ] && ! devkit_require_command "$agent"; then
     devkit_error "agent is not on PATH: $agent"
     return 1

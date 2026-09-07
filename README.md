@@ -145,8 +145,16 @@ then `main`. `terminal create` uses `.superset/config.json` only when `--command
 `waiting_for_reply`, `done`, `stalled`, or `timeout`. A child should use `ask` or `done` instead
 of printing protocol markers.
 
-`orchestrate spawn` rejects prompts larger than 512 bytes before creating a worktree, workspace,
-terminal, agent, or dispatch record. The prompt is rejected rather than truncated.
+`orchestrate spawn` selects its prompt budget from the delivery path before creating a worktree,
+workspace, terminal, agent, or dispatch record. The prompt is rejected rather than truncated.
+
+| Delivery path | Measured capacity | Chosen prompt budget |
+| --- | ---: | ---: |
+| argv, including Superset terminals create and equivalent host calls | ARG_MAX 1048576 bytes; 262144-byte prompt survived intact | 262144 bytes |
+| tmux send-keys | 12000 bytes executed intact; 16384 bytes hit command too long | 12000 bytes |
+
+The tmux path is intentionally limited below 16000 bytes; write shorter briefs when tmux-runtime
+is enabled.
 
 ### Native simulators
 

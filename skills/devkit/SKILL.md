@@ -24,7 +24,7 @@ description: >-
 - If you need to list managed dispatches, run: devkit orchestrate list [--all|--orphans] [--json]
 - If you need to watch a Superset dispatch, run: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]
 - If you need to acknowledge a delivery, run: devkit orchestrate ack <dispatch-id> <delivery-id> [--json]
-- Spawn prompts over 512 bytes are rejected before resources are created.
+- Spawn prompt budgets are 262144 bytes on argv paths and 12000 bytes on tmux paths.
 - If you need to reply to a Superset dispatch, run: devkit orchestrate reply <dispatch-id> --text <answer> [--json]
 - If you need to close a Superset dispatch, run: devkit orchestrate close <dispatch-id> [--json]
 - If you are a child session, send a question with devkit ask "question" or completion with devkit done "summary".
