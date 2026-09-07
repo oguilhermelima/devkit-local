@@ -102,6 +102,15 @@ agent command line, real splits for siblings in one tab, per-pane reads, and a c
 the pane. The host app then no longer treats the child as one of its agents, so features tied to
 that (Superset resume/fork/handoff and its agent-attention badge) do not apply.
 
+Child identity is pane-scoped inside tmux. When `TMUX` and `TMUX_PANE` are set, `devkit ask` and
+`devkit done` match the current tmux session and pane, together with the child host; the shared
+host terminal id is not used to select a child. Outside tmux, lookup remains terminal-id based.
+A missing pane or an ambiguous identity is refused, and parent reads, acknowledgements, and replies
+remain restricted to the dispatch's direct `parentSessionId` and `parentHost`. When a managed child
+reuses an existing wrapper session, its metadata records the host terminal identity; if prior
+session metadata cannot provide one, the current managed parent identity is used, with an explicit
+unknown-host-terminal marker as the final fallback.
+
 ### Tmux tuning
 
 To fix tmux colours and match the default terminal, run `devkit tmux tune`.
