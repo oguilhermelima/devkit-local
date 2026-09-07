@@ -44,6 +44,24 @@ _devkit_tmux_wrap() {
   fi
   tmux attach-session -t "$session"
 }
-claude() { _devkit_tmux_wrap claude "$@" }
-codex()  { _devkit_tmux_wrap codex  "$@" }
-agy()    { _devkit_tmux_wrap agy    "$@" }
+claude() {
+  if typeset -f _devkit_tmux_wrap >/dev/null 2>&1; then
+    _devkit_tmux_wrap claude "$@"
+  else
+    command claude "$@"
+  fi
+}
+codex() {
+  if typeset -f _devkit_tmux_wrap >/dev/null 2>&1; then
+    _devkit_tmux_wrap codex "$@"
+  else
+    command codex "$@"
+  fi
+}
+agy() {
+  if typeset -f _devkit_tmux_wrap >/dev/null 2>&1; then
+    _devkit_tmux_wrap agy "$@"
+  else
+    command agy "$@"
+  fi
+}
