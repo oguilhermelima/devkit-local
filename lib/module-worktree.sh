@@ -354,6 +354,16 @@ devkit_spawn_mark_prompt_failed() {
   devkit_dispatch_meta_update_fields "$dispatch_id" __keep__ __keep__ __keep__ prompt-delivery "$reason" __keep__ __keep__ __keep__ >/dev/null 2>&1 || true
 }
 
+devkit_spawn_mark_running_if_spawning() {
+  local dispatch_id="$1" state
+  state="$(devkit_dispatch_meta_read "$dispatch_id" | jq -r '.state // empty')" || return 1
+  case "$state" in
+    spawning) devkit_dispatch_meta_update_state "$dispatch_id" running ;;
+    running|waiting_for_reply|done) return 0 ;;
+    *) devkit_error "dispatch $dispatch_id cannot become running from state $state"; return 1 ;;
+  esac
+}
+
 devkit_launch_agent() {
   local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
   local context command_text response session_id final_prompt parent_id parent_host child_host branch
@@ -493,7 +503,7 @@ ${prompt}"
       devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-confirmation-failed
       return 1
     fi
-    devkit_dispatch_meta_update_state "$dispatch_id" running || {
+    devkit_spawn_mark_running_if_spawning "$dispatch_id" || {
       devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
       devkit_spawn_mark_prompt_failed "$dispatch_id" state-persist-failed
       devkit_error "could not persist tmux dispatch state: $dispatch_id"
@@ -561,7 +571,7 @@ ${prompt}"
     devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-confirmation-failed
     return 1
   fi
-  devkit_dispatch_meta_update_state "$dispatch_id" running || {
+  devkit_spawn_mark_running_if_spawning "$dispatch_id" || {
     devkit_spawn_mark_prompt_failed "$dispatch_id" state-persist-failed
     devkit_error "could not persist host dispatch state: $session_id"
     return 1
