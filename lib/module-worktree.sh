@@ -217,7 +217,9 @@ EOF
     printf -v effort_value "$effort_format" "$effort"
     command_parts+=("$effort_flag" "$effort_value")
   fi
-  command_parts+=("${passthrough_args[@]}")
+  if [ "${#passthrough_args[@]}" -gt 0 ]; then
+    command_parts+=("${passthrough_args[@]}")
+  fi
   printf '%q ' "${command_parts[@]}"
 }
 
