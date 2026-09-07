@@ -683,6 +683,7 @@ devkit_dispatch_close_refuse_caller() {
 
 devkit_dispatch_native_close() {
   local meta="$1" host workspace_id terminal_id runtime tmux_session tmux_pane pane_count close_rc=0
+  local parent_tmux_session caller_tmux_session shared_session=false
   DEVKIT_DISPATCH_CLOSE_LAST_PANE=false
   host="$(printf '%s' "$meta" | jq -r '.childHost')"
   workspace_id="$(printf '%s' "$meta" | jq -r '.workspaceId // empty')"
@@ -691,7 +692,17 @@ devkit_dispatch_native_close() {
   if [ "$runtime" = tmux ]; then
     tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
     tmux_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
+    parent_tmux_session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
     [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] || { devkit_error "tmux dispatch metadata has no session or pane"; return 1; }
+    caller_tmux_session="$(devkit_dispatch_tmux_caller_session || true)"
+    if [ "$tmux_session" = "$parent_tmux_session" ] || [ "$tmux_session" = "$caller_tmux_session" ]; then
+      shared_session=true
+    fi
+    if [ "$shared_session" = true ]; then
+      devkit_tmux_session_exists "$tmux_session" || return 0
+      tmux kill-pane -t "$tmux_pane"
+      return $?
+    fi
     if ! devkit_tmux_session_exists "$tmux_session"; then
       DEVKIT_DISPATCH_CLOSE_LAST_PANE=true
       pane_count=0
