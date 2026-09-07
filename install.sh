@@ -130,9 +130,13 @@ installer_menu() {
   INSTALLER_MENU_SELECTED=()
   INSTALLER_MENU_RESULT=""
   local total="${#INSTALLER_MENU_OPTIONS[@]}"
+  local total_rows="$total"
   local selected=1
   local value option
   [ "$total" -gt 0 ] || return 1
+  if [ "$mode" = multi ]; then
+    total_rows=$((total + 1))
+  fi
   for option in "${INSTALLER_MENU_OPTIONS[@]}"; do
     value=false
     if [ "$mode" = multi ] && installer_list_contains "$initial" "$option"; then
@@ -144,7 +148,7 @@ installer_menu() {
     printf '\033[2J\033[H' >"$INSTALLER_TERMINAL_OUTPUT"
     printf '%s\n\n' "$header"
     if [ "$mode" = multi ]; then
-      printf 'Use ↑/↓ or numbers to move, Space to toggle, Enter to confirm.\n\n'
+      printf 'Use ↑/↓ or numbers to move; Space/Enter toggle; choose Avançar to continue.\n\n'
     else
       printf 'Use ↑/↓ or a number, then Enter to confirm.\n\n'
     fi
@@ -168,6 +172,14 @@ installer_menu() {
       fi
       index=$((index + 1))
     done
+    if [ "$mode" = multi ]; then
+      printf '\n'
+      if [ "$selected" -eq "$total_rows" ]; then
+        printf '➜ [→] Avançar\n'
+      else
+        printf '  [→] Avançar\n'
+      fi
+    fi
     printf '\n'
     # Preserve whitespace keys so Space cannot enter the confirmation branch.
     if ! IFS= read -r -s -n 1 key <"$INSTALLER_INPUT_SOURCE"; then
@@ -178,14 +190,21 @@ installer_menu() {
       read -r -s -n 2 -t 1 rest <"$INSTALLER_INPUT_SOURCE" || true
       key="$key$rest"
     fi
+    # Keep the advance action distinct so normal-item keys can never confirm.
     case "$key" in
       $'\033[A'|$'\033OA'|k|K)
         selected=$((selected - 1))
-        [ "$selected" -ge 1 ] || selected="$total"
+        if [ "$selected" -lt 1 ]; then
+          if [ "$mode" = multi ]; then
+            selected="$total_rows"
+          else
+            selected="$total"
+          fi
+        fi
         ;;
       $'\033[B'|$'\033OB'|j|J)
         selected=$((selected + 1))
-        [ "$selected" -le "$total" ] || selected=1
+        [ "$selected" -le "$total_rows" ] || selected=1
         ;;
       [0-9])
         num="$key"
@@ -204,6 +223,7 @@ installer_menu() {
         ;;
       ' ')
         if [ "$mode" = multi ]; then
+          [ "$selected" -eq "$total_rows" ] && break
           if [ "${INSTALLER_MENU_SELECTED[$((selected - 1))]}" = true ]; then
             INSTALLER_MENU_SELECTED[$((selected - 1))]=false
           else
@@ -211,7 +231,18 @@ installer_menu() {
           fi
         fi
         ;;
-      ''|$'\n'|$'\r') break ;;
+      ''|$'\n'|$'\r')
+        if [ "$mode" = multi ]; then
+          [ "$selected" -eq "$total_rows" ] && break
+          if [ "${INSTALLER_MENU_SELECTED[$((selected - 1))]}" = true ]; then
+            INSTALLER_MENU_SELECTED[$((selected - 1))]=false
+          else
+            INSTALLER_MENU_SELECTED[$((selected - 1))]=true
+          fi
+        else
+          break
+        fi
+        ;;
       q|Q|$'\003') return 130 ;;
     esac
   done
