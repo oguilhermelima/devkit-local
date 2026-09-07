@@ -120,6 +120,28 @@ a parent can inspect, reply to, or close its own dispatch, but ownership does no
 
 Messages are delivered in FIFO batches of up to 50 through a Delivery record. An outstanding Delivery is replayed with the same delivery id until it is acknowledged; there is one outstanding Delivery per mailbox. A different consumer identity or generation fences the old Delivery and receives the same unread messages under a new id. Acknowledgement is idempotent, and cursor.json is retained for compatibility but is not the source of read state.
 
+Child ask, done, and stalled messages also make a best-effort parent nudge. The durable message
+queue and Delivery record remain the source of truth: the nudge contains only a short pointer
+with the dispatch id, never the message body. A failed, skipped, or lost nudge cannot fail the
+child message or remove it from the queue. A parent with an active watch waiter is not typed at;
+the waiter reads the queued Delivery normally.
+
+The parent nudge contract has two operations, parent_is_idle and parent_notify. Both must prove
+idle before sending input; unknown liveness is treated as not idle. In tmux-runtime, metadata
+records the parent pane. Devkit compares two tmux capture-pane snapshots and accepts an explicit
+stable shell or agent prompt marker; an active marker such as Working, Thinking, Running, or an
+interrupt hint is busy, while missing or changing evidence is unknown. Input is sent with two
+separate tmux send-keys calls so text and Enter cannot be coalesced.
+
+In IDE mode, Orca provides terminal wait --for tui-idle and terminal send --enter. Superset has
+no terminal idle verb, so devkit polls terminals read until two snapshots settle within the
+timeout, then uses terminals send, whose default submits the text. If an adapter is unavailable
+or liveness cannot be established, devkit skips the nudge and leaves polling and the queue
+available.
+
+watch defaults to wait-mode nudge. It blocks on a disposable wake marker and rechecks the durable
+queue after waking. Use wait-mode poll, or poll, to retain the original polling loop explicitly.
+
 With the optional `tmux-runtime` module enabled, devkit launches each child inside a tmux session
 hosted in the IDE tab instead of the host's own agent primitive. That gives full control of the
 agent command line, real splits for siblings in one tab, per-pane reads, and a close that removes
@@ -195,7 +217,7 @@ then `main`. `terminal create` uses `.superset/config.json` only when `--command
 | `devkit orchestrate spawn --repo "$PWD" --branch feature/agent-task --agent codex --model gpt-5 --effort medium --prompt "Inspect the repository."` | Creates or reuses a worktree and launches a managed child agent. | `--base`, `--name`, `--label`, `--worktree`, `--tmux`, `--agent-arg`, `--json` |
 | `devkit orchestrate list --json` | Lists dispatches owned by the current parent. | `--all`, `--orphans`, `--json` |
 | `devkit orchestrate reconcile <dispatch-id> --json` | Reconciles one open dispatch without respawning it. | `--all`, `--json` |
-| `devkit orchestrate watch <dispatch-id> --json` | Waits for the next child Delivery batch. | `--timeout`, `--poll-interval`, `--consumer`, `--generation`, `--json` |
+| `devkit orchestrate watch <dispatch-id> --json` | Waits for the next child Delivery batch, waking from the parent nudge marker by default. | `--timeout`, `--poll-interval`, `--wait-mode nudge\|poll`, `--poll`, `--consumer`, `--generation`, `--json` |
 | `devkit orchestrate ack <dispatch-id> <delivery-id> --json` | Acknowledges a Delivery batch. | `--consumer`, `--generation`, `--json` |
 | `devkit orchestrate reply <dispatch-id> --text "Continue." --json` | Replies to a child waiting for the parent. | `--json` |
 | `devkit orchestrate close <dispatch-id> --json` | Closes the child terminal and records the dispatch as closed. | `--force-release`, `--json` |
