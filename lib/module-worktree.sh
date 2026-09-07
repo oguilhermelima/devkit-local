@@ -451,7 +451,7 @@ devkit_launch_agent() {
   local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
   local context command_text response session_id final_prompt dispatch_preamble parent_id parent_host child_host branch meta
   local parent_tmux_session="" parent_tmux_pane="" parent_workspace_id="${SUPERSET_WORKSPACE_ID:-}"
-  local agent_used model_honored=false substitution_report dispatch_id runtime tmux_session="" tmux_pane="" existing_session="" tmux_command="" terminal_shell="${SHELL:-/bin/zsh}" host_terminal_created=false
+  local agent_used model_honored=false substitution_report dispatch_id runtime tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false
   local -a passthrough_args=()
   shift 7
   [ "$#" -eq 0 ] || passthrough_args=("$@")
@@ -624,11 +624,10 @@ ${prompt}"
     }
   fi
   dispatch_id="$(devkit_dispatch_new_id)" || return 1
-  terminal_shell="cd $(printf '%q' "$worktree_path") && exec $(printf '%q' "$terminal_shell")"
   case "$context" in
     orca)
       devkit_require_command orca || { devkit_error "orca CLI is not available"; return 1; }
-      response="$(orca terminal create --worktree "path:$worktree_path" --title "$agent $worktree_path" --command "$terminal_shell" --json)" || {
+      response="$(orca terminal create --worktree "path:$worktree_path" --title "$agent $worktree_path" --json)" || {
         devkit_error "orca terminal create failed for $worktree_path"
         return 1
       }
@@ -637,7 +636,7 @@ ${prompt}"
       ;;
     superset)
       devkit_superset_available || { devkit_error "superset CLI is not available"; return 1; }
-      response="$(devkit_superset terminals create --workspace "$workspace_id" --command "$terminal_shell" --json)" || {
+      response="$(devkit_superset terminals create --workspace "$workspace_id" --json)" || {
         devkit_error "Superset terminals create failed for workspace $workspace_id"
         return 1
       }
@@ -662,9 +661,9 @@ ${prompt}"
     return 1
   }
   if [ "$child_host" = orca ]; then
-    command_text="cd $(printf '%q' "$worktree_path") && ORCA_TERMINAL_HANDLE=$(printf '%q' "$session_id") DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") $command_text"
+    command_text="cd $(printf '%q' "$worktree_path") && DEVKIT_STATE_DIR=$(printf '%q' "$DEVKIT_STATE_DIR") ORCA_TERMINAL_HANDLE=$(printf '%q' "$session_id") DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") $command_text"
   else
-    command_text="cd $(printf '%q' "$worktree_path") && SUPERSET_TERMINAL_ID=$(printf '%q' "$session_id") DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") $command_text"
+    command_text="cd $(printf '%q' "$worktree_path") && DEVKIT_STATE_DIR=$(printf '%q' "$DEVKIT_STATE_DIR") SUPERSET_TERMINAL_ID=$(printf '%q' "$session_id") DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") $command_text"
   fi
   meta="$(devkit_dispatch_meta_read "$dispatch_id")" || {
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
