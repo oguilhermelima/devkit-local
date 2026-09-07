@@ -330,7 +330,7 @@ devkit_dispatch_reconcile() {
     case "$arg" in
       --all) all=true; shift ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit orchestrate reconcile <dispatch-id> [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: devkit orchestrate reconcile <dispatch-id> [--all] [--json]\n'; return 0 ;;
       *)
         [ -z "$dispatch_id" ] || { devkit_error "unknown reconcile option: $arg"; return "$DEVKIT_USAGE_ERROR"; }
         dispatch_id="$arg"

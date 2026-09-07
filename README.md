@@ -54,6 +54,22 @@ Their trimmed output shapes are:
 `orchestrate spawn` must run inside a managed Orca or Superset terminal. It creates the worktree,
 registers it, and starts the child agent in one operation.
 
+### Dispatch state axes
+
+`meta.json` keeps `state` as the coarse dispatch status and adds two independent lifecycle axes:
+
+| Field | Values and meaning |
+| --- | --- |
+| `state` | `spawning`, `running`, `waiting_for_reply`, `done`, `closed`, `failed`, `orphaned`, `stalled`, `timeout`, or `circuit_broken`; the existing dispatch status. |
+| `processState` | `starting`, `start-unproven`, `running`, `stopping`, `stop-unproven`, `stopped`, `succeeded`, `failed`, or `abandoned`; the child process outcome. `abandoned` ends devkit's logical authority without asserting that the process died. |
+| `terminalState` | `owned`, `retained`, `missing`, or `released`; the terminal resource state. `retained` blocks release and reuse when terminal identity is unproven or the parent is gone. |
+
+`orchestrate list` reconciles open dispatches before showing these fields. Use
+`orchestrate reconcile <dispatch-id>` to reconcile one explicitly; it never respawns a child.
+`orchestrate close` refuses a retained terminal unless the explicit `--force-release` flag is
+provided after manual verification. `doctor` is read-only and reports uncertain dispatch and
+retained terminal counts.
+
 ## How it works
 
 ```text
@@ -134,10 +150,11 @@ then `main`. `terminal create` uses `.superset/config.json` only when `--command
 | --- | --- | --- |
 | `devkit orchestrate spawn --repo "$PWD" --branch feature/agent-task --agent codex --model gpt-5 --effort medium --prompt "Inspect the repository."` | Creates or reuses a worktree and launches a managed child agent. | `--base`, `--name`, `--label`, `--worktree`, `--json` |
 | `devkit orchestrate list --json` | Lists dispatches owned by the current parent. | `--all`, `--orphans`, `--json` |
+| `devkit orchestrate reconcile <dispatch-id> --json` | Reconciles one open dispatch without respawning it. | `--all`, `--json` |
 | `devkit orchestrate watch <dispatch-id> --json` | Waits for the next child Delivery batch. | `--timeout`, `--poll-interval`, `--consumer`, `--generation`, `--json` |
 | `devkit orchestrate ack <dispatch-id> <delivery-id> --json` | Acknowledges a Delivery batch. | `--consumer`, `--generation`, `--json` |
 | `devkit orchestrate reply <dispatch-id> --text "Continue." --json` | Replies to a child waiting for the parent. | `--json` |
-| `devkit orchestrate close <dispatch-id> --json` | Closes the child terminal and records the dispatch as closed. | `--json` |
+| `devkit orchestrate close <dispatch-id> --json` | Closes the child terminal and records the dispatch as closed. | `--force-release`, `--json` |
 | `devkit ask "question"` | Sends a question from a child to its direct parent. | One question argument. |
 | `devkit done "summary"` | Sends completion from a child to its direct parent. | One summary argument. |
 

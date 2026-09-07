@@ -27,6 +27,8 @@ description: >-
 - Spawn prompt budgets are 262144 bytes on argv paths and 12000 bytes on tmux paths.
 - If you need to reply to a Superset dispatch, run: devkit orchestrate reply <dispatch-id> --text <answer> [--json]
 - If you need to close a Superset dispatch, run: devkit orchestrate close <dispatch-id> [--json]
+- If you need to reconcile a dispatch without respawning it, run: devkit orchestrate reconcile <dispatch-id> [--json]
+- If you need to override retained-terminal protection, run: devkit orchestrate close <dispatch-id> --force-release [--json]
 - If you are a child session, send a question with devkit ask "question" or completion with devkit done "summary".
 - Known limitation: Superset agy and gemini presets reject prompt launches; devkit reports the preset error instead of creating a stuck dispatch.
 - If you need to open a titled terminal tab in the right orchestrator, run: devkit terminal create [--command <cmd>] [--title <text>] [--worktree <path>] (omitting --command uses the worktree's .superset/config.json run script)
