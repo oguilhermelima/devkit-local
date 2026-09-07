@@ -222,14 +222,15 @@ EOF
 }
 
 devkit_terminal_command_with_agent_permissions() {
-  local command_text="$1" agent_lower launch_agent launch_arg launch_args="" rest
-  case "$command_text" in
-    codex|codex\ *) agent_lower=codex ;;
-    claude|claude\ *) agent_lower=claude ;;
-    agy|agy\ *) agent_lower=agy ;;
-    *) printf '%s\n' "$command_text"; return 0 ;;
-  esac
-  rest="${command_text#"$agent_lower"}"
+  local command_text="$1" prefix agent_lower launch_agent launch_arg launch_args="" rest
+  if [[ "$command_text" =~ ^([[:space:]]*(env[[:space:]]+)?([a-zA-Z_][a-zA-Z0-9_]*=[^[:space:]]*[[:space:]]+)*)(codex|claude|agy)([[:space:]]|$) ]]; then
+    prefix="${BASH_REMATCH[1]}"
+    agent_lower="${BASH_REMATCH[4]}"
+  else
+    printf '%s\n' "$command_text"
+    return 0
+  fi
+  rest="${command_text:${#prefix}+${#agent_lower}}"
   while IFS='|' read -r launch_agent launch_arg; do
     if [ "$launch_agent" = "$agent_lower" ]; then
       case " $command_text " in
@@ -240,7 +241,7 @@ devkit_terminal_command_with_agent_permissions() {
   done <<EOF
 $DEVKIT_AGENT_LAUNCH_ARGS
 EOF
-  printf '%s%s%s\n' "$agent_lower" "$launch_args" "$rest"
+  printf '%s%s%s%s\n' "$prefix" "$agent_lower" "$launch_args" "$rest"
 }
 
 devkit_resolve_spawn_runtime() {
