@@ -509,14 +509,93 @@ installer_verify_plugin() {
   esac
 }
 
+installer_marketplace_root() {
+  local agent="$1" output line path
+  case "$agent" in
+    claude) output="$(claude plugin marketplace list 2>/dev/null || true)" ;;
+    codex) output="$(codex plugin marketplace list 2>/dev/null || true)" ;;
+    *) return 1 ;;
+  esac
+  line="$(printf '%s\n' "$output" | awk '/devkit-local/ { found=1; if (match($0, /\/[^"]+/)) { print substr($0, RSTART, RLENGTH); exit } next } found && $0 ~ /^[/[:space:]]/ { if (match($0, /\/[^"]+/)) { print substr($0, RSTART, RLENGTH); exit } }')"
+  path="$(printf '%s' "$line" | sed -E 's/[),;]+$//')"
+  [ -n "$path" ] || return 1
+  if [ -d "$path" ]; then
+    (cd -P "$path" && pwd)
+  else
+    printf '%s\n' "$path"
+  fi
+}
+
+installer_canonical_path() {
+  local path="$1"
+  if [ -d "$path" ]; then
+    (cd -P "$path" && pwd)
+  else
+    printf '%s\n' "$path"
+  fi
+}
+
+installer_reconcile_marketplace() {
+  local agent="$1" existing choice
+  existing="$(installer_marketplace_root "$agent" 2>/dev/null || true)"
+  if [ -z "$existing" ]; then
+    case "$agent" in
+      claude) claude plugin marketplace add "$SOURCE_ROOT" || { installer_error "could not register the Claude marketplace"; return 1; } ;;
+      codex) codex plugin marketplace add "$SOURCE_ROOT" || { installer_error "could not register the Codex marketplace"; return 1; } ;;
+    esac
+    installer_summary "$agent marketplace installed at $SOURCE_ROOT"
+    return 0
+  fi
+  if [ "$(installer_canonical_path "$existing")" = "$(installer_canonical_path "$SOURCE_ROOT")" ]; then
+    installer_summary "$agent marketplace already-current at $existing"
+    return 0
+  fi
+  printf 'Existing %s marketplace: %s\n' "$agent" "$existing"
+  printf 'Installer marketplace: %s\n' "$SOURCE_ROOT"
+  if [ -t 0 ]; then
+    installer_menu single "The $agent marketplace name already points elsewhere" '' keep replace || return $?
+    choice="$INSTALLER_MENU_RESULT"
+  else
+    choice=keep
+    installer_summary "$agent marketplace needs-your-action; kept existing path $existing"
+  fi
+  if [ "$choice" = keep ]; then
+    [ -t 0 ] && installer_summary "$agent marketplace already-current; kept existing path $existing"
+    return 0
+  fi
+  case "$agent" in
+    claude) claude plugin marketplace remove devkit-local || { installer_error "could not remove the existing Claude marketplace"; return 1; } ;;
+    codex) codex plugin marketplace remove devkit-local || { installer_error "could not remove the existing Codex marketplace"; return 1; } ;;
+  esac
+  case "$agent" in
+    claude) claude plugin marketplace add "$SOURCE_ROOT" || { installer_error "could not register the Claude marketplace"; return 1; } ;;
+    codex) codex plugin marketplace add "$SOURCE_ROOT" || { installer_error "could not register the Codex marketplace"; return 1; } ;;
+  esac
+  installer_summary "$agent marketplace updated to $SOURCE_ROOT"
+}
+
+installer_install_plugin_command() {
+  local agent="$1" output rc=0
+  shift
+  if installer_verify_plugin "$agent"; then
+    installer_summary "$agent plugin already-current"
+    return 0
+  fi
+  output="$("$@" 2>&1)" || rc=$?
+  [ -n "$output" ] && printf '%s\n' "$output"
+  if [ "$rc" -ne 0 ] && ! printf '%s' "$output" | grep -Eiq 'already[[:space:]]+installed|already[[:space:]]+enabled'; then
+    return "$rc"
+  fi
+  installer_verify_plugin "$agent" || return 1
+  installer_summary "$agent plugin installed"
+}
+
 installer_install_claude() {
   case "$SKILL_MODE" in
     global)
-      claude plugin marketplace add "$SOURCE_ROOT" || { installer_error "could not register the Claude marketplace"; return 1; }
-      claude plugin install "devkit@devkit-local" || { installer_error "could not install devkit from the Claude marketplace"; return 1; }
+      installer_reconcile_marketplace claude || return 1
+      installer_install_plugin_command claude claude plugin install "devkit@devkit-local" || { installer_error "could not install devkit from the Claude marketplace"; return 1; }
       installer_remove_stale_claude_skill || return 1
-      installer_verify_plugin claude || { installer_error "Claude plugin list did not show devkit installed and enabled"; return 1; }
-      installer_summary "installed Claude plugin devkit@devkit-local"
       ;;
     project)
       installer_copy_skill "$PWD/.claude/skills/devkit"
@@ -528,16 +607,12 @@ installer_install_claude() {
 }
 
 installer_install_codex() {
-  codex plugin marketplace add "$SOURCE_ROOT" || { installer_error "could not register the Codex marketplace"; return 1; }
-  codex plugin add "devkit@devkit-local" || { installer_error "could not install devkit from the Codex marketplace"; return 1; }
-  installer_verify_plugin codex || { installer_error "Codex plugin list did not show devkit installed and enabled"; return 1; }
-  installer_summary "installed Codex plugin devkit@devkit-local"
+  installer_reconcile_marketplace codex || return 1
+  installer_install_plugin_command codex codex plugin add "devkit@devkit-local" || { installer_error "could not install devkit from the Codex marketplace"; return 1; }
 }
 
 installer_install_agy() {
-  agy plugin install "$SOURCE_ROOT" || { installer_error "could not install the agy plugin from $SOURCE_ROOT"; return 1; }
-  installer_verify_plugin agy || { installer_error "agy plugin list did not show devkit installed"; return 1; }
-  installer_summary "installed agy plugin from $SOURCE_ROOT"
+  installer_install_plugin_command agy agy plugin install "$SOURCE_ROOT" || { installer_error "could not install the agy plugin from $SOURCE_ROOT"; return 1; }
 }
 
 installer_install_plugins() {
