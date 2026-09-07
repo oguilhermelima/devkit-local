@@ -2,6 +2,7 @@
 
 DEVKIT_SUPERSET_PROTOCOL="This is a managed devkit dispatch. If you need coordinator input, run devkit ask \"your question\" and stop until the coordinator replies. When the requested work is complete, run devkit done \"short outcome summary\". Do not print protocol markers and do not continue past an unanswered question."
 DEVKIT_LAST_DISPATCH=""
+DEVKIT_DISPATCH_CLOSE_LAST_PANE=false
 
 devkit_dispatch_new_id() {
   local candidate suffix counter=0
@@ -212,7 +213,8 @@ devkit_dispatch_native_send() {
 }
 
 devkit_dispatch_native_close() {
-  local meta="$1" host workspace_id terminal_id runtime tmux_session tmux_pane pane_count
+  local meta="$1" host workspace_id terminal_id runtime tmux_session tmux_pane pane_count close_rc=0
+  DEVKIT_DISPATCH_CLOSE_LAST_PANE=false
   host="$(printf '%s' "$meta" | jq -r '.childHost')"
   workspace_id="$(printf '%s' "$meta" | jq -r '.workspaceId // empty')"
   terminal_id="$(printf '%s' "$meta" | jq -r '.terminalId')"
@@ -221,14 +223,24 @@ devkit_dispatch_native_close() {
     tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
     tmux_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
     [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] || { devkit_error "tmux dispatch metadata has no session or pane"; return 1; }
-    devkit_tmux_session_exists "$tmux_session" || return 0
-    pane_count="$(tmux list-panes -t "$tmux_session" 2>/dev/null | wc -l | tr -d ' ')"
+    if ! devkit_tmux_session_exists "$tmux_session"; then
+      DEVKIT_DISPATCH_CLOSE_LAST_PANE=true
+      pane_count=0
+    else
+      pane_count="$(tmux list-panes -t "$tmux_session" 2>/dev/null | wc -l | tr -d ' ')"
+    fi
     if [ "$pane_count" -gt 1 ]; then
       tmux kill-pane -t "$tmux_pane"
-    else
-      tmux kill-session -t "$tmux_session"
+      return $?
     fi
-    return $?
+    DEVKIT_DISPATCH_CLOSE_LAST_PANE=true
+    tmux kill-session -t "$tmux_session" >/dev/null 2>&1 || true
+    case "$host" in
+      superset) devkit_superset terminals close --workspace "$workspace_id" --terminal "$terminal_id" --json >/dev/null 2>&1 || close_rc=$? ;;
+      orca) orca terminal close --terminal "$terminal_id" --json >/dev/null 2>&1 || close_rc=$? ;;
+      *) devkit_error "unsupported child host: $host"; return 1 ;;
+    esac
+    return "$close_rc"
   fi
   case "$host" in
     superset) devkit_superset terminals close --workspace "$workspace_id" --terminal "$terminal_id" --json >/dev/null ;;
@@ -363,7 +375,9 @@ devkit_dispatch_close() {
   devkit_dispatch_native_close "$meta" || { devkit_error "could not close dispatch $dispatch_id"; return 1; }
   devkit_dispatch_meta_update_state "$dispatch_id" closed || return 1
   if [ "$json" = true ]; then
-    if [ "$runtime" = tmux ]; then
+    if [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_LAST_PANE" = true ]; then
+      jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "last tmux pane and the host terminal tab were closed."}'
+    elif [ "$runtime" = tmux ]; then
       jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "tmux pane removed; the host terminal tab remains available for sibling panes or manual use."}'
     elif [ "$child_host" = superset ]; then
       jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "Superset leaves the pane visible as Desconectado until the human dismisses it with the pane X."}'
@@ -372,7 +386,9 @@ devkit_dispatch_close() {
     fi
   else
     printf 'closed: %s\n' "$dispatch_id"
-    if [ "$runtime" = tmux ]; then
+    if [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_LAST_PANE" = true ]; then
+      printf 'last tmux pane and the host terminal tab were closed.\n'
+    elif [ "$runtime" = tmux ]; then
       printf 'tmux pane removed; the host terminal tab remains available for sibling panes or manual use.\n'
     elif [ "$child_host" = superset ]; then
       printf 'Superset leaves the pane visible as Desconectado until the human dismisses it with the pane X.\n'
