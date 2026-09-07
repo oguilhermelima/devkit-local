@@ -29,7 +29,13 @@ devkit_chain_seed() {
       ]
     }
   },
-  "defaultSteps": []
+  "defaultSteps": [],
+  "usageLimits": {
+    "liveProviders": [],
+    "cacheTtlSeconds": 30,
+    "timeoutSeconds": 5,
+    "notice": {"enabled": false, "intervalSeconds": 3600}
+  }
 }
 EOF
 }
@@ -144,10 +150,33 @@ devkit_chain_validate_step() {
 }
 
 devkit_chain_validate_config() {
-  local config="$1" chain selector steps step index
+  local config="$1" chain selector steps step index live_provider field
   if ! printf '%s' "$config" | jq -e 'type == "object" and (.chains | type == "object") and (.defaultSteps | type == "array")' >/dev/null 2>&1; then
     devkit_error "invalid chain config: expected chains object and defaultSteps array"
     return 1
+  fi
+  if printf '%s' "$config" | jq -e 'has("usageLimits")' >/dev/null 2>&1; then
+    if ! printf '%s' "$config" | jq -e '.usageLimits | type == "object"' >/dev/null 2>&1; then
+      devkit_error 'invalid usageLimits: expected an object'
+      return 1
+    fi
+    if ! printf '%s' "$config" | jq -e '(.usageLimits.liveProviders // []) | type == "array"' >/dev/null 2>&1; then
+      devkit_error 'invalid usageLimits.liveProviders: expected an array'
+      return 1
+    fi
+    while IFS= read -r live_provider; do
+      devkit_chain_agent_known "$live_provider" || { devkit_error "invalid usageLimits.liveProviders provider: $live_provider"; return 1; }
+    done < <(printf '%s' "$config" | jq -r '.usageLimits.liveProviders[]?')
+    for field in cacheTtlSeconds timeoutSeconds; do
+      if ! printf '%s' "$config" | jq -e --arg field "$field" '.usageLimits[$field] // 0 | type == "number" and . >= 1 and . <= 3600 and floor == .' >/dev/null 2>&1; then
+        devkit_error "invalid usageLimits.$field: expected an integer from 1 to 3600"
+        return 1
+      fi
+    done
+    if printf '%s' "$config" | jq -e '.usageLimits | has("notice")' >/dev/null 2>&1 && ! printf '%s' "$config" | jq -e '.usageLimits.notice | type == "object" and (.enabled | type == "boolean") and (.intervalSeconds | type == "number" and . >= 1 and . <= 604800 and floor == .)' >/dev/null 2>&1; then
+      devkit_error 'invalid usageLimits.notice: expected enabled and intervalSeconds'
+      return 1
+    fi
   fi
   while IFS= read -r chain; do
     devkit_chain_name_valid "$chain" || { devkit_error "invalid chain name: $chain"; return 1; }
@@ -376,6 +405,72 @@ devkit_chain_limit_unknown() {
   DEVKIT_CHAIN_LIMIT_REASON="$agent $window window unknown ($reason)"
 }
 
+devkit_chain_limit_config() {
+  devkit_chain_init || return 1
+  cat "$DEVKIT_CHAIN_FILE"
+}
+
+devkit_chain_live_enabled() {
+  local agent="$1" config
+  config="$(devkit_chain_limit_config)" || return 1
+  printf '%s' "$config" | jq -e --arg agent "$agent" '(.usageLimits.liveProviders // []) | index($agent) != null' >/dev/null 2>&1
+}
+
+devkit_chain_limit_ttl() {
+  local config value
+  if [ -n "${DEVKIT_CHAIN_LIMIT_TTL_SECONDS:-}" ]; then
+    printf '%s\n' "$DEVKIT_CHAIN_LIMIT_TTL_SECONDS"
+    return 0
+  fi
+  config="$(devkit_chain_limit_config)" || return 1
+  value="$(printf '%s' "$config" | jq -r '.usageLimits.cacheTtlSeconds // 30')"
+  printf '%s\n' "$value"
+}
+
+devkit_chain_limit_timeout() {
+  local config value
+  if [ -n "${DEVKIT_CHAIN_LIMIT_TIMEOUT_SECONDS:-}" ]; then
+    printf '%s\n' "$DEVKIT_CHAIN_LIMIT_TIMEOUT_SECONDS"
+    return 0
+  fi
+  config="$(devkit_chain_limit_config)" || return 1
+  value="$(printf '%s' "$config" | jq -r '.usageLimits.timeoutSeconds // 5')"
+  printf '%s\n' "$value"
+}
+
+devkit_chain_limit_cache_path() {
+  printf '%s/usage-limits-%s.json\n' "$DEVKIT_STATE_DIR" "$1"
+}
+
+devkit_chain_limit_cache_read() {
+  local agent="$1" window="$2" path now fetched_at ttl cached
+  path="$(devkit_chain_limit_cache_path "$agent")"
+  [ -f "$path" ] || return 1
+  cached="$(cat "$path" 2>/dev/null || true)"
+  printf '%s' "$cached" | jq -e --arg provider "$agent" '.provider == $provider and (.fetchedAt | type == "number") and (.windows | type == "array")' >/dev/null 2>&1 || return 1
+  fetched_at="$(printf '%s' "$cached" | jq -r '.fetchedAt')"
+  now="$(date +%s)"
+  ttl="$(devkit_chain_limit_ttl)"
+  case "$fetched_at:$ttl" in
+    ''|*[!0-9:]*) return 1 ;;
+  esac
+  [ "$fetched_at" -le "$now" ] && [ $((now - fetched_at)) -lt "$ttl" ] || return 1
+  devkit_chain_limit_apply "$cached" "$agent" "$window" cache
+  [ "$DEVKIT_CHAIN_LIMIT_STATUS" = current ]
+}
+
+devkit_chain_limit_cache_write() {
+  local agent="$1" result="$2" path tmp
+  mkdir -p "$DEVKIT_STATE_DIR" || return 1
+  path="$(devkit_chain_limit_cache_path "$agent")"
+  tmp="$(mktemp "$DEVKIT_STATE_DIR/usage-limits.XXXXXX")" || return 1
+  if ! printf '%s' "$result" | jq -e --arg provider "$agent" '.provider == $provider and (.fetchedAt | type == "number") and (.windows | type == "array")' >"$tmp" 2>/dev/null; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$path"
+}
+
 devkit_chain_limit_apply() {
   local result="$1" agent="$2" window="$3" source="$4" entry
   entry="$(printf '%s' "$result" | jq -c --arg window "$window" '
@@ -425,7 +520,7 @@ devkit_chain_claude_credentials() {
 }
 
 devkit_chain_claude_usage() {
-  local requested_window="$1" response http_status curl_rc=0 url result now expires credential_rc
+  local requested_window="$1" response http_status curl_rc=0 url result now expires credential_rc timeout
   DEVKIT_CHAIN_CLAUDE_TOKEN=""
   DEVKIT_CHAIN_CLAUDE_EXPIRES=""
   if devkit_chain_claude_credentials; then
@@ -457,8 +552,9 @@ devkit_chain_claude_usage() {
       return 0
     fi
   fi
+  timeout="$(devkit_chain_limit_timeout)" || timeout=5
   url="${DEVKIT_CHAIN_CLAUDE_USAGE_URL:-https://api.anthropic.com/api/oauth/usage}"
-  response="$(curl -sS --connect-timeout "${DEVKIT_CHAIN_LIMIT_TIMEOUT_SECONDS:-5}" --max-time "${DEVKIT_CHAIN_LIMIT_TIMEOUT_SECONDS:-5}" \
+  response="$(curl -sS --connect-timeout "$timeout" --max-time "$timeout" \
     -H "Authorization: Bearer $DEVKIT_CHAIN_CLAUDE_TOKEN" \
     -H 'anthropic-beta: oauth-2025-04-20' -H 'anthropic-version: 2023-06-01' \
     -w '\nDEVKIT_HTTP_STATUS:%{http_code}' "$url" 2>/dev/null)" || curl_rc=$?
@@ -512,7 +608,7 @@ devkit_chain_agy_credentials() {
 }
 
 devkit_chain_agy_usage() {
-  local requested_window="$1" response http_status curl_rc=0 url result now credential_rc
+  local requested_window="$1" response http_status curl_rc=0 url result now credential_rc timeout
   DEVKIT_CHAIN_AGY_TOKEN=""
   if devkit_chain_agy_credentials; then
     credential_rc=0
@@ -527,9 +623,10 @@ devkit_chain_agy_usage() {
     esac
     return 0
   fi
+  timeout="$(devkit_chain_limit_timeout)" || timeout=5
   url="${DEVKIT_CHAIN_AGY_USAGE_URL:-https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary}"
   # WHY: this is an undocumented client endpoint and its response contract can change.
-  response="$(curl -sS --connect-timeout "${DEVKIT_CHAIN_LIMIT_TIMEOUT_SECONDS:-5}" --max-time "${DEVKIT_CHAIN_LIMIT_TIMEOUT_SECONDS:-5}" \
+  response="$(curl -sS --connect-timeout "$timeout" --max-time "$timeout" \
     -X POST -H "Authorization: Bearer $DEVKIT_CHAIN_AGY_TOKEN" -H 'Content-Type: application/json' \
     -d '{}' -w '\nDEVKIT_HTTP_STATUS:%{http_code}' "$url" 2>/dev/null)" || curl_rc=$?
   unset DEVKIT_CHAIN_AGY_TOKEN
@@ -589,10 +686,18 @@ devkit_chain_limit_read() {
   DEVKIT_CHAIN_LIMIT_FETCHED_AT=""
   case "$agent" in
     claude|agy)
+      if ! devkit_chain_live_enabled "$agent"; then
+        devkit_chain_limit_unknown "$agent" "$window" 'live provider is not enabled'
+        return 0
+      fi
+      if devkit_chain_limit_cache_read "$agent" "$window"; then
+        return 0
+      fi
       if [ "$agent" = claude ]; then
         devkit_chain_claude_usage "$window"
         if [ -n "$DEVKIT_CHAIN_LIMIT_RESULT" ]; then
           devkit_chain_limit_apply "$DEVKIT_CHAIN_LIMIT_RESULT" claude "$window" live
+          [ "$DEVKIT_CHAIN_LIMIT_STATUS" = current ] && devkit_chain_limit_cache_write claude "$DEVKIT_CHAIN_LIMIT_RESULT" >/dev/null 2>&1 || true
         else
           [ -n "$DEVKIT_CHAIN_LIMIT_REASON" ] || devkit_chain_limit_unknown claude "$window" 'provider reader returned no result'
         fi
@@ -600,6 +705,7 @@ devkit_chain_limit_read() {
         devkit_chain_agy_usage "$window"
         if [ -n "$DEVKIT_CHAIN_LIMIT_RESULT" ]; then
           devkit_chain_limit_apply "$DEVKIT_CHAIN_LIMIT_RESULT" agy "$window" live
+          [ "$DEVKIT_CHAIN_LIMIT_STATUS" = current ] && devkit_chain_limit_cache_write agy "$DEVKIT_CHAIN_LIMIT_RESULT" >/dev/null 2>&1 || true
         else
           [ -n "$DEVKIT_CHAIN_LIMIT_REASON" ] || devkit_chain_limit_unknown agy "$window" 'provider reader returned no result'
         fi
