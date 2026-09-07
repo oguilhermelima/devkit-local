@@ -451,7 +451,7 @@ devkit_launch_agent() {
   local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
   local context command_text response session_id final_prompt dispatch_preamble parent_id parent_host child_host branch meta
   local parent_tmux_session="" parent_tmux_pane="" parent_workspace_id="${SUPERSET_WORKSPACE_ID:-}"
-  local agent_used model_honored=false substitution_report dispatch_id runtime tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false
+  local agent_used model_honored=false substitution_report dispatch_id runtime tmux_session="" tmux_pane="" existing_session="" tmux_command="" terminal_shell="${SHELL:-/bin/zsh}" host_terminal_created=false
   local -a passthrough_args=()
   shift 7
   [ "$#" -eq 0 ] || passthrough_args=("$@")
@@ -623,10 +623,12 @@ ${prompt}"
       return 1
     }
   fi
+  dispatch_id="$(devkit_dispatch_new_id)" || return 1
+  terminal_shell="cd $(printf '%q' "$worktree_path") && exec $(printf '%q' "$terminal_shell")"
   case "$context" in
     orca)
       devkit_require_command orca || { devkit_error "orca CLI is not available"; return 1; }
-      response="$(orca terminal create --worktree "path:$worktree_path" --title "$agent $worktree_path" --command "$command_text" --json)" || {
+      response="$(orca terminal create --worktree "path:$worktree_path" --title "$agent $worktree_path" --command "$terminal_shell" --json)" || {
         devkit_error "orca terminal create failed for $worktree_path"
         return 1
       }
@@ -635,7 +637,7 @@ ${prompt}"
       ;;
     superset)
       devkit_superset_available || { devkit_error "superset CLI is not available"; return 1; }
-      response="$(devkit_superset terminals create --workspace "$workspace_id" --command "$command_text" --json)" || {
+      response="$(devkit_superset terminals create --workspace "$workspace_id" --command "$terminal_shell" --json)" || {
         devkit_error "Superset terminals create failed for workspace $workspace_id"
         return 1
       }
@@ -653,13 +655,29 @@ ${prompt}"
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     return 1
   fi
-  dispatch_id="$session_id"
   model_honored=true
   devkit_dispatch_meta_write "$dispatch_id" "$parent_id" "$parent_host" "$child_host" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" "$model_honored" "$agent_used" "" "" host ide "$parent_tmux_session" "$parent_tmux_pane" "$parent_workspace_id" >/dev/null || {
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
-    devkit_error "could not persist dispatch metadata: $session_id"
+    devkit_error "could not persist dispatch metadata: $dispatch_id"
     return 1
   }
+  if [ "$child_host" = orca ]; then
+    command_text="cd $(printf '%q' "$worktree_path") && ORCA_TERMINAL_HANDLE=$(printf '%q' "$session_id") DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") $command_text"
+  else
+    command_text="cd $(printf '%q' "$worktree_path") && SUPERSET_TERMINAL_ID=$(printf '%q' "$session_id") DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") $command_text"
+  fi
+  meta="$(devkit_dispatch_meta_read "$dispatch_id")" || {
+    devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
+    devkit_spawn_mark_prompt_failed "$dispatch_id" metadata-read-failed
+    devkit_error "could not read dispatch metadata: $dispatch_id"
+    return 1
+  }
+  if ! devkit_dispatch_native_send "$meta" "$command_text"; then
+    devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
+    devkit_spawn_mark_prompt_failed "$dispatch_id" command-not-submitted
+    devkit_error "could not start agent in $child_host terminal $session_id"
+    return 1
+  fi
   if [ "$child_host" = orca ]; then
     if ! orca terminal wait --terminal "$session_id" --for tui-idle --timeout-ms "$DEVKIT_AGENT_READY_TIMEOUT_MS" >/dev/null; then
       devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
@@ -673,12 +691,7 @@ ${prompt}"
     devkit_error "Superset terminal $session_id did not become ready"
     return 1
   fi
-  meta="$(devkit_dispatch_meta_read "$dispatch_id")" || {
-    devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
-    devkit_spawn_mark_prompt_failed "$dispatch_id" metadata-read-failed
-    devkit_error "could not read dispatch metadata: $dispatch_id"
-    return 1
-  }
+  meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
   if ! devkit_dispatch_native_send "$meta" "$final_prompt"; then
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-send-failed
@@ -702,7 +715,7 @@ ${prompt}"
     devkit_error "could not persist host dispatch state: $session_id"
     return 1
   }
-  DEVKIT_LAST_DISPATCH="$session_id"
+  DEVKIT_LAST_DISPATCH="$dispatch_id"
   printf '%s\n' "$response"
   return 0
 }
