@@ -855,11 +855,32 @@ devkit_dispatch_watch() {
 
 devkit_dispatch_wait_for_prompt_receipt() {
   local dispatch_id="$1" result delivery_id message_type timeout="${DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS:-30}"
-  result="$(devkit_dispatch_watch "$dispatch_id" --timeout "$timeout" --poll-interval 1 --wait-mode poll --json)" || return 1
-  delivery_id="$(printf '%s' "$result" | jq -r '.deliveryId // empty')"
-  message_type="$(printf '%s' "$result" | jq -r '.messages[0].type // empty')"
-  [ -n "$delivery_id" ] && [ "$message_type" = received ] || return 1
-  devkit_dispatch_ack "$dispatch_id" "$delivery_id" --json >/dev/null
+  local meta runtime tmux_session tmux_pane started now remaining wait_seconds enter_attempt=0
+  meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
+  tmux_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
+  started="$(date +%s)"
+  while true; do
+    now="$(date +%s)"
+    remaining=$((timeout - (now - started)))
+    [ "$remaining" -gt 0 ] || return 1
+    wait_seconds=1
+    [ "$remaining" -lt "$wait_seconds" ] && wait_seconds="$remaining"
+    result="$(devkit_dispatch_watch "$dispatch_id" --timeout "$wait_seconds" --poll-interval 0 --wait-mode poll --json)" || return 1
+    delivery_id="$(printf '%s' "$result" | jq -r '.deliveryId // empty')"
+    message_type="$(printf '%s' "$result" | jq -r '.messages[0].type // empty')"
+    if [ -n "$delivery_id" ]; then
+      [ "$message_type" = received ] || return 1
+      devkit_dispatch_ack "$dispatch_id" "$delivery_id" --json >/dev/null
+      return $?
+    fi
+    if [ "$runtime" = tmux ] && [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] &&
+      [ "$enter_attempt" -lt "$DEVKIT_TMUX_ENTER_RETRIES" ] && devkit_tmux_session_exists "$tmux_session"; then
+      tmux send-keys -t "$tmux_pane" Enter || return 1
+      enter_attempt=$((enter_attempt + 1))
+    fi
+  done
 }
 
 devkit_dispatch_child_check() {
