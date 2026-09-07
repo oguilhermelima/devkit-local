@@ -4,6 +4,20 @@ DEVKIT_SUPERSET_PROTOCOL="This is a managed devkit dispatch. If you need coordin
 DEVKIT_LAST_DISPATCH=""
 DEVKIT_DISPATCH_CLOSE_LAST_PANE=false
 DEVKIT_DISPATCH_DELIVERY_BATCH_CAP="${DEVKIT_DISPATCH_DELIVERY_BATCH_CAP:-50}"
+DEVKIT_PROMPT_BUDGET_BYTES=512
+
+devkit_prompt_byte_length() {
+  LC_ALL=C printf '%s' "$1" | wc -c | tr -d '[:space:]'
+}
+
+devkit_validate_prompt_budget() {
+  local text="$1" label="${2:-prompt}" actual
+  actual="$(devkit_prompt_byte_length "$text")"
+  if [ "$actual" -gt "$DEVKIT_PROMPT_BUDGET_BYTES" ]; then
+    devkit_error "$label is too large: $actual bytes (limit: $DEVKIT_PROMPT_BUDGET_BYTES bytes)"
+    return 1
+  fi
+}
 
 devkit_dispatch_new_id() {
   local candidate suffix counter=0
