@@ -683,7 +683,7 @@ devkit_dispatch_report() {
 }
 
 devkit_dispatch_watch() {
-  local dispatch_id="${1:-}" timeout=120 poll_interval=3 json=false arg meta start_time now
+  local dispatch_id="${1:-}" timeout=120 poll_interval=3 wait_mode=nudge json=false arg meta start_time now remaining
   local consumer="${DEVKIT_CONSUMER_ID:-}" generation="${DEVKIT_CONSUMER_GENERATION:-1}"
   local messages_dir deliveries_dir lock path seq from type message_seqs delivery_id outstanding_path outstanding_consumer outstanding_generation
   [ -n "$dispatch_id" ] || { devkit_error "Usage: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
@@ -693,15 +693,18 @@ devkit_dispatch_watch() {
     case "$arg" in
       --timeout) timeout="${2:-}"; shift 2 ;;
       --poll-interval) poll_interval="${2:-}"; shift 2 ;;
+      --wait-mode) wait_mode="${2:-}"; shift 2 ;;
+      --poll) wait_mode=poll; shift ;;
       --consumer) consumer="${2:-}"; shift 2 ;;
       --generation) generation="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--consumer <id>] [--generation <number>] [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--json]\n'; return 0 ;;
       *) devkit_error "unknown orchestrate watch option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
   [[ "$timeout" =~ ^[0-9]+$ ]] || { devkit_error "--timeout must be a non-negative number of seconds"; return "$DEVKIT_USAGE_ERROR"; }
   [[ "$poll_interval" =~ ^[0-9]+$ ]] || { devkit_error "--poll-interval must be a non-negative number of seconds"; return "$DEVKIT_USAGE_ERROR"; }
+  case "$wait_mode" in nudge|poll) ;; *) devkit_error "--wait-mode must be nudge or poll"; return "$DEVKIT_USAGE_ERROR" ;; esac
   [[ "$generation" =~ ^[1-9][0-9]*$ ]] || { devkit_error "--generation must be a positive number"; return "$DEVKIT_USAGE_ERROR"; }
   [[ "$DEVKIT_DISPATCH_DELIVERY_BATCH_CAP" =~ ^[1-9][0-9]*$ ]] || { devkit_error "delivery batch cap is invalid"; return 1; }
   meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
@@ -710,6 +713,7 @@ devkit_dispatch_watch() {
   messages_dir="$(devkit_dispatch_messages_dir "$dispatch_id")"
   deliveries_dir="$(devkit_dispatch_deliveries_dir "$dispatch_id")"
   mkdir -p "$deliveries_dir" || return 1
+  devkit_parent_notify_waiter_register "$dispatch_id" "$meta" || return 1
   lock="$messages_dir/.lock"
   start_time="$(date +%s)"
   while true; do
@@ -728,10 +732,11 @@ devkit_dispatch_watch() {
       delivery_id="$(jq -r '.id // empty' "$outstanding_path")"
       if [ "$outstanding_consumer" = "$consumer" ] && [ "$outstanding_generation" = "$generation" ]; then
         rmdir "$lock"
+        devkit_parent_notify_waiter_unregister "$dispatch_id"
         devkit_dispatch_delivery_report "$dispatch_id" "$delivery_id" true "$json"
         return $?
       fi
-      devkit_dispatch_delivery_fence "$outstanding_path" || { rmdir "$lock"; return 1; }
+      devkit_dispatch_delivery_fence "$outstanding_path" || { rmdir "$lock"; devkit_parent_notify_waiter_unregister "$dispatch_id"; return 1; }
     fi
     message_seqs='[]'
     while IFS=$'\t' read -r seq path; do
@@ -745,19 +750,26 @@ devkit_dispatch_watch() {
       [ "$(jq 'length' <<<"$message_seqs")" -ge "$DEVKIT_DISPATCH_DELIVERY_BATCH_CAP" ] && break
     done < <(devkit_dispatch_message_paths "$messages_dir")
     if [ "$(jq 'length' <<<"$message_seqs")" -gt 0 ]; then
-      delivery_id="$(devkit_dispatch_new_delivery_id "$dispatch_id")" || { rmdir "$lock"; return 1; }
-      devkit_dispatch_delivery_write "$dispatch_id" "$delivery_id" "$consumer" "$generation" "$message_seqs" || { rmdir "$lock"; return 1; }
+      delivery_id="$(devkit_dispatch_new_delivery_id "$dispatch_id")" || { rmdir "$lock"; devkit_parent_notify_waiter_unregister "$dispatch_id"; return 1; }
+      devkit_dispatch_delivery_write "$dispatch_id" "$delivery_id" "$consumer" "$generation" "$message_seqs" || { rmdir "$lock"; devkit_parent_notify_waiter_unregister "$dispatch_id"; return 1; }
       rmdir "$lock"
+      devkit_parent_notify_waiter_unregister "$dispatch_id"
       devkit_dispatch_delivery_report "$dispatch_id" "$delivery_id" false "$json"
       return $?
     fi
     rmdir "$lock"
     now="$(date +%s)"
     if [ $((now - start_time)) -ge "$timeout" ]; then
+      devkit_parent_notify_waiter_unregister "$dispatch_id"
       devkit_dispatch_empty_delivery_report "$dispatch_id" "$json"
       return 0
     fi
-    sleep "$poll_interval"
+    if [ "$wait_mode" = nudge ]; then
+      remaining=$((timeout - (now - start_time)))
+      [ "$remaining" -gt 0 ] && devkit_parent_notify_wait_for_wake "$dispatch_id" "$remaining" || true
+    else
+      sleep "$poll_interval"
+    fi
   done
 }
 

@@ -52,7 +52,7 @@ command_orchestrate() {
     -h|--help|"")
       printf 'Usage: devkit orchestrate spawn ... | devkit orchestrate list [--all|--orphans] [--json]\n'
       printf '       devkit orchestrate reconcile <dispatch-id> [--all] [--json]\n'
-      printf '       devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]\n'
+      printf '       devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--json]\n'
       printf '       devkit orchestrate read <dispatch-id> [--lines <count>] [--json]\n'
       printf '       devkit orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json]\n'
       printf '       devkit orchestrate reply <dispatch-id> --text <answer> [--json]\n'

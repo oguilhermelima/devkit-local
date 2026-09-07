@@ -46,6 +46,37 @@ devkit_parent_notify_pointer() {
   printf '[devkit] mail available for dispatch %s; run devkit orchestrate watch %s\n' "$dispatch_id" "$dispatch_id"
 }
 
+devkit_parent_notify_wake_path() {
+  printf '%s/nudge.log\n' "$(devkit_dispatch_dir "$1")"
+}
+
+devkit_parent_notify_wake() {
+  local dispatch_id="$1" pointer="$2" path lock
+  path="$(devkit_parent_notify_wake_path "$dispatch_id")" || return 1
+  lock="$(dirname "$path")/.nudge.lock"
+  while ! mkdir "$lock" 2>/dev/null; do sleep 0.02; done
+  if ! printf '%s\n' "$pointer" >>"$path"; then
+    rmdir "$lock"
+    return 1
+  fi
+  rmdir "$lock"
+}
+
+devkit_parent_notify_wait_for_wake() {
+  local dispatch_id="$1" timeout="$2" path lines wake_fd result
+  path="$(devkit_parent_notify_wake_path "$dispatch_id")" || return 1
+  : >>"$path" || return 1
+  lines="$(wc -l <"$path" | tr -d ' ')"
+  exec {wake_fd}< <(tail -n +$((lines + 1)) -f "$path")
+  if IFS= read -r -t "$timeout" wake <&"$wake_fd"; then
+    result=0
+  else
+    result=1
+  fi
+  exec {wake_fd}<&-
+  return "$result"
+}
+
 devkit_parent_notify_tmux_is_idle() {
   local meta="$1" session pane first second last_line
   session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
@@ -157,6 +188,8 @@ devkit_parent_notify_dispatch() {
   DEVKIT_PARENT_NOTIFY_RESULT=skipped
   dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty')"
   [ -n "$dispatch_id" ] || { DEVKIT_PARENT_NOTIFY_RESULT=failed; return 1; }
+  pointer="$(devkit_parent_notify_pointer "$dispatch_id")"
+  devkit_parent_notify_wake "$dispatch_id" "$pointer" >/dev/null 2>&1 || true
   if devkit_parent_notify_waiter_active "$dispatch_id"; then
     DEVKIT_PARENT_NOTIFY_RESULT=suppressed
     return 0
@@ -171,7 +204,6 @@ devkit_parent_notify_dispatch() {
     DEVKIT_PARENT_NOTIFY_RESULT=suppressed
     return 0
   fi
-  pointer="$(devkit_parent_notify_pointer "$dispatch_id")"
   if devkit_parent_notify "$meta" "$pointer"; then
     DEVKIT_PARENT_NOTIFY_RESULT=delivered
     return 0
