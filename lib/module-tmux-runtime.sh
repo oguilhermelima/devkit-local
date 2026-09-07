@@ -245,15 +245,15 @@ devkit_tmux_agent_output_clean() {
 }
 
 devkit_tmux_send_text() {
-  local pane="$1" text="$2" attempt before after
-  before="$(devkit_tmux_capture_pane "$pane" -20 2>/dev/null || true)"
+  local pane="$1" text="$2" attempt typed after
   tmux send-keys -t "$pane" -l "$text" || return 1
   # Keep Enter separate and retry only after checking that the composer changed.
+  typed="$(devkit_tmux_capture_pane "$pane" -20 2>/dev/null || true)"
   for ((attempt = 1; attempt <= DEVKIT_TMUX_ENTER_RETRIES; attempt++)); do
     tmux send-keys -t "$pane" Enter || return 1
     sleep "$DEVKIT_TMUX_ENTER_WAIT"
     after="$(devkit_tmux_capture_pane "$pane" -20 2>/dev/null || true)"
-    [ "$after" != "$before" ] && return 0
+    [ "$after" != "$typed" ] && return 0
   done
   devkit_error "tmux did not submit input in pane $pane after $DEVKIT_TMUX_ENTER_RETRIES Enter attempts"
   return 1
