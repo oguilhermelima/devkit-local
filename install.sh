@@ -535,7 +535,7 @@ installer_marketplace_root() {
     codex) output="$(codex plugin marketplace list 2>/dev/null || true)" ;;
     *) return 1 ;;
   esac
-  line="$(printf '%s\n' "$output" | awk '/devkit-local/ { found=1; if (match($0, /\/[^"]+/)) { print substr($0, RSTART, RLENGTH); exit } next } found && $0 ~ /^[/[:space:]]/ { if (match($0, /\/[^"]+/)) { print substr($0, RSTART, RLENGTH); exit } }')"
+  line="$(printf '%s\n' "$output" | awk '/devkit-local/ { found=1; if (match($0, /\/[^"]+/)) { print substr($0, RSTART, RLENGTH); exit } next } found && ($0 ~ /^[[:space:]]/ || $0 ~ /^\//) { if (match($0, /\/[^"]+/)) { print substr($0, RSTART, RLENGTH); exit } }')"
   path="$(printf '%s' "$line" | sed -E 's/[),;]+$//')"
   [ -n "$path" ] || return 1
   if [ -d "$path" ]; then
