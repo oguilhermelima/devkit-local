@@ -36,20 +36,22 @@ devkit_hooks_command() {
 }
 
 devkit_hooks_config_has_entry() {
-  local agent="$1" path="$2" command="$3"
+  local agent="$1" path="$2"
   case "$agent" in
     cursor)
-      jq -e --arg command "$command" '
+      jq -e '
+        def devkit_entry: ((.command? // "") | contains("devkit-turn-end.sh"));
         (.hooks? | type == "object") and
         ((.hooks.afterAgentResponse? // []) | type == "array") and
-        any(.hooks.afterAgentResponse[]?; .command == $command)
+        any(.hooks.afterAgentResponse[]?; devkit_entry)
       ' "$path" >/dev/null 2>&1
       ;;
     claude|codex|agy)
-      jq -e --arg command "$command" '
+      jq -e '
+        def devkit_entry: ((.command? // "") | contains("devkit-turn-end.sh"));
         (.hooks? | type == "object") and
         ((.hooks.Stop? // []) | type == "array") and
-        any(.hooks.Stop[]?; (.hooks? | type == "array") and any(.hooks[]?; .command == $command))
+        any(.hooks.Stop[]?; (.hooks? | type == "array") and any(.hooks[]?; devkit_entry))
       ' "$path" >/dev/null 2>&1
       ;;
     *) return 1 ;;
@@ -68,7 +70,18 @@ devkit_hooks_trust_detail() {
 
 devkit_hooks_trust_warning() {
   local agent="$1"
+  if [ "$agent" = codex ]; then
+    devkit_hooks_codex_trust_note
+    return 0
+  fi
   devkit_info "Warning: $agent may require a one-time human trust action for the devkit hook; $(devkit_hooks_trust_detail "$agent")."
+}
+
+devkit_hooks_codex_trust_note() {
+  devkit_info ""
+  devkit_info "CODEX ACTION REQUIRED: the devkit hook needs one-time trust in Codex."
+  devkit_info "Open a plain terminal, run codex, and choose \"Trust all and continue\"."
+  devkit_info "Opening Codex through Superset will not complete this step because Superset passes --dangerously-bypass-hook-trust."
 }
 
 devkit_hooks_write_config() {
@@ -88,15 +101,18 @@ devkit_hooks_write_config() {
     fi
   elif [ "$agent" = cursor ]; then
     if ! jq --arg command "$command" '
+      def devkit_entry: ((.command? // "") | contains("devkit-turn-end.sh"));
       (.hooks // {}) as $hooks |
       if ($hooks | type) != "object" then error("hooks must be an object")
       elif (($hooks.afterAgentResponse // []) | type) != "array" then error("hooks.afterAgentResponse must be an array")
       else
         .hooks = $hooks |
-        .hooks.afterAgentResponse = (($hooks.afterAgentResponse // []) |
-          if any(.[]?; .command == $command) then .
-          else . + [{command: $command, timeout: 10}]
-          end) |
+        .hooks.afterAgentResponse = (reduce (($hooks.afterAgentResponse // [])[]) as $entry
+          ({seen: false, entries: []};
+            if ($entry | devkit_entry) then
+              if .seen then . else .entries += [$entry + {command: $command, timeout: 10}] | .seen = true end
+            else .entries += [$entry]
+            end) | if .seen then .entries else .entries + [{command: $command, timeout: 10}] end) |
         .version = (.version // 1)
       end
     ' "$path" 2>/dev/null >"$tmp"; then
@@ -110,15 +126,27 @@ devkit_hooks_write_config() {
       return 1
     fi
   elif ! jq --arg command "$command" '
+    def devkit_entry: ((.command? // "") | contains("devkit-turn-end.sh"));
     (.hooks // {}) as $hooks |
     if ($hooks | type) != "object" then error("hooks must be an object")
     elif (($hooks.Stop // []) | type) != "array" then error("hooks.Stop must be an array")
     else
       .hooks = $hooks |
-      .hooks.Stop = (($hooks.Stop // []) |
-        if any(.[]?; (.hooks? | type == "array") and any(.hooks[]?; .command == $command)) then .
-        else . + [{hooks: [{type: "command", command: $command}]}]
-        end)
+      .hooks.Stop = (reduce (($hooks.Stop // [])[]) as $group
+        ({seen: false, entries: []};
+          ($group.hooks // []) as $nested |
+          if ([ $nested[]? | select(devkit_entry) ] | length) == 0 then
+            .entries += [$group]
+          elif .seen then .
+          else
+            .entries += [($group | .hooks = (reduce ($nested[]) as $entry
+              ({seen: false, entries: []};
+                if ($entry | devkit_entry) then
+                  if .seen then . else .entries += [$entry + {type: "command", command: $command}] | .seen = true end
+                else .entries += [$entry]
+                end) | .entries))] |
+            .seen = true
+          end) | if .seen then .entries else .entries + [{hooks: [{type: "command", command: $command}]}] end)
     end
   ' "$path" 2>/dev/null >"$tmp"; then
     rm -f "$tmp"
@@ -156,12 +184,14 @@ devkit_hooks_agent_status() {
 }
 
 module_orchestration_hooks_doctor() {
-  local agent status details='' rc=0
+  local agent status details='' rc=0 codex_present=false
   for agent in claude codex agy cursor; do
     status="$(devkit_hooks_agent_status "$agent")" || rc=1
+    [ "$status" = 'codex: entry-present' ] && codex_present=true
     if [ -n "$details" ]; then details="$details; "; fi
     details="$details$status"
   done
+  [ "$codex_present" = true ] && devkit_hooks_codex_trust_note
   if [ "$rc" -eq 0 ]; then
     devkit_set_status ok "$details; Codex caveat: $(devkit_hooks_trust_detail codex)."
   else
@@ -171,11 +201,16 @@ module_orchestration_hooks_doctor() {
 }
 
 module_orchestration_hooks_install() {
-  local agent
+  local agent codex_present=false
   for agent in claude codex agy cursor; do
     devkit_hooks_agent_available "$agent" || continue
     devkit_hooks_write_config "$agent" || return 1
-    devkit_hooks_trust_warning "$agent"
+    if [ "$agent" = codex ]; then
+      codex_present=true
+    else
+      devkit_hooks_trust_warning "$agent"
+    fi
   done
+  [ "$codex_present" = true ] && devkit_hooks_codex_trust_note
   return 0
 }
