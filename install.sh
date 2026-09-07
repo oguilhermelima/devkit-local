@@ -9,11 +9,16 @@ INSTALL_ROOT="$HOME/.devkit-local"
 SKILL_MODE=""
 AGENTS_MODE=""
 AGENTS_REQUEST=""
+MODULES_REQUEST=""
 AVAILABLE_AGENTS=""
 SELECTED_AGENTS=""
+SELECTED_MODULES=""
 ASSUME_YES=false
 SOURCE_ROOT=""
 SUMMARY_LINES=()
+INSTALLER_MENU_OPTIONS=()
+INSTALLER_MENU_SELECTED=()
+INSTALLER_MENU_RESULT=""
 
 installer_error() {
   printf 'install.sh: %s\n' "$*" >&2
@@ -26,7 +31,7 @@ installer_summary() {
 installer_usage() {
   cat <<'EOF'
 Usage: ./install.sh [--agents claude,codex,agy|none] [--skill none|global|project]
-                    [--agents-md none|global|project] [--yes]
+                    [--agents-md none|global|project] [--modules list|all|none] [--yes]
 
 --agents selects installed agent CLIs to configure. With --skill global, Claude is
 registered as a user-level marketplace plugin; --skill project keeps the legacy
@@ -56,6 +61,11 @@ installer_parse_args() {
       --agents)
         [ "$#" -gt 1 ] || { installer_error "$arg requires a comma-separated list of claude, codex, agy, or none"; return 2; }
         AGENTS_REQUEST="$2"
+        shift 2
+        ;;
+      --modules)
+        [ "$#" -gt 1 ] || { installer_error "--modules requires a comma-separated list or all/none"; return 2; }
+        MODULES_REQUEST="$2"
         shift 2
         ;;
       --yes) ASSUME_YES=true; shift ;;
@@ -89,8 +99,115 @@ installer_list_contains() {
   return 1
 }
 
+installer_menu() {
+  local mode="$1" header="$2" initial="$3" key rest index num
+  shift 3
+  INSTALLER_MENU_OPTIONS=("$@")
+  INSTALLER_MENU_SELECTED=()
+  INSTALLER_MENU_RESULT=""
+  local total="${#INSTALLER_MENU_OPTIONS[@]}"
+  local selected=1
+  local value option
+  [ "$total" -gt 0 ] || return 1
+  for option in "${INSTALLER_MENU_OPTIONS[@]}"; do
+    value=false
+    if [ "$mode" = multi ] && installer_list_contains "$initial" "$option"; then
+      value=true
+    fi
+    INSTALLER_MENU_SELECTED+=("$value")
+  done
+  while true; do
+    printf '\033[2J\033[H'
+    printf '%s\n\n' "$header"
+    if [ "$mode" = multi ]; then
+      printf 'Use ↑/↓ or numbers to move, Space to toggle, Enter to confirm.\n\n'
+    else
+      printf 'Use ↑/↓ or a number, then Enter to confirm.\n\n'
+    fi
+    index=1
+    for option in "${INSTALLER_MENU_OPTIONS[@]}"; do
+      if [ "$mode" = multi ]; then
+        if [ "${INSTALLER_MENU_SELECTED[$((index - 1))]}" = true ]; then
+          value='x'
+        else
+          value=' '
+        fi
+        if [ "$index" -eq "$selected" ]; then
+          printf '➜ [%s] [%2d] %s\n' "$value" "$index" "$option"
+        else
+          printf '  [%s] [%2d] %s\n' "$value" "$index" "$option"
+        fi
+      elif [ "$index" -eq "$selected" ]; then
+        printf '➜ [*] [%2d] %s\n' "$index" "$option"
+      else
+        printf '  [ ] [%2d] %s\n' "$index" "$option"
+      fi
+      index=$((index + 1))
+    done
+    printf '\n'
+    if ! read -r -s -n 1 key; then
+      return 1
+    fi
+    if [ "$key" = $'\033' ]; then
+      rest=''
+      read -r -s -n 2 -t 0.1 rest || true
+      key="$key$rest"
+    fi
+    case "$key" in
+      $'\033[A'|$'\033OA'|k|K)
+        selected=$((selected - 1))
+        [ "$selected" -ge 1 ] || selected="$total"
+        ;;
+      $'\033[B'|$'\033OB'|j|J)
+        selected=$((selected + 1))
+        [ "$selected" -le "$total" ] || selected=1
+        ;;
+      [0-9])
+        num="$key"
+        if [ "$num" -ge 1 ] && [ "$num" -le "$total" ]; then
+          selected="$num"
+          if [ "$mode" = multi ]; then
+            if [ "${INSTALLER_MENU_SELECTED[$((selected - 1))]}" = true ]; then
+              INSTALLER_MENU_SELECTED[$((selected - 1))]=false
+            else
+              INSTALLER_MENU_SELECTED[$((selected - 1))]=true
+            fi
+          else
+            break
+          fi
+        fi
+        ;;
+      ' ')
+        if [ "$mode" = multi ]; then
+          if [ "${INSTALLER_MENU_SELECTED[$((selected - 1))]}" = true ]; then
+            INSTALLER_MENU_SELECTED[$((selected - 1))]=false
+          else
+            INSTALLER_MENU_SELECTED[$((selected - 1))]=true
+          fi
+        fi
+        ;;
+      ''|$'\n'|$'\r') break ;;
+      q|Q|$'\003') return 130 ;;
+    esac
+  done
+  if [ "$mode" = multi ]; then
+    INSTALLER_MENU_RESULT=''
+    index=1
+    for option in "${INSTALLER_MENU_OPTIONS[@]}"; do
+      if [ "${INSTALLER_MENU_SELECTED[$((index - 1))]}" = true ]; then
+        [ -n "$INSTALLER_MENU_RESULT" ] && INSTALLER_MENU_RESULT="$INSTALLER_MENU_RESULT,"
+        INSTALLER_MENU_RESULT="$INSTALLER_MENU_RESULT$option"
+      fi
+      index=$((index + 1))
+    done
+  else
+    INSTALLER_MENU_RESULT="${INSTALLER_MENU_OPTIONS[$((selected - 1))]}"
+  fi
+  printf '\n'
+}
+
 installer_select_agents() {
-  local raw="$AGENTS_REQUEST" token normalized
+  local raw="$AGENTS_REQUEST" token normalized option
   local -a requested=()
   SELECTED_AGENTS=""
   if [ -z "$raw" ]; then
@@ -98,15 +215,18 @@ installer_select_agents() {
       installer_error "no supported agent CLI (claude, codex, or agy) is installed; pass --agents none or install one"
       return 1
     fi
-    if [ -t 0 ]; then
-      read -r -p "Configure agent CLIs [$AVAILABLE_AGENTS,none] (default: $AVAILABLE_AGENTS): " raw || return 1
-    elif [ -r /dev/tty ]; then
-      read -r -p "Configure agent CLIs [$AVAILABLE_AGENTS,none] (default: $AVAILABLE_AGENTS): " raw </dev/tty || return 1
-    else
+    if [ ! -t 0 ]; then
       installer_error "agent selection requires --agents in a non-interactive shell"
       return 1
     fi
-    [ -n "$raw" ] || raw="$AVAILABLE_AGENTS"
+    local options=()
+    IFS=',' read -r -a options <<<"$AVAILABLE_AGENTS,none"
+    installer_menu multi 'Configure agent CLIs' "$AVAILABLE_AGENTS" "${options[@]}" || return $?
+    raw="$INSTALLER_MENU_RESULT"
+    if [ -z "$raw" ]; then
+      installer_error "choose at least one installed agent or none"
+      return 2
+    fi
   fi
   IFS=',' read -r -a requested <<<"$raw"
   for token in "${requested[@]}"; do
@@ -182,20 +302,35 @@ installer_source_root() {
 }
 
 installer_prompt_mode() {
-  local label="$1" value=""
-  while true; do
-    if [ -t 0 ]; then
-      read -r -p "$label [none/global/project]: " value || return 1
-    elif [ -r /dev/tty ]; then
-      read -r -p "$label [none/global/project]: " value </dev/tty || return 1
-    else
-      installer_error "$label requires --skill or --agents-md in a non-interactive shell"
-      return 1
+  local label="$1"
+  [ -t 0 ] || { installer_error "$label requires --skill or --agents-md in a non-interactive shell"; return 1; }
+  installer_menu single "$label" '' none global project || return $?
+  PROMPT_MODE="$INSTALLER_MENU_RESULT"
+}
+
+installer_select_modules() {
+  local raw="$MODULES_REQUEST" token normalized
+  local -a modules=(orchestration orchestration-hooks worktree simulator-web simulator-native simulator-tv tv-adb)
+  SELECTED_MODULES=""
+  if [ -z "$raw" ]; then
+    [ -t 0 ] || return 0
+    installer_menu multi 'Select devkit modules to install' '' "${modules[@]}" || return $?
+    raw="$INSTALLER_MENU_RESULT"
+  fi
+  [ -n "$raw" ] || return 0
+  if [ "$raw" = all ]; then
+    SELECTED_MODULES="$(IFS=','; printf '%s' "${modules[*]}")"
+    return 0
+  fi
+  IFS=',' read -r -a _installer_requested_modules <<<"$raw"
+  for token in "${_installer_requested_modules[@]}"; do
+    normalized="$(printf '%s' "$token" | tr -d '[:space:]')"
+    [ "$normalized" = none ] && { [ "${#_installer_requested_modules[@]}" -eq 1 ] || { installer_error "none cannot be combined with modules"; return 2; }; return 0; }
+    installer_list_contains "$(IFS=','; printf '%s' "${modules[*]}")" "$normalized" || { installer_error "unknown module '$normalized'"; return 2; }
+    if ! installer_list_contains "$SELECTED_MODULES" "$normalized"; then
+      [ -n "$SELECTED_MODULES" ] && SELECTED_MODULES="$SELECTED_MODULES,"
+      SELECTED_MODULES="$SELECTED_MODULES$normalized"
     fi
-    case "$value" in
-      none|global|project) PROMPT_MODE="$value"; return 0 ;;
-      *) installer_error "choose none, global, or project" ;;
-    esac
   done
 }
 
@@ -309,6 +444,23 @@ installer_install_plugins() {
   done
 }
 
+installer_install_modules() {
+  local module
+  if [ -z "$SELECTED_MODULES" ]; then
+    installer_summary "devkit modules skipped"
+    return 0
+  fi
+  IFS=',' read -r -a _installer_selected_modules <<<"$SELECTED_MODULES"
+  for module in "${_installer_selected_modules[@]}"; do
+    if "$SOURCE_ROOT/devkit" install "$module"; then
+      installer_summary "devkit module $module installed"
+    else
+      installer_error "could not install devkit module $module"
+      return 1
+    fi
+  done
+}
+
 installer_pointer_paragraph() {
   awk 'NF { print; exit }' "$SOURCE_ROOT/AGENTS.md"
 }
@@ -374,6 +526,8 @@ installer_main() {
     AGENTS_MODE="$PROMPT_MODE"
   fi
   installer_install_agents || return 1
+  installer_select_modules || return $?
+  installer_install_modules || return 1
   printf '\nInstallation summary:\n'
   printf '%s\n' "${SUMMARY_LINES[@]}"
 }
