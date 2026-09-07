@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-DEVKIT_DISPATCH_PROTOCOL="This is a managed devkit dispatch. Before starting work, run devkit received to confirm that you received this prompt. If you need coordinator input, run devkit ask \"your question\" and stop until the coordinator replies. When the requested work is complete, run devkit done \"short outcome summary\". Do not print protocol markers and do not continue past an unanswered question."
+DEVKIT_DISPATCH_PROTOCOL="This is a managed devkit dispatch. Before starting work, run ./devkit received to confirm that you received this prompt. If you need coordinator input, run ./devkit ask \"your question\" and stop until the coordinator replies. When the requested work is complete, run ./devkit done \"short outcome summary\". Do not print protocol markers and do not continue past an unanswered question."
 DEVKIT_SUPERSET_PROTOCOL="$DEVKIT_DISPATCH_PROTOCOL"
 DEVKIT_LAST_DISPATCH=""
 DEVKIT_DISPATCH_CLOSE_LAST_PANE=false
