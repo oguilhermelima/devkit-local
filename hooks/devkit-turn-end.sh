@@ -13,6 +13,7 @@ devkit_hook_finish() {
 DEVKIT_HOOK_ROOT="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd -P)" || devkit_hook_finish
 source "$DEVKIT_HOOK_ROOT/lib/common.sh" >/dev/null 2>&1 || devkit_hook_finish
 source "$DEVKIT_HOOK_ROOT/lib/module-orchestrate.sh" >/dev/null 2>&1 || devkit_hook_finish
+source "$DEVKIT_HOOK_ROOT/lib/module-parent-notify.sh" >/dev/null 2>&1 || devkit_hook_finish
 
 devkit_session_id >/dev/null 2>&1 || devkit_hook_finish
 [ -n "${DEVKIT_SESSION_ID:-}" ] || devkit_hook_finish
@@ -40,4 +41,7 @@ fi
 
 devkit_dispatch_message_append "$DEVKIT_HOOK_DISPATCH" child stalled "$DEVKIT_HOOK_TEXT" "$DEVKIT_SESSION_ID" >/dev/null 2>&1 || devkit_hook_finish
 devkit_dispatch_meta_update_state "$DEVKIT_HOOK_DISPATCH" stalled >/dev/null 2>&1 || true
+if [ "$(printf '%s' "$DEVKIT_HOOK_META" | jq -r '.runtime // "host"')" = tmux ]; then
+  devkit_parent_notify_dispatch "$DEVKIT_HOOK_META" >/dev/null 2>&1 || true
+fi
 devkit_hook_finish
