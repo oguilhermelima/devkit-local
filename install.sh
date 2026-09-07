@@ -169,7 +169,8 @@ installer_menu() {
       index=$((index + 1))
     done
     printf '\n'
-    if ! read -r -s -n 1 key <"$INSTALLER_INPUT_SOURCE"; then
+    # Preserve whitespace keys so Space cannot enter the confirmation branch.
+    if ! IFS= read -r -s -n 1 key <"$INSTALLER_INPUT_SOURCE"; then
       return 1
     fi
     if [ "$key" = $'\033' ]; then
