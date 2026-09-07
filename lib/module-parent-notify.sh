@@ -22,6 +22,7 @@ devkit_parent_notify_waiter_active() {
 devkit_parent_notify_waiter_register() {
   local dispatch_id="$1" meta="$2" path tmp lock
   path="$(devkit_parent_notify_waiter_path "$dispatch_id")" || return 1
+  [ -d "$(dirname "$path")" ] || return 1
   lock="$(dirname "$path")/.waiter.lock"
   while ! mkdir "$lock" 2>/dev/null; do sleep 0.02; done
   tmp="$(mktemp "$(dirname "$path")/.waiter.XXXXXX")" || { rmdir "$lock"; return 1; }
@@ -43,6 +44,7 @@ devkit_parent_notify_waiter_unregister() {
 
 devkit_parent_notify_pointer() {
   local dispatch_id="$1"
+  # The pointer keeps message content in the durable queue and delivery path.
   printf '[devkit] mail available for dispatch %s; run devkit orchestrate watch %s\n' "$dispatch_id" "$dispatch_id"
 }
 
@@ -53,6 +55,7 @@ devkit_parent_notify_wake_path() {
 devkit_parent_notify_wake() {
   local dispatch_id="$1" pointer="$2" path lock
   path="$(devkit_parent_notify_wake_path "$dispatch_id")" || return 1
+  [ -d "$(dirname "$path")" ] || return 1
   lock="$(dirname "$path")/.nudge.lock"
   while ! mkdir "$lock" 2>/dev/null; do sleep 0.02; done
   if ! printf '%s\n' "$pointer" >>"$path"; then
@@ -63,17 +66,15 @@ devkit_parent_notify_wake() {
 }
 
 devkit_parent_notify_wait_for_wake() {
-  local dispatch_id="$1" timeout="$2" path lines wake_fd result
+  local dispatch_id="$1" timeout="$2" path lines wake result
   path="$(devkit_parent_notify_wake_path "$dispatch_id")" || return 1
   : >>"$path" || return 1
   lines="$(wc -l <"$path" | tr -d ' ')"
-  exec {wake_fd}< <(tail -n +$((lines + 1)) -f "$path")
-  if IFS= read -r -t "$timeout" wake <&"$wake_fd"; then
+  if IFS= read -r -t "$timeout" wake < <(tail -n +$((lines + 1)) -f "$path"); then
     result=0
   else
     result=1
   fi
-  exec {wake_fd}<&-
   return "$result"
 }
 
@@ -92,6 +93,7 @@ devkit_parent_notify_tmux_is_idle() {
   last_line="$(printf '%s\n' "$second" | tail -n 1 | sed 's/[[:space:]]*$//')"
   case "$last_line" in
     *Working*|*Thinking*|*Running*|*'esc to interrupt'*|*'ctrl-c to interrupt'*) printf 'false\n' ;;
+    # Unknown is not idle because a failed liveness check must never type into the parent.
     *'›'|*'❯'|*'$'|*'%'|*'#') printf 'true\n' ;;
     *) printf 'unknown\n' ;;
   esac
