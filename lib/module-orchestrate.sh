@@ -9,6 +9,11 @@ DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS="${DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS:-
 DEVKIT_PROMPT_BUDGET_ARGV_BYTES=262144
 DEVKIT_PROMPT_BUDGET_TMUX_BYTES=12000
 
+if ! declare -F devkit_dispatch_preamble >/dev/null 2>&1; then
+  # shellcheck source=local/devkit/lib/module-facts.sh
+  source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/module-facts.sh"
+fi
+
 devkit_dispatch_transition_allowed() {
   local axis="$1" from="$2" to="$3"
   case "$axis:$from:$to" in
