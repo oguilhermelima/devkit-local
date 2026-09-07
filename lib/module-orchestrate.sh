@@ -149,10 +149,20 @@ devkit_dispatch_meta_write() {
   local agent="$9" label="${10}" state="${11}" model="${12:-}" model_honored="${13:-false}"
   local agent_id="${14:-$agent}" tmux_session="${15:-}" tmux_pane="${16:-}" runtime="${17:-host}" spawn_runtime="${18:-}"
   local parent_tmux_session="${19:-}" parent_tmux_pane="${20:-}" parent_workspace_id="${21:-}"
-  local dispatch_dir tmp
+  local chain_name="${22:-${DEVKIT_CHAIN_NAME:-}}" chain_step="${23:-${DEVKIT_CHAIN_STEP:-}}"
+  local chain_total="${24:-${DEVKIT_CHAIN_TOTAL:-}}" chain_reason="${25:-${DEVKIT_CHAIN_REASON:-}}"
+  local chain_default="${26:-${DEVKIT_CHAIN_DEFAULT:-false}}" chain_step_json chain_total_json dispatch_dir tmp
   if [ -z "$spawn_runtime" ]; then
     [ "$runtime" = tmux ] && spawn_runtime=tmux || spawn_runtime=ide
   fi
+  case "$chain_step" in
+    ''|*[!0-9]*) chain_step_json=null ;;
+    *) chain_step_json="$chain_step" ;;
+  esac
+  case "$chain_total" in
+    ''|*[!0-9]*) chain_total_json=null ;;
+    *) chain_total_json="$chain_total" ;;
+  esac
   dispatch_dir="$(devkit_dispatch_dir "$dispatch_id")" || return 1
   mkdir -p "$dispatch_dir/messages" "$dispatch_dir/deliveries" || return 1
   devkit_dispatch_cursor_write "$dispatch_id" 0 || return 1
@@ -166,9 +176,12 @@ devkit_dispatch_meta_write() {
     --arg model "$model" --arg agentId "$agent_id" --arg runtime "$runtime" \
     --arg tmuxSession "$tmux_session" --arg tmuxPane "$tmux_pane" --arg spawnRuntime "$spawn_runtime" \
     --arg parentTmuxSession "$parent_tmux_session" --arg parentTmuxPane "$parent_tmux_pane" --arg parentWorkspaceId "$parent_workspace_id" \
+    --arg chainName "$chain_name" --arg chainReason "$chain_reason" \
+    --argjson chainStep "$chain_step_json" --argjson chainTotal "$chain_total_json" \
+    --argjson chainDefault "$(devkit_bool_json "$chain_default")" \
     --argjson modelHonored "$(devkit_bool_json "$model_honored")" \
     --arg now "$(devkit_iso_now)" \
-    '{dispatchId: $dispatchId, parentSessionId: $parentSessionId, parentHost: $parentHost, parentWorkspaceId: (if $parentWorkspaceId == "" then null else $parentWorkspaceId end), parentTmuxSession: (if $parentTmuxSession == "" then null else $parentTmuxSession end), parentTmuxPane: (if $parentTmuxPane == "" then null else $parentTmuxPane end), childHost: $childHost, workspaceId: $workspaceId, terminalId: $terminalId, worktreePath: $worktreePath, branch: $branch, agent: $agent, agentId: $agentId, model: $model, modelHonored: $modelHonored, runtime: $runtime, spawnRuntime: $spawnRuntime, tmuxSession: (if $tmuxSession == "" then null else $tmuxSession end), tmuxPane: (if $tmuxPane == "" then null else $tmuxPane end), label: $label, state: $state, promptDelivered: false, promptDelivery: "pending", promptDeliveryReason: null, processState: (if $state == "spawning" then "starting" elif $state == "running" then "running" elif $state == "done" then "succeeded" elif $state == "failed" then "failed" elif $state == "closed" then "stopped" else "start-unproven" end), terminalState: "owned", terminalReason: null, failureCount: 0, stage: null, reason: null, reconcileOutcome: null, createdAt: $now, updatedAt: $now}' \
+    '{dispatchId: $dispatchId, parentSessionId: $parentSessionId, parentHost: $parentHost, parentWorkspaceId: (if $parentWorkspaceId == "" then null else $parentWorkspaceId end), parentTmuxSession: (if $parentTmuxSession == "" then null else $parentTmuxSession end), parentTmuxPane: (if $parentTmuxPane == "" then null else $parentTmuxPane end), childHost: $childHost, workspaceId: $workspaceId, terminalId: $terminalId, worktreePath: $worktreePath, branch: $branch, agent: $agent, agentId: $agentId, model: $model, modelHonored: $modelHonored, runtime: $runtime, spawnRuntime: $spawnRuntime, tmuxSession: (if $tmuxSession == "" then null else $tmuxSession end), tmuxPane: (if $tmuxPane == "" then null else $tmuxPane end), label: $label, chain: (if $chainName == "" then null else {name: $chainName, step: $chainStep, total: $chainTotal, reason: $chainReason, usedDefault: $chainDefault} end), state: $state, promptDelivered: false, promptDelivery: "pending", promptDeliveryReason: null, processState: (if $state == "spawning" then "starting" elif $state == "running" then "running" elif $state == "done" then "succeeded" elif $state == "failed" then "failed" elif $state == "closed" then "stopped" else "start-unproven" end), terminalState: "owned", terminalReason: null, failureCount: 0, stage: null, reason: null, reconcileOutcome: null, createdAt: $now, updatedAt: $now}' \
     >"$tmp"; then
     rm -f "$tmp"
     return 1

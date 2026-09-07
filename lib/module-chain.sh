@@ -510,10 +510,23 @@ devkit_chain_run_spawn() {
   command_orchestrate spawn "${spawn_args[@]}"
 }
 
+devkit_chain_reset_display() {
+  local reset_at="$1"
+  date -u -r "$reset_at" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || printf '%s' "$reset_at"
+}
+
+devkit_chain_clear_dispatch_context() {
+  DEVKIT_CHAIN_NAME=""
+  DEVKIT_CHAIN_STEP=""
+  DEVKIT_CHAIN_TOTAL=""
+  DEVKIT_CHAIN_REASON=""
+  DEVKIT_CHAIN_DEFAULT=false
+}
+
 command_chain_run() {
   local explicit_name="" parent_agent="${SUPERSET_AGENT_ID:-}" parent_model="${SUPERSET_AGENT_MODEL:-}" parent_effort="${SUPERSET_AGENT_EFFORT:-}"
-  local repo="" branch="" base="" slug="" worktree="" prompt="" label="" tmux_choice="" json=false arg value config step_count index step agent model effort until_json threshold window
-  local spawn_output spawn_error error_file reason status spawn_succeeded
+  local repo="" branch="" base="" slug="" worktree="" prompt="" label="" tmux_choice="" json=false arg config step_count index step agent model effort until_json threshold window
+  local spawn_output spawn_json spawn_error error_file reason limit_reason reset_text failure_reason final_reason report_chain reasons_json spawn_succeeded
   local -a agent_args=()
   if [ "$#" -gt 0 ] && [ "${1#--}" = "$1" ]; then
     explicit_name="$1"
@@ -552,6 +565,9 @@ command_chain_run() {
   devkit_chain_validate_config "$config" || return 1
   devkit_chain_select "$config" "$explicit_name" "$parent_agent" "$parent_model" "$parent_effort" || return 1
   step_count="$(printf '%s' "$DEVKIT_CHAIN_SELECTED_STEPS" | jq 'length')"
+  report_chain="$DEVKIT_CHAIN_SELECTED_NAME"
+  [ "$DEVKIT_CHAIN_SELECTION_DEFAULT" = true ] && report_chain=defaultSteps
+  reasons_json='[]'
   error_file="$(mktemp "$DEVKIT_STATE_DIR/chain-run.XXXXXX")" || return 1
   index=0
   while IFS= read -r step; do
@@ -560,18 +576,34 @@ command_chain_run() {
     model="$(printf '%s' "$step" | jq -r '.model')"
     effort="$(printf '%s' "$step" | jq -r '.effort')"
     until_json="$(printf '%s' "$step" | jq -c '.until // empty')"
+    limit_reason=""
+    DEVKIT_CHAIN_LIMIT_RESETS=""
     if [ -n "$until_json" ]; then
       threshold="$(printf '%s' "$until_json" | jq -r '.usedPercent')"
       window="$(printf '%s' "$until_json" | jq -r '.window')"
       devkit_chain_limit_read "$agent" "$window"
+      limit_reason="$DEVKIT_CHAIN_LIMIT_REASON"
       if [ "$DEVKIT_CHAIN_LIMIT_STATUS" = current ] && awk -v used="$DEVKIT_CHAIN_LIMIT_USED" -v threshold="$threshold" 'BEGIN { exit !(used >= threshold) }'; then
-        reason="$DEVKIT_CHAIN_LIMIT_REASON"
-        printf '%s\n' "step $index of $step_count skipped: $reason" >&2
+        reset_text=""
+        [ -n "$DEVKIT_CHAIN_LIMIT_RESETS" ] && reset_text="; resets at $(devkit_chain_reset_display "$DEVKIT_CHAIN_LIMIT_RESETS")"
+        reason="$DEVKIT_CHAIN_LIMIT_REASON$reset_text"
+        reasons_json="$(printf '%s' "$reasons_json" | jq --argjson step "$index" --arg agent "$agent" --arg reason "$reason" '. + [{step: $step, agent: $agent, kind: "limit", reason: $reason}]')"
         continue
       fi
-    else
-      DEVKIT_CHAIN_LIMIT_REASON=""
     fi
+    final_reason="$(printf '%s' "$reasons_json" | jq -r '[.[].reason] | join("; ")')"
+    [ -n "$final_reason" ] || final_reason="no earlier steps skipped"
+    if [ "$DEVKIT_CHAIN_SELECTION_DEFAULT" = true ]; then
+      final_reason="used defaultSteps; $final_reason"
+    else
+      final_reason="$final_reason; $DEVKIT_CHAIN_SELECTION_REASON"
+    fi
+    [ -n "$limit_reason" ] && [ "$DEVKIT_CHAIN_LIMIT_STATUS" = unknown ] && final_reason="$final_reason; $limit_reason"
+    DEVKIT_CHAIN_NAME="$report_chain"
+    DEVKIT_CHAIN_STEP="$index"
+    DEVKIT_CHAIN_TOTAL="$step_count"
+    DEVKIT_CHAIN_REASON="$final_reason"
+    DEVKIT_CHAIN_DEFAULT="$DEVKIT_CHAIN_SELECTION_DEFAULT"
     spawn_succeeded=false
     if [ "${#agent_args[@]}" -gt 0 ]; then
       if spawn_output="$(devkit_chain_run_spawn "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$agent" "${agent_args[@]}" 2>"$error_file")"; then
@@ -584,20 +616,37 @@ command_chain_run() {
     fi
     if [ "$spawn_succeeded" = true ]; then
       cat "$error_file" >&2
-      printf '%s\n' "$spawn_output"
+      if printf '%s' "$spawn_output" | jq -e . >/dev/null 2>&1; then
+        spawn_json="$spawn_output"
+      else
+        spawn_json=null
+      fi
+      if [ "$json" = true ]; then
+        jq -cn --arg chain "$report_chain" --argjson step "$index" --argjson total "$step_count" --arg reason "$final_reason" --argjson skipped "$reasons_json" --arg agent "$agent" --argjson spawn "$spawn_json" '{ok: true, chain: $chain, step: $step, totalSteps: $total, agent: $agent, reason: $reason, skipped: $skipped, dispatch: $spawn}'
+      else
+        printf 'chain %s, step %s of %s, reason: %s\n' "$report_chain" "$index" "$step_count" "$final_reason"
+        printf '%s\n' "$spawn_output"
+      fi
+      rm -f "$error_file"
+      devkit_chain_clear_dispatch_context
       return 0
     fi
     spawn_error="$(cat "$error_file")"
     [ -n "$spawn_error" ] || spawn_error="launch failed"
-    printf '%s\n' "step $index of $step_count skipped: $agent launch failed: $spawn_error" >&2
+    failure_reason="$agent launch failed: $spawn_error"
+    [ -n "$limit_reason" ] && [ "$DEVKIT_CHAIN_LIMIT_STATUS" = unknown ] && failure_reason="$failure_reason; $limit_reason"
+    reasons_json="$(printf '%s' "$reasons_json" | jq --argjson step "$index" --arg agent "$agent" --arg reason "$failure_reason" '. + [{step: $step, agent: $agent, kind: "failure", reason: $reason}]')"
   done < <(printf '%s' "$DEVKIT_CHAIN_SELECTED_STEPS" | jq -c '.[]')
-  status=1
-  if [ "$step_count" -eq 0 ]; then
-    printf '%s\n' 'chain has no usable steps' >&2
+  rm -f "$error_file"
+  devkit_chain_clear_dispatch_context
+  final_reason="$(printf '%s' "$reasons_json" | jq -r '[.[].reason] | join("; ")')"
+  [ -n "$final_reason" ] || final_reason="chain has no usable steps"
+  if [ "$json" = true ]; then
+    jq -cn --arg chain "$report_chain" --argjson total "$step_count" --arg reason "$final_reason" --argjson skipped "$reasons_json" '{ok: false, chain: $chain, totalSteps: $total, reason: $reason, skipped: $skipped}'
   else
-    printf '%s\n' "all $step_count chain steps were unusable" >&2
+    printf 'chain %s failed after %s steps, reason: %s\n' "$report_chain" "$step_count" "$final_reason"
   fi
-  return "$status"
+  return 1
 }
 
 command_chain() {
