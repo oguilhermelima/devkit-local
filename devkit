@@ -46,6 +46,7 @@ Commands:
   native appium start|stop|status      Manage the shared Appium server
   tv connect <ip> [--port <port>]      Connect an Android TV over adb
   tv disconnect [<ip>]                 Disconnect an Android TV
+  tmux tune [--yes|--dry-run|--revert] Tune global tmux configuration
 EOF
 }
 
@@ -64,6 +65,7 @@ devkit_main() {
     done) command_done "$@" ;;
     native) command_native "$@" ;;
     tv) command_tv "$@" ;;
+    tmux) command_tmux "$@" ;;
     help|-h|--help) devkit_usage ;;
     version|-V|--version) echo "devkit 1.0.0" ;;
     *) devkit_error "unknown command: $command"; devkit_usage >&2; return "$DEVKIT_USAGE_ERROR" ;;
