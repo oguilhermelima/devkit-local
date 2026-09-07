@@ -44,3 +44,4 @@ required for reply and close. Closing a Superset dispatch leaves its pane visibl
 until the human dismisses it with the pane X because no CLI verb removes that pane.
 
 To fix tmux colours and match the default terminal, run `devkit tmux tune`.
+To install the hand-typed agent tmux wrapper, run `devkit tmux wrapper`.

@@ -43,3 +43,4 @@ point at this repository and both agent manifests load the shared `skills/` dire
 `--skill project` for Claude's project-local bare skill fallback.
 
 To fix tmux colours and match the default terminal, run `devkit tmux tune`.
+To install the hand-typed agent tmux wrapper, run `devkit tmux wrapper`.

@@ -87,6 +87,13 @@ that (Superset resume/fork/handoff and its agent-attention badge) do not apply.
 
 To fix tmux colours and match the default terminal, run `devkit tmux tune`.
 
+### Tmux agent wrapper
+
+The tmux runtime has two fronts: devkit launches managed agents inside tmux, while the shell
+wrapper opens hand-typed `claude`, `codex`, and `agy` commands there too. Install it with
+`devkit tmux wrapper`; this defines shell functions with those names in every new interactive
+zsh, so `DEVKIT_NO_TMUX=1` or `command claude` bypasses the wrapper when a bare command is needed.
+
 Agents launched by devkit run without approval prompts because they are isolated in a worktree; launch the agent manually if you want approval prompts.
 
 ## Command reference
