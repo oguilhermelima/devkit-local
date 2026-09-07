@@ -71,9 +71,9 @@ devkit_model_warn_lifecycle() {
     retired|deprecated)
       retirement_date="$(printf '%s' "$entry" | jq -r '.retirementDate // empty')"
       if [ -n "$retirement_date" ]; then
-        devkit_info "Warning: model '$model' for agent '$agent' is $status (retirement date: $retirement_date)."
+        devkit_error "Warning: model '$model' for agent '$agent' is $status (retirement date: $retirement_date)."
       else
-        devkit_info "Warning: model '$model' for agent '$agent' is $status."
+        devkit_error "Warning: model '$model' for agent '$agent' is $status."
       fi
       ;;
   esac
