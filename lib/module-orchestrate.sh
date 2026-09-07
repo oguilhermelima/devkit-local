@@ -276,6 +276,7 @@ devkit_dispatch_reconcile_one() {
       failure_count=$((failure_count + 1))
       next_state=failed
       [ "$failure_count" -ge 3 ] && next_state=circuit_broken
+      # Abandoned ends logical authority without asserting that the process died.
       next_process=abandoned
       case "$process_state" in
         succeeded|failed|stopped|abandoned) next_process=__keep__ ;;
@@ -292,7 +293,8 @@ devkit_dispatch_reconcile_one() {
           case "$process_state:$state" in
             starting:*|start-unproven:*|running:*|stopping:*|stop-unproven:*) next_state=orphaned ;;
           esac
-          devkit_dispatch_meta_update_fields "$dispatch_id" "$next_state" __keep__ __keep__ parent-missing parent-missing orphaned __keep__ __keep__ || return 1
+          # Retained blocks release while the orphaned terminal remains under review.
+          devkit_dispatch_meta_update_fields "$dispatch_id" "$next_state" __keep__ retained parent-missing parent-missing orphaned parent-missing __keep__ || return 1
           DEVKIT_RECONCILE_OUTCOME=orphaned
           ;;
         alive)
@@ -314,7 +316,8 @@ devkit_dispatch_reconcile_one() {
     *)
       next_process=__keep__
       [ "$process_state" = starting ] && next_process=start-unproven
-      devkit_dispatch_meta_update_fields "$dispatch_id" __keep__ "$next_process" __keep__ identity-unproven identity-unproven identity-unproven __keep__ __keep__ || return 1
+      # Retained blocks release while terminal identity is unproven.
+      devkit_dispatch_meta_update_fields "$dispatch_id" __keep__ "$next_process" retained identity-unproven identity-unproven identity-unproven identity-unproven __keep__ || return 1
       DEVKIT_RECONCILE_OUTCOME=identity-unproven
       ;;
   esac
@@ -821,22 +824,41 @@ devkit_dispatch_reply() {
 }
 
 devkit_dispatch_close() {
-  local dispatch_id="${1:-}" json=false arg meta runtime child_host
+  local dispatch_id="${1:-}" json=false force_release=false arg meta runtime child_host terminal_state process_state
   [ -n "$dispatch_id" ] || { devkit_error "Usage: devkit orchestrate close <dispatch-id> [--json]"; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit orchestrate close <dispatch-id> [--json]\n'; return 0 ;;
+      --force-release) force_release=true; shift ;;
+      -h|--help) printf 'Usage: devkit orchestrate close <dispatch-id> [--force-release] [--json]\n'; return 0 ;;
       *) devkit_error "unknown orchestrate close option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
   meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
+  terminal_state="$(printf '%s' "$meta" | jq -r '.terminalState // "owned"')"
+  if [ "$terminal_state" = retained ] && [ "$force_release" != true ]; then
+    devkit_error "dispatch $dispatch_id terminal is retained because identity is unproven; refusing release; verify it manually or rerun with --force-release"
+    return 1
+  fi
+  if [ "$(printf '%s' "$meta" | jq -r '.state')" = closed ]; then
+    if [ "$json" = true ]; then
+      jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", duplicate: true}'
+    else
+      printf 'closed: %s\n' "$dispatch_id"
+    fi
+    return 0
+  fi
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   child_host="$(printf '%s' "$meta" | jq -r '.childHost')"
   devkit_dispatch_native_close "$meta" || { devkit_error "could not close dispatch $dispatch_id"; return 1; }
   devkit_dispatch_meta_update_state "$dispatch_id" closed || return 1
+  process_state="$(printf '%s' "$meta" | jq -r '.processState // empty')"
+  case "$process_state" in
+    starting|start-unproven|running|stopping|stop-unproven) devkit_dispatch_meta_update_process_state "$dispatch_id" stopped || return 1 ;;
+  esac
+  devkit_dispatch_meta_update_terminal_state "$dispatch_id" released || return 1
   if [ "$json" = true ]; then
     if [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_LAST_PANE" = true ]; then
       jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "last tmux pane and the host terminal tab were closed."}'
