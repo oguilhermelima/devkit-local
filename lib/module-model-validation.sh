@@ -63,6 +63,22 @@ devkit_model_effort_separate() {
   [ "$(printf '%s' "$entry" | jq -r '.reasoning.separateAxis')" = true ]
 }
 
+devkit_model_warn_lifecycle() {
+  local agent="$1" model="$2" entry status retirement_date
+  entry="$(devkit_model_entry "$agent" "$model")"
+  status="$(printf '%s' "$entry" | jq -r '.status // "active"')"
+  case "$status" in
+    retired|deprecated)
+      retirement_date="$(printf '%s' "$entry" | jq -r '.retirementDate // empty')"
+      if [ -n "$retirement_date" ]; then
+        devkit_info "Warning: model '$model' for agent '$agent' is $status (retirement date: $retirement_date)."
+      else
+        devkit_info "Warning: model '$model' for agent '$agent' is $status."
+      fi
+      ;;
+  esac
+}
+
 devkit_model_validate_step() {
   local chain="$1" index="$2" agent="$3" model="$4" effort="$5"
   if ! devkit_model_known "$agent" "$model"; then
@@ -70,6 +86,7 @@ devkit_model_validate_step() {
     devkit_error "invalid chain $chain step $index: model '$model' is not registered for agent '$agent'"
     return 1
   fi
+  devkit_model_warn_lifecycle "$agent" "$model"
   devkit_model_validate_reasoning "$agent" "$model" "$effort" || {
     devkit_error "invalid chain $chain step $index: unsupported reasoning level '$effort' for model '$model'"
     return 1

@@ -60,10 +60,10 @@ command_model_list() {
   if [ "$json" = true ]; then
     printf '%s\n' "$registry"
   else
-    printf '%-10s %-38s %-16s %s\n' AGENT MODEL REASONING PROVENANCE
-    printf '%s' "$registry" | jq -r '.models[] | [.agent, .model, (.reasoning.levels | join(",")), (.provenance.kind + " (" + (.provenance.fetchedAt // .provenance.obtainedAt) + ")")] | @tsv' |
-      while IFS=$'\t' read -r agent model levels provenance; do
-        printf '%-10s %-38s %-16s %s\n' "$agent" "$model" "$levels" "$provenance"
+    printf '%-10s %-38s %-16s %-11s %s\n' AGENT MODEL REASONING STATUS PROVENANCE
+    printf '%s' "$registry" | jq -r '.models[] | [.agent, .model, (.reasoning.levels | join(",")), (.status // "active"), (.provenance.kind + " (" + (.provenance.fetchedAt // .provenance.obtainedAt) + ")")] | @tsv' |
+      while IFS=$'\t' read -r agent model levels status provenance; do
+        printf '%-10s %-38s %-16s %-11s %s\n' "$agent" "$model" "$levels" "$status" "$provenance"
       done
   fi
 }

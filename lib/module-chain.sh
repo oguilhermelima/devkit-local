@@ -150,6 +150,7 @@ devkit_chain_validate_step() {
       devkit_error "chain migration required: chain $chain step $index uses unknown model '$model' for agent '$agent'; run devkit chain repair $chain --step $index --model <valid-id> --effort <level>"
     fi
   elif [ "$unvalidated" != true ]; then
+    devkit_model_warn_lifecycle "$agent" "$model"
     if [ "$has_effort" = true ] && ! devkit_model_effort_separate "$agent" "$model"; then
       devkit_model_validate_reasoning "$agent" "$model" __supplied__ || return 1
     else
