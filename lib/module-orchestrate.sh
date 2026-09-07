@@ -191,9 +191,18 @@ devkit_dispatch_meta_write() {
 }
 
 devkit_dispatch_meta_update_prompt() {
-  local dispatch_id="$1" delivered="$2" delivery="$3" reason="${4:-}" path tmp
+  local dispatch_id="$1" delivered="$2" delivery="$3" reason="${4:-}" path tmp current_delivery
   path="$(devkit_dispatch_meta_path "$dispatch_id")" || return 1
   tmp="$(mktemp "$(devkit_dispatch_dir "$dispatch_id")/.meta.XXXXXX")" || return 1
+  current_delivery="$(jq -r '.promptDelivery // "pending"' "$path" 2>/dev/null || true)"
+  case "$current_delivery:$delivery" in
+    pending:delivered|pending:not-delivered|delivered:delivered|not-delivered:not-delivered) ;;
+    *)
+      rm -f "$tmp"
+      devkit_error "prompt delivery state cannot change from $current_delivery to $delivery for $dispatch_id"
+      return 1
+      ;;
+  esac
   if ! jq \
     --argjson delivered "$(devkit_bool_json "$delivered")" --arg delivery "$delivery" --arg reason "$reason" \
     --arg now "$(devkit_iso_now)" \

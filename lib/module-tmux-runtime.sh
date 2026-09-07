@@ -233,8 +233,13 @@ devkit_tmux_capture_pane() {
 }
 
 devkit_tmux_capture_input() {
-  local pane="$1"
-  devkit_tmux_capture_pane "$pane" -20
+  local pane="$1" cursor_y
+  cursor_y="$(tmux display-message -p -t "$pane" '#{cursor_y}' 2>/dev/null || true)"
+  if [[ "$cursor_y" =~ ^[0-9]+$ ]]; then
+    tmux capture-pane -p -J -t "$pane" -S "$cursor_y" -E "$cursor_y"
+  else
+    devkit_tmux_capture_pane "$pane" -20
+  fi
 }
 
 devkit_tmux_delivery_marker() {

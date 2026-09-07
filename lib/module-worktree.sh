@@ -484,7 +484,7 @@ ${prompt}"
     fi
     if ! devkit_tmux_send_agent "$tmux_pane" "$final_prompt" prompt; then
       devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
-      devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-send-failed
+      devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-input-not-consumed
       return 1
     fi
     if ! devkit_spawn_mark_prompt_delivered "$dispatch_id"; then
@@ -547,7 +547,7 @@ ${prompt}"
   fi
   if ! devkit_dispatch_native_send "$(devkit_dispatch_meta_read "$dispatch_id")" "$final_prompt"; then
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
-    devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-send-failed
+    devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-delivery-unconfirmed
     return 1
   fi
   if ! devkit_spawn_mark_prompt_delivered "$dispatch_id"; then
