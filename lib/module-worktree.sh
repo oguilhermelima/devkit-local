@@ -366,7 +366,9 @@ devkit_launch_agent() {
   parent_id="$DEVKIT_SESSION_ID"
   parent_host="$DEVKIT_SESSION_HOST"
   [ -n "$parent_id" ] || { devkit_error "cannot spawn a managed dispatch from an unmanaged shell"; return 1; }
-  devkit_resolve_spawn_runtime "${DEVKIT_SPAWN_RUNTIME:-auto}" || return 1
+  if [ -z "${DEVKIT_SPAWN_RUNTIME:-}" ] || [ -z "${DEVKIT_SPAWN_CONTEXT:-}" ]; then
+    devkit_resolve_spawn_runtime auto || return 1
+  fi
   runtime="$DEVKIT_SPAWN_RUNTIME"
   context="$DEVKIT_SPAWN_CONTEXT"
   DEVKIT_LAST_RUNTIME="$runtime"
