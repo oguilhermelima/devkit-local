@@ -93,6 +93,10 @@ The available modules are:
   simulator control.
 - `tv-adb` checks that adb is available and working. Installation prints the platform-tools
   command to use when adb is missing.
+- `tmux-runtime` checks tmux, reports its version and whether the runtime is enabled. On macOS
+  it installs missing tmux with Homebrew; on Linux it prints an explicit package-manager command
+  for the user to run. The runtime applies mouse support, hidden status, an active-pane border,
+  and zero escape delay only to devkit-owned tmux sessions.
 
 `simulator-native` and `simulator-tv` are macOS-only because XCUITest and Apple's simulators
 are provided by Xcode. On other systems their doctor status is `unsupported`.
@@ -151,6 +155,19 @@ uses the selected preset and reports that the model was not forwarded; `--model`
 so every dispatch records an unambiguous request.
 The agy and gemini Superset presets currently reject prompt launches with unexpected argument;
 devkit reports this known preset limitation clearly and does not create a dispatch that can hang.
+
+When `tmux-runtime` is enabled, devkit opens a host terminal containing a tmux session and sends
+the agent command after the shell settles. Dispatches in the same worktree split that session,
+and their metadata records the tmux session and pane. Pane reads use `capture-pane`, replies use
+targeted `send-keys`, and close removes the pane (or the session when it is the last pane).
+`devkit orchestrate read <dispatch-id>` reads tmux scrollback without compositing sibling panes.
+The launch sequence sends Enter separately and verifies submission with bounded retries because
+some terminal layers lose Enter when it is sent with the command text. Starting with a shell also
+prevents terminal-identification replies from leaking into the agent composer.
+
+The trade-off is intentional: the host application no longer recognises a tmux child as one of
+its native agents. Host-native features tied to `agents create`, including Superset resume, fork,
+and handoff, do not apply, and Superset's agent-attention badge does not represent tmux children.
 
 The `orchestration-hooks` module is a safety net for silent child death: when an installed agent
 turn ends without `devkit ask` or `devkit done`, its final text is recorded as a stalled dispatch
