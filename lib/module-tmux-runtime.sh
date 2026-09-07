@@ -42,20 +42,16 @@ devkit_tmux_first_pane() {
 }
 
 devkit_tmux_settle_pane() {
-  local pane="$1" attempt current output
+  local pane="$1" attempt current
   for ((attempt = 1; attempt <= DEVKIT_TMUX_SETTLE_ATTEMPTS; attempt++)); do
     current="$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null || true)"
     case "$current" in
       bash|zsh|sh|dash|fish|ksh|tcsh|login|-zsh|-bash|"") ;;
-      *)
-        output="$(devkit_tmux_capture_pane "$pane" -40 2>/dev/null || true)"
-        # A non-shell command with rendered output proves the agent owns the pane and initialized its UI.
-        [ -n "$(printf '%s' "$output" | tr -d '[:space:]')" ] && return 0
-        ;;
+      *) return 0 ;;
     esac
     sleep "$DEVKIT_TMUX_SETTLE_SECONDS"
   done
-  devkit_error "tmux pane $pane did not show a ready agent within ${DEVKIT_TMUX_SETTLE_ATTEMPTS} checks"
+  devkit_error "tmux pane $pane did not start an agent within ${DEVKIT_TMUX_SETTLE_ATTEMPTS} checks"
   return 1
 }
 
@@ -236,6 +232,33 @@ devkit_tmux_capture_pane() {
   tmux capture-pane -p -t "$pane" -S "$start"
 }
 
+devkit_tmux_capture_input() {
+  local pane="$1"
+  devkit_tmux_capture_pane "$pane" -20
+}
+
+devkit_tmux_delivery_marker() {
+  local text="$1" normalized
+  normalized="$(printf '%s' "$text" | tr '\n' ' ' | tr -s '[:space:]' ' ')"
+  normalized="${normalized# }"
+  normalized="${normalized% }"
+  [ -n "$normalized" ] || return 1
+  if [ "${#normalized}" -gt 32 ]; then
+    printf '%s\n' "${normalized: -32}"
+  else
+    printf '%s\n' "$normalized"
+  fi
+}
+
+devkit_tmux_input_contains_marker() {
+  local input="$1" marker="$2" normalized
+  normalized="$(printf '%s' "$input" | tr '\n' ' ' | tr -s '[:space:]' ' ')"
+  case "$normalized" in
+    *"$marker"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 devkit_tmux_agent_output_clean() {
   local pane="$1" output
   output="$(devkit_tmux_capture_pane "$pane" -200 2>/dev/null || true)"
@@ -245,17 +268,21 @@ devkit_tmux_agent_output_clean() {
 }
 
 devkit_tmux_send_text() {
-  local pane="$1" text="$2" attempt typed after
+  local pane="$1" text="$2" attempt typed after marker
+  marker="$(devkit_tmux_delivery_marker "$text")" || return 1
   tmux send-keys -t "$pane" -l "$text" || return 1
-  # Keep Enter separate and retry only after checking that the composer changed.
-  typed="$(devkit_tmux_capture_pane "$pane" -20 2>/dev/null || true)"
+  typed="$(devkit_tmux_capture_input "$pane" 2>/dev/null || true)"
+  devkit_tmux_input_contains_marker "$typed" "$marker" || {
+    devkit_error "tmux did not render input in the composer for pane $pane"
+    return 1
+  }
   for ((attempt = 1; attempt <= DEVKIT_TMUX_ENTER_RETRIES; attempt++)); do
     tmux send-keys -t "$pane" Enter || return 1
     sleep "$DEVKIT_TMUX_ENTER_WAIT"
-    after="$(devkit_tmux_capture_pane "$pane" -20 2>/dev/null || true)"
-    [ "$after" != "$typed" ] && return 0
+    after="$(devkit_tmux_capture_input "$pane" 2>/dev/null || true)"
+    devkit_tmux_input_contains_marker "$after" "$marker" || return 0
   done
-  devkit_error "tmux did not submit input in pane $pane after $DEVKIT_TMUX_ENTER_RETRIES Enter attempts"
+  devkit_error "tmux did not consume input in pane $pane after $DEVKIT_TMUX_ENTER_RETRIES Enter attempts"
   return 1
 }
 

@@ -104,8 +104,7 @@ devkit_parent_notify_tmux() {
   local meta="$1" pointer="$2" pane
   pane="$(printf '%s' "$meta" | jq -r '.parentTmuxPane // empty')"
   [ -n "$pane" ] || return 1
-  tmux send-keys -t "$pane" -l "$pointer" || return 1
-  tmux send-keys -t "$pane" Enter
+  devkit_tmux_send_text "$pane" "$pointer"
 }
 
 devkit_parent_notify_terminal_text() {
