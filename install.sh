@@ -2,7 +2,10 @@
 
 set -u
 
-REPOSITORY_URL="https://github.com/oguilhermelima/devkit-local.git"
+REPOSITORY_URL="https://github.com/oguilhermelima/devkit-local"
+REPOSITORY_REF="main"
+TARBALL_URL="$REPOSITORY_URL/archive/refs/heads/$REPOSITORY_REF.tar.gz"
+INSTALL_ROOT="$HOME/.devkit-local"
 SKILL_MODE=""
 AGENTS_MODE=""
 AGENTS_REQUEST=""
@@ -137,7 +140,7 @@ installer_select_agents() {
 }
 
 installer_source_root() {
-  local script_dir="" checkout_dir="$HOME/.devkit-local"
+  local script_dir="" checkout_dir="$INSTALL_ROOT" temp_dir archive extract_dir payload
   if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
     script_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
   fi
@@ -149,9 +152,32 @@ installer_source_root() {
     SOURCE_ROOT="$checkout_dir"
     return 0
   fi
-  command -v git >/dev/null 2>&1 || { installer_error "git is required to install from curl"; return 1; }
-  [ ! -e "$checkout_dir" ] || { installer_error "checkout path exists but is not a devkit checkout: $checkout_dir"; return 1; }
-  git clone "$REPOSITORY_URL" "$checkout_dir" || { installer_error "could not clone $REPOSITORY_URL"; return 1; }
+  command -v curl >/dev/null 2>&1 || { installer_error "curl is required to install from curl"; return 1; }
+  command -v tar >/dev/null 2>&1 || { installer_error "tar is required to install from curl"; return 1; }
+  if [ -x "$checkout_dir/devkit" ] && [ -d "$checkout_dir/lib" ]; then
+    SOURCE_ROOT="$checkout_dir"
+    return 0
+  fi
+  [ ! -e "$checkout_dir" ] || { installer_error "install path exists but is not a devkit install: $checkout_dir"; return 1; }
+  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-local.XXXXXX")" || { installer_error "could not create a temporary directory"; return 1; }
+  archive="$temp_dir/devkit-local.tar.gz"
+  extract_dir="$temp_dir/extract"
+  mkdir -p "$extract_dir" || { rm -rf "$temp_dir"; return 1; }
+  if ! curl -fsSL -o "$archive" "$TARBALL_URL"; then
+    rm -rf "$temp_dir"
+    installer_error "could not download $TARBALL_URL"
+    return 1
+  fi
+  if ! tar -xzf "$archive" -C "$extract_dir"; then
+    rm -rf "$temp_dir"
+    installer_error "could not extract $TARBALL_URL"
+    return 1
+  fi
+  payload="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+  [ -n "$payload" ] || { rm -rf "$temp_dir"; installer_error "downloaded archive has no top-level directory"; return 1; }
+  mkdir -p "$checkout_dir" || { rm -rf "$temp_dir"; installer_error "could not create $checkout_dir"; return 1; }
+  cp -R "$payload/." "$checkout_dir/" || { rm -rf "$temp_dir"; installer_error "could not install extracted archive at $checkout_dir"; return 1; }
+  rm -rf "$temp_dir"
   SOURCE_ROOT="$checkout_dir"
 }
 
