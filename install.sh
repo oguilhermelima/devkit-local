@@ -15,6 +15,9 @@ SELECTED_AGENTS=""
 SELECTED_MODULES=""
 ASSUME_YES=false
 SOURCE_ROOT=""
+SOURCE_FROM_CHECKOUT=false
+INSTALL_ACTION="reconfigure"
+INSTALL_MANIFEST=""
 SUMMARY_LINES=()
 INSTALLER_MENU_OPTIONS=()
 INSTALLER_MENU_SELECTED=()
@@ -266,6 +269,7 @@ installer_source_root() {
   fi
   if [ -n "$script_dir" ] && [ -x "$script_dir/devkit" ] && [ -d "$script_dir/lib" ]; then
     SOURCE_ROOT="$script_dir"
+    SOURCE_FROM_CHECKOUT=true
     return 0
   fi
   if [ -x "$checkout_dir/devkit" ] && [ -d "$checkout_dir/lib" ]; then
@@ -299,6 +303,111 @@ installer_source_root() {
   cp -R "$payload/." "$checkout_dir/" || { rm -rf "$temp_dir"; installer_error "could not install extracted archive at $checkout_dir"; return 1; }
   rm -rf "$temp_dir"
   SOURCE_ROOT="$checkout_dir"
+}
+
+installer_manifest_path() {
+  INSTALL_MANIFEST="$INSTALL_ROOT/install-manifest.json"
+}
+
+installer_manifest_summary() {
+  local manifest="$INSTALL_MANIFEST"
+  [ -f "$manifest" ] || return 0
+  printf 'Existing devkit installation:\n'
+  if command -v jq >/dev/null 2>&1 && jq empty "$manifest" >/dev/null 2>&1; then
+    jq -r '"  version: " + (.version // "unknown"), "  source: " + (.sourceRef // "unknown"), "  installed: " + (.installedAt // "unknown"), "  agents: " + ((.agents // []) | join(", ") // "none"), "  modules: " + ((.modules // []) | join(", ") // "none")' "$manifest"
+  else
+    sed 's/^/  /' "$manifest"
+  fi
+}
+
+installer_prepare_existing_install() {
+  local existing=false choice
+  installer_manifest_path
+  if [ -f "$INSTALL_MANIFEST" ] || [ -x "$INSTALL_ROOT/devkit" ]; then
+    existing=true
+  fi
+  [ "$existing" = true ] || return 0
+  installer_manifest_summary
+  if [ "$SOURCE_FROM_CHECKOUT" = true ] && [ "$SOURCE_ROOT" = "$INSTALL_ROOT" ]; then
+    installer_summary "installation already current"
+    return 0
+  fi
+  if [ ! -t 0 ]; then
+    installer_summary "existing installation reconfigured"
+    INSTALL_ACTION=reconfigure
+    return 0
+  fi
+  installer_menu single 'Existing installation found: choose an action' '' update reconfigure abort || return $?
+  choice="$INSTALLER_MENU_RESULT"
+  case "$choice" in
+    update) INSTALL_ACTION=update ;;
+    reconfigure) INSTALL_ACTION=reconfigure ;;
+    abort) installer_summary "installation skipped"; return 1 ;;
+  esac
+}
+
+installer_update_from_tarball() {
+  local temp_dir archive extract_dir payload staging backup
+  command -v curl >/dev/null 2>&1 || { installer_error "curl is required to update from curl"; return 1; }
+  command -v tar >/dev/null 2>&1 || { installer_error "tar is required to update from curl"; return 1; }
+  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-local-update.XXXXXX")" || return 1
+  archive="$temp_dir/devkit-local.tar.gz"
+  extract_dir="$temp_dir/extract"
+  staging="$temp_dir/staging"
+  mkdir -p "$extract_dir" "$staging" || { rm -rf "$temp_dir"; return 1; }
+  if ! curl -fsSL -o "$archive" "$TARBALL_URL" || ! tar -xzf "$archive" -C "$extract_dir"; then
+    rm -rf "$temp_dir"
+    installer_error "could not download or extract $TARBALL_URL"
+    return 1
+  fi
+  payload="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+  [ -n "$payload" ] || { rm -rf "$temp_dir"; installer_error "downloaded archive has no top-level directory"; return 1; }
+  cp -R "$payload/." "$staging/" || { rm -rf "$temp_dir"; installer_error "could not stage the downloaded archive"; return 1; }
+  backup="$temp_dir/previous"
+  if [ -e "$INSTALL_ROOT" ]; then
+    mv "$INSTALL_ROOT" "$backup" || { rm -rf "$temp_dir"; installer_error "could not preserve the previous installation"; return 1; }
+  fi
+  if ! mv "$staging" "$INSTALL_ROOT"; then
+    mv "$backup" "$INSTALL_ROOT" 2>/dev/null || true
+    rm -rf "$temp_dir"
+    installer_error "could not activate the updated installation"
+    return 1
+  fi
+  rm -rf "$backup" "$temp_dir"
+  SOURCE_ROOT="$INSTALL_ROOT"
+  SOURCE_FROM_CHECKOUT=false
+  installer_summary "installation updated"
+}
+
+installer_write_manifest() {
+  local version="1.0.0" temp status
+  if [ -x "$SOURCE_ROOT/devkit" ]; then
+    version="$($SOURCE_ROOT/devkit --version 2>/dev/null | awk '{print $2}' | head -n 1)"
+    [ -n "$version" ] || version="1.0.0"
+  fi
+  mkdir -p "$INSTALL_ROOT" || { installer_error "could not create $INSTALL_ROOT for the install manifest"; return 1; }
+  temp="$(mktemp "${INSTALL_MANIFEST}.XXXXXX")" || return 1
+  if ! jq -n \
+    --arg version "$version" \
+    --arg sourceRef "$REPOSITORY_REF" \
+    --arg installedAt "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+    --arg sourceRoot "$SOURCE_ROOT" \
+    --arg agents "$SELECTED_AGENTS" \
+    --arg modules "$SELECTED_MODULES" \
+    '{version: $version, sourceRef: $sourceRef, installedAt: $installedAt, sourceRoot: $sourceRoot,
+      agents: (if $agents == "" then [] else ($agents | split(",")) end),
+      modules: (if $modules == "" then [] else ($modules | split(",")) end)}' >"$temp"; then
+    rm -f "$temp"
+    installer_error "could not write install manifest"
+    return 1
+  fi
+  if [ -f "$INSTALL_MANIFEST" ]; then
+    status=updated
+  else
+    status=installed
+  fi
+  mv -f "$temp" "$INSTALL_MANIFEST" || { rm -f "$temp"; return 1; }
+  installer_summary "installation manifest $status at $INSTALL_MANIFEST"
 }
 
 installer_prompt_mode() {
@@ -512,6 +621,14 @@ installer_main() {
   [ -f "$SOURCE_ROOT/AGENTS.md" ] || { installer_error "AGENTS.md is missing from $SOURCE_ROOT"; return 1; }
   [ -f "$SOURCE_ROOT/.claude-plugin/plugin.json" ] || { installer_error "Claude plugin manifest is missing from $SOURCE_ROOT"; return 1; }
   [ -f "$SOURCE_ROOT/.codex-plugin/plugin.json" ] || { installer_error "Codex plugin manifest is missing from $SOURCE_ROOT"; return 1; }
+  installer_prepare_existing_install || return 1
+  if [ "$INSTALL_ACTION" = update ]; then
+    if [ "$SOURCE_FROM_CHECKOUT" = true ]; then
+      installer_summary "installation updated from checkout"
+    else
+      installer_update_from_tarball || return 1
+    fi
+  fi
   installer_link_devkit || return 1
   installer_detect_agents
   installer_select_agents || return $?
@@ -528,6 +645,7 @@ installer_main() {
   installer_install_agents || return 1
   installer_select_modules || return $?
   installer_install_modules || return 1
+  installer_write_manifest || return 1
   printf '\nInstallation summary:\n'
   printf '%s\n' "${SUMMARY_LINES[@]}"
 }
