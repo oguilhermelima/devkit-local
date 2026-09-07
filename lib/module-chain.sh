@@ -332,6 +332,97 @@ command_chain_delete() {
   fi
 }
 
+DEVKIT_CHAIN_LIMIT_STATUS="unknown"
+DEVKIT_CHAIN_LIMIT_USED=""
+DEVKIT_CHAIN_LIMIT_RESETS=""
+DEVKIT_CHAIN_LIMIT_REASON=""
+DEVKIT_CHAIN_LIMIT_SOURCE=""
+
+devkit_chain_limit_capability() {
+  case "$1" in
+    codex) printf 'disk\n' ;;
+    claude|agy) printf 'unknown\n' ;;
+    *) printf 'unsupported\n' ;;
+  esac
+}
+
+devkit_chain_latest_codex_rollout() {
+  local root="$HOME/.codex/sessions" path mtime latest="" latest_mtime=0
+  [ -d "$root" ] || return 1
+  while IFS= read -r path; do
+    [ -f "$path" ] || continue
+    mtime="$(stat -f '%m' "$path" 2>/dev/null || stat -c '%Y' "$path" 2>/dev/null || printf '0')"
+    case "$mtime" in
+      ''|*[!0-9]*) continue ;;
+    esac
+    if [ "$mtime" -ge "$latest_mtime" ]; then
+      latest_mtime="$mtime"
+      latest="$path"
+    fi
+  done < <(find "$root" -type f -name 'rollout-*.jsonl' -print 2>/dev/null)
+  [ -n "$latest" ] || return 1
+  printf '%s\n' "$latest"
+}
+
+devkit_chain_limit_read() {
+  local agent="$1" window="$2" rollout snapshot field expected_minutes now
+  DEVKIT_CHAIN_LIMIT_STATUS=unknown
+  DEVKIT_CHAIN_LIMIT_USED=""
+  DEVKIT_CHAIN_LIMIT_RESETS=""
+  DEVKIT_CHAIN_LIMIT_REASON=""
+  DEVKIT_CHAIN_LIMIT_SOURCE=""
+  case "$agent" in
+    claude|agy)
+      DEVKIT_CHAIN_LIMIT_REASON="$agent $window window unknown (provider unavailable)"
+      return 0
+      ;;
+    codex) ;;
+    *)
+      DEVKIT_CHAIN_LIMIT_REASON="$agent $window window unknown (unsupported provider)"
+      return 0
+      ;;
+  esac
+  rollout="$(devkit_chain_latest_codex_rollout 2>/dev/null || true)"
+  if [ -z "$rollout" ]; then
+    DEVKIT_CHAIN_LIMIT_REASON="codex $window window unknown (no rollout snapshot)"
+    return 0
+  fi
+  snapshot="$(jq -c 'select(.rate_limits? != null) | .rate_limits' "$rollout" 2>/dev/null | tail -n 1)"
+  if [ -z "$snapshot" ] || ! printf '%s' "$snapshot" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    DEVKIT_CHAIN_LIMIT_REASON="codex $window window unknown (rollout has no rate limit snapshot)"
+    return 0
+  fi
+  case "$window" in
+    5h) field=primary; expected_minutes=300 ;;
+    weekly) field=secondary; expected_minutes=10080 ;;
+    *)
+      DEVKIT_CHAIN_LIMIT_REASON="codex $window window unknown (unsupported window)"
+      return 0
+      ;;
+  esac
+  if ! printf '%s' "$snapshot" | jq -e --arg field "$field" --argjson minutes "$expected_minutes" '.[$field] | type == "object" and (.window_minutes == $minutes)' >/dev/null 2>&1; then
+    DEVKIT_CHAIN_LIMIT_REASON="codex $window window unknown (matching snapshot unavailable)"
+    return 0
+  fi
+  DEVKIT_CHAIN_LIMIT_USED="$(printf '%s' "$snapshot" | jq -r --arg field "$field" '.[$field].used_percent // empty')"
+  DEVKIT_CHAIN_LIMIT_RESETS="$(printf '%s' "$snapshot" | jq -r --arg field "$field" '.[$field].resets_at // empty')"
+  if [ -z "$DEVKIT_CHAIN_LIMIT_USED" ] || [ -z "$DEVKIT_CHAIN_LIMIT_RESETS" ]; then
+    DEVKIT_CHAIN_LIMIT_REASON="codex $window window unknown (snapshot is incomplete)"
+    return 0
+  fi
+  now="$(date +%s)"
+  # A rollout is a response snapshot; its limit is stale after the provider reset.
+  if [ "$DEVKIT_CHAIN_LIMIT_RESETS" -le "$now" ]; then
+    DEVKIT_CHAIN_LIMIT_REASON="codex $window window unknown (snapshot stale; reset $DEVKIT_CHAIN_LIMIT_RESETS)"
+    DEVKIT_CHAIN_LIMIT_USED=""
+    DEVKIT_CHAIN_LIMIT_RESETS=""
+    return 0
+  fi
+  DEVKIT_CHAIN_LIMIT_STATUS=current
+  DEVKIT_CHAIN_LIMIT_SOURCE="$rollout"
+  DEVKIT_CHAIN_LIMIT_REASON="codex $window window at $DEVKIT_CHAIN_LIMIT_USED percent"
+}
+
 command_chain() {
   local subcommand="${1:-}"
   shift || true
