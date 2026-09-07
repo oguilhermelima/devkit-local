@@ -607,6 +607,10 @@ installer_install_plugin_command() {
   if [ "$rc" -ne 0 ] && ! printf '%s' "$output" | grep -Eiq 'already[[:space:]]+installed|already[[:space:]]+enabled'; then
     return "$rc"
   fi
+  if [ "$rc" -ne 0 ]; then
+    installer_summary "$agent plugin already-current"
+    return 0
+  fi
   installer_verify_plugin "$agent" || return 1
   installer_summary "$agent plugin installed"
 }
