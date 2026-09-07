@@ -478,7 +478,7 @@ command_tmux() {
 }
 
 module_tmux_runtime_doctor() {
-  local version enabled detail
+  local version enabled detail tuning_block=false tuning_file=false server_running=false server_rgb=false
   if ! devkit_tmux_available; then
     devkit_set_status missing "tmux is not on PATH"
     return 1
@@ -489,7 +489,18 @@ module_tmux_runtime_doctor() {
   else
     enabled="disabled"
   fi
-  detail="$version; runtime $enabled"
+  devkit_tmux_tuning_block_present "$(devkit_tmux_tuning_config_path)" && tuning_block=true
+  devkit_tmux_tuning_installed_current && tuning_file=true
+  if devkit_tmux_tuning_server_running; then
+    server_running=true
+    devkit_tmux_tuning_server_has_rgb && server_rgb=true
+  fi
+  detail="$version; runtime $enabled; tuning block $tuning_block; tuning file current $tuning_file"
+  if [ "$server_running" = true ]; then
+    detail="$detail; running server RGB $server_rgb"
+  else
+    detail="$detail; running server none"
+  fi
   if devkit_tmux_config_applied; then
     detail="$detail; devkit session config applied"
   else
@@ -503,8 +514,22 @@ module_tmux_runtime_doctor() {
   return 1
 }
 
+module_tmux_runtime_offer_tuning() {
+  local assume_yes="${1:-false}"
+  if [ "$assume_yes" = true ]; then
+    devkit_tmux_tune --yes
+    return $?
+  fi
+  if [ -t 0 ] || { [ -r /dev/tty ] && { : </dev/tty; } 2>/dev/null; }; then
+    devkit_tmux_tune
+  else
+    printf 'tmux tuning skipped (non-interactive); run: devkit tmux tune --yes\n'
+  fi
+}
+
 module_tmux_runtime_install() {
   if devkit_tmux_available; then
+    module_tmux_runtime_offer_tuning "${1:-false}" || return 1
     devkit_state_set tmux-runtime true "tmux runtime enabled" || return 1
     module_tmux_runtime_doctor
     return $?
@@ -530,6 +555,7 @@ module_tmux_runtime_install() {
       return 1
       ;;
   esac
+  module_tmux_runtime_offer_tuning "${1:-false}" || return 1
   devkit_state_set tmux-runtime true "tmux runtime enabled" || return 1
   module_tmux_runtime_doctor
 }

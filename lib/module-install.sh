@@ -25,15 +25,15 @@ devkit_module_install() {
     simulator-native) module_simulator_native_install ;;
     simulator-tv) module_simulator_tv_install ;;
     tv-adb) module_tv_adb_install ;;
-    tmux-runtime) module_tmux_runtime_install ;;
+    tmux-runtime) module_tmux_runtime_install "${2:-false}" ;;
     *) devkit_error "unknown module: $module"; return "$DEVKIT_USAGE_ERROR" ;;
   esac
 }
 
 devkit_install_one() {
   local module="$1"
-  local install_rc doctor_rc
-  devkit_module_install "$module"
+  local assume_yes="${2:-false}" install_rc doctor_rc
+  devkit_module_install "$module" "$assume_yes"
   install_rc=$?
   devkit_module_doctor "$module"
   doctor_rc=$?
@@ -95,14 +95,28 @@ devkit_interactive_modules() {
 }
 
 command_install() {
-  local module="${1:-}" selected selected_modules rc=0
-  if [ "$#" -gt 1 ]; then
-    devkit_error "install accepts at most one module id"
-    return "$DEVKIT_USAGE_ERROR"
-  fi
+  local module="" selected selected_modules rc=0 assume_yes=false arg
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --yes) assume_yes=true; shift ;;
+      -h|--help)
+        printf 'Usage: devkit install [module-id] [--yes]\n'
+        return 0
+        ;;
+      *)
+        if [ -n "$module" ]; then
+          devkit_error "install accepts at most one module id"
+          return "$DEVKIT_USAGE_ERROR"
+        fi
+        module="$arg"
+        shift
+        ;;
+    esac
+  done
   if [ -n "$module" ]; then
     devkit_validate_module "$module" || { devkit_error "unknown module: $module"; return "$DEVKIT_USAGE_ERROR"; }
-    devkit_install_one "$module"
+    devkit_install_one "$module" "$assume_yes"
     return $?
   fi
   if [ ! -t 0 ]; then
@@ -111,7 +125,7 @@ command_install() {
   fi
   selected_modules="$(devkit_interactive_modules)" || return 1
   while IFS= read -r selected; do
-    devkit_install_one "$selected" || rc=1
+    devkit_install_one "$selected" "$assume_yes" || rc=1
   done <<EOF
 $selected_modules
 EOF

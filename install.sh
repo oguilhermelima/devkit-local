@@ -804,7 +804,12 @@ installer_install_modules() {
   fi
   IFS=',' read -r -a _installer_selected_modules <<<"$SELECTED_MODULES"
   for module in "${_installer_selected_modules[@]}"; do
-    if "$SOURCE_ROOT/devkit" install "$module"; then
+    if [ "$ASSUME_YES" = true ]; then
+      "$SOURCE_ROOT/devkit" install "$module" --yes
+    else
+      "$SOURCE_ROOT/devkit" install "$module"
+    fi
+    if [ "$?" -eq 0 ]; then
       installer_summary "devkit module $module installed"
     else
       installer_error "could not install devkit module $module"

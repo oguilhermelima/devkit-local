@@ -27,7 +27,7 @@ devkit_usage() {
 Usage: devkit <command> [options]
 
 Commands:
-  install [module-id]                  Install one module or choose modules interactively
+  install [module-id] [--yes]           Install one module or choose modules interactively
   doctor [module-id]                   Check one module or all modules
   context [--json]                     Detect the current orchestration host
   worktree create ...                  Create a shared Orca/Superset worktree
