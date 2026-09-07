@@ -750,10 +750,19 @@ devkit_worktree_create() {
     printf 'worktree: %s\nbranch: %s\nworkspace: %s\nreused: %s\n' "$worktree_path" "$branch" "$workspace_id" "$reused"
   fi
   if [ -n "$agent" ]; then
-    if [ "$json" = true ]; then
-      devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "${agent_args[@]}" >/dev/null || return 1
+    # Bash 3.2 rejects empty array expansion under set -u.
+    if [ "${#agent_args[@]}" -gt 0 ]; then
+      if [ "$json" = true ]; then
+        devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "${agent_args[@]}" >/dev/null || return 1
+      else
+        devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "${agent_args[@]}" || return 1
+      fi
     else
-      devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "${agent_args[@]}" || return 1
+      if [ "$json" = true ]; then
+        devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" >/dev/null || return 1
+      else
+        devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" || return 1
+      fi
     fi
     dispatch="$DEVKIT_LAST_DISPATCH"
     runtime="$DEVKIT_LAST_SPAWN_RUNTIME"

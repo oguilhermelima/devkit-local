@@ -898,9 +898,11 @@ installer_main() {
   installer_install_modules || return 1
   installer_write_manifest || return 1
   printf '\n%sInstallation summary:%s\n' "$INSTALLER_STYLE_BOLD" "$INSTALLER_STYLE_RESET"
-  for summary_line in "${SUMMARY_LINES[@]}"; do
-    installer_print_summary_line "$summary_line"
-  done
+  if [ "${#SUMMARY_LINES[@]}" -gt 0 ]; then
+    for summary_line in "${SUMMARY_LINES[@]}"; do
+      installer_print_summary_line "$summary_line"
+    done
+  fi
 }
 
 installer_main "$@"

@@ -74,13 +74,17 @@ devkit_interactive_modules() {
   done < <(devkit_module_ids)
   printf 'Select modules to install (numbers separated by spaces, or all):\n'
   index=1
-  for module in "${ids[@]}"; do
-    printf '  [%d] %s\n' "$index" "$module"
-    index=$((index + 1))
-  done
+  if [ "${#ids[@]}" -gt 0 ]; then
+    for module in "${ids[@]}"; do
+      printf '  [%d] %s\n' "$index" "$module"
+      index=$((index + 1))
+    done
+  fi
   read -r -p 'Modules: ' selected || return 1
   if [ "$selected" = all ]; then
-    printf '%s\n' "${ids[@]}"
+    if [ "${#ids[@]}" -gt 0 ]; then
+      printf '%s\n' "${ids[@]}"
+    fi
     return 0
   fi
   for index in $selected; do
