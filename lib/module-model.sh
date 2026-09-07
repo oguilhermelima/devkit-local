@@ -68,12 +68,15 @@ command_model_list() {
   fi
 }
 
+# WHY: One dispatcher prevents module load-order shadowing across model features.
 command_model() {
   local subcommand="${1:-}"
   shift || true
   case "$subcommand" in
     list) command_model_list "$@" ;;
-    -h|--help|"") printf 'Usage: devkit model list ...\n' ;;
+    add) command_model_add "$@" ;;
+    refresh) command_model_refresh "$@" ;;
+    -h|--help|"") printf 'Usage: devkit model list|add|refresh ...\n' ;;
     *) devkit_error "unknown model command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
   esac
 }

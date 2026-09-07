@@ -52,14 +52,3 @@ command_model_refresh() {
     *) devkit_error "unknown agent: $agent"; return 1 ;;
   esac
 }
-
-command_model() {
-  local subcommand="${1:-}"
-  shift || true
-  case "$subcommand" in
-    list) command_model_list "$@" ;;
-    refresh) command_model_refresh "$@" ;;
-    -h|--help|"") printf 'Usage: devkit model list|refresh ...\n' ;;
-    *) devkit_error "unknown model command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
-  esac
-}

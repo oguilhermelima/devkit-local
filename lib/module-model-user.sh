@@ -63,15 +63,3 @@ command_model_add() {
   done
   devkit_model_add "$agent" "$model" "$levels"
 }
-
-command_model() {
-  local subcommand="${1:-}"
-  shift || true
-  case "$subcommand" in
-    list) command_model_list "$@" ;;
-    add) command_model_add "$@" ;;
-    refresh) command_model_refresh "$@" ;;
-    -h|--help|"") printf 'Usage: devkit model list|add|refresh ...\n' ;;
-    *) devkit_error "unknown model command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
-  esac
-}
