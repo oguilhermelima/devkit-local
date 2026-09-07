@@ -64,12 +64,18 @@ devkit_parent_notify_wake_path() {
 }
 
 devkit_parent_notify_wake() {
-  local dispatch_id="$1" pointer="$2" path lock
+  local dispatch_id="$1" pointer="$2" outcome="${3:-}" reason="${4:-}" path lock line
   path="$(devkit_parent_notify_wake_path "$dispatch_id")" || return 1
   [ -d "$(dirname "$path")" ] || return 1
+  line="$pointer"
+  if [ -n "$outcome" ]; then
+    reason="$(printf '%s' "$reason" | tr '\r\n' '  ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')"
+    [ -n "$reason" ] || reason=unspecified
+    line="$pointer outcome=$outcome reason=$reason"
+  fi
   lock="$(dirname "$path")/.nudge.lock"
   while ! mkdir "$lock" 2>/dev/null; do sleep 0.02; done
-  if ! printf '%s\n' "$pointer" >>"$path"; then
+  if ! printf '%s\n' "$line" >>"$path"; then
     rmdir "$lock"
     return 1
   fi
@@ -197,13 +203,14 @@ devkit_parent_notify() {
 }
 
 devkit_parent_notify_dispatch() {
-  local meta="$1" dispatch_id idle pointer queueing
+  local meta="$1" dispatch_id idle pointer queueing notify_error notify_reason notify_error_path notify_status
   DEVKIT_PARENT_NOTIFY_RESULT=skipped
   dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty')"
   [ -n "$dispatch_id" ] || { DEVKIT_PARENT_NOTIFY_RESULT=failed; return 1; }
   pointer="$(devkit_parent_notify_pointer "$dispatch_id")"
   if devkit_parent_notify_waiter_active "$dispatch_id"; then
     DEVKIT_PARENT_NOTIFY_RESULT=suppressed
+    devkit_parent_notify_wake "$dispatch_id" "$pointer" suppressed active-waiter >/dev/null 2>&1 || true
     return 0
   fi
   queueing="$(devkit_parent_notify_queues_input "$meta")"
@@ -212,18 +219,45 @@ devkit_parent_notify_dispatch() {
     idle="$(devkit_parent_is_idle "$meta")"
     case "$idle" in
       true) ;;
-      false) DEVKIT_PARENT_NOTIFY_RESULT=busy; return 0 ;;
-      *) DEVKIT_PARENT_NOTIFY_RESULT=unknown; return 0 ;;
+      false)
+        DEVKIT_PARENT_NOTIFY_RESULT=busy
+        devkit_parent_notify_wake "$dispatch_id" "$pointer" suppressed parent-busy >/dev/null 2>&1 || true
+        return 0
+        ;;
+      *)
+        DEVKIT_PARENT_NOTIFY_RESULT=unknown
+        devkit_parent_notify_wake "$dispatch_id" "$pointer" suppressed parent-liveness-unknown >/dev/null 2>&1 || true
+        return 0
+        ;;
     esac
   fi
   if devkit_parent_notify_waiter_active "$dispatch_id"; then
     DEVKIT_PARENT_NOTIFY_RESULT=suppressed
+    devkit_parent_notify_wake "$dispatch_id" "$pointer" suppressed active-waiter >/dev/null 2>&1 || true
     return 0
   fi
-  if devkit_parent_notify "$meta" "$pointer"; then
+  notify_error_path="$(mktemp "$(devkit_dispatch_dir "$dispatch_id")/.notify-error.XXXXXX" 2>/dev/null || true)"
+  notify_status=0
+  if [ -n "$notify_error_path" ]; then
+    devkit_parent_notify "$meta" "$pointer" 2>"$notify_error_path" || notify_status=$?
+    notify_error="$(cat "$notify_error_path" 2>/dev/null || true)"
+    rm -f "$notify_error_path"
+  else
+    devkit_parent_notify "$meta" "$pointer" || notify_status=$?
+    notify_error=""
+  fi
+  if [ "$notify_status" -eq 0 ]; then
     DEVKIT_PARENT_NOTIFY_RESULT=delivered
+    if [ "$queueing" = true ]; then
+      devkit_parent_notify_wake "$dispatch_id" "$pointer" delivered queueing-parent >/dev/null 2>&1 || true
+    else
+      devkit_parent_notify_wake "$dispatch_id" "$pointer" delivered parent-idle >/dev/null 2>&1 || true
+    fi
     return 0
   fi
   DEVKIT_PARENT_NOTIFY_RESULT=failed
+  notify_reason="$(printf '%s' "$notify_error" | tr '\r\n' '  ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')"
+  [ -n "$notify_reason" ] || notify_reason=notify-failed
+  devkit_parent_notify_wake "$dispatch_id" "$pointer" failed "$notify_reason" >/dev/null 2>&1 || true
   return 1
 }
