@@ -113,6 +113,17 @@ wrapper opens hand-typed `claude`, `codex`, and `agy` commands there too. Instal
 `devkit tmux wrapper`; this defines shell functions with those names in every new interactive
 zsh, so `DEVKIT_NO_TMUX=1` or `command claude` bypasses the wrapper when a bare command is needed.
 
+The wrapper records its main session in `~/.devkit/sessions/<session>.json` (or the directory
+selected by `DEVKIT_STATE_DIR`). The record includes the tmux session, agent, starting directory,
+main pane, host, and creation time. Registration is best effort; if tmux or state storage is
+unavailable, the agent runs directly. When devkit searches for a session, records for sessions
+that no longer exist are ignored and pruned automatically.
+
+When a wrapper session is reused for a managed child, the registered main pane stays on the left
+half of the window. The first child opens on the right; later children are stacked vertically in
+that right column, and the main pane is resized back to half after every split. Sessions without
+a registered main pane keep the existing tmux split behavior.
+
 Agents launched by devkit run without approval prompts because they are isolated in a worktree; launch the agent manually if you want approval prompts.
 
 ## Command reference
