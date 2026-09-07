@@ -62,10 +62,96 @@ command_orchestrate() {
   esac
 }
 
+DEVKIT_DISPATCH_LIST_CACHE_ACTIVE=false
+DEVKIT_DISPATCH_LIST_ORCA_PREPARED=false
+DEVKIT_DISPATCH_LIST_ORCA_AVAILABLE=false
+DEVKIT_DISPATCH_LIST_ORCA_VALID=false
+DEVKIT_DISPATCH_LIST_ORCA_TERMINALS='[]'
+DEVKIT_DISPATCH_LIST_ORCA_IDS=''
+DEVKIT_DISPATCH_LIST_SUPERSET_PREPARED=false
+DEVKIT_DISPATCH_LIST_SUPERSET_AVAILABLE=false
+DEVKIT_DISPATCH_LIST_SUPERSET_VALID=false
+DEVKIT_DISPATCH_LIST_SUPERSET_TERMINALS='[]'
+DEVKIT_DISPATCH_LIST_SUPERSET_IDS=''
+
+devkit_dispatch_list_cache_reset() {
+  DEVKIT_DISPATCH_LIST_CACHE_ACTIVE=true
+  DEVKIT_DISPATCH_LIST_ORCA_PREPARED=false
+  DEVKIT_DISPATCH_LIST_ORCA_AVAILABLE=false
+  DEVKIT_DISPATCH_LIST_ORCA_VALID=false
+  DEVKIT_DISPATCH_LIST_ORCA_TERMINALS='[]'
+  DEVKIT_DISPATCH_LIST_ORCA_IDS=''
+  DEVKIT_DISPATCH_LIST_SUPERSET_PREPARED=false
+  DEVKIT_DISPATCH_LIST_SUPERSET_AVAILABLE=false
+  DEVKIT_DISPATCH_LIST_SUPERSET_VALID=false
+  DEVKIT_DISPATCH_LIST_SUPERSET_TERMINALS='[]'
+  DEVKIT_DISPATCH_LIST_SUPERSET_IDS=''
+}
+
+devkit_dispatch_list_cache_disable() {
+  DEVKIT_DISPATCH_LIST_CACHE_ACTIVE=false
+}
+
+devkit_dispatch_list_cache_prepare_host() {
+  local host="$1" records
+  case "$host" in
+    orca)
+      [ "$DEVKIT_DISPATCH_LIST_ORCA_PREPARED" = true ] && return 0
+      DEVKIT_DISPATCH_LIST_ORCA_PREPARED=true
+      if ! devkit_require_command orca; then
+        return 0
+      fi
+      DEVKIT_DISPATCH_LIST_ORCA_AVAILABLE=true
+      records="$(orca terminal list --json 2>/dev/null || true)"
+      DEVKIT_DISPATCH_LIST_ORCA_TERMINALS="$records"
+      if printf '%s' "$records" | jq -e . >/dev/null 2>&1; then
+        DEVKIT_DISPATCH_LIST_ORCA_VALID=true
+        DEVKIT_DISPATCH_LIST_ORCA_IDS="$(printf '%s' "$records" | jq -r '
+          def records: if type == "array" then . else (.result.terminals // .terminals // .sessions // .result.sessions // []) end;
+          records[]? | (.handle // .terminalHandle // .terminalId // .sessionId // .id // "")
+        ' 2>/dev/null || true)"
+      fi
+      ;;
+    superset)
+      [ "$DEVKIT_DISPATCH_LIST_SUPERSET_PREPARED" = true ] && return 0
+      DEVKIT_DISPATCH_LIST_SUPERSET_PREPARED=true
+      if ! devkit_superset_available; then
+        return 0
+      fi
+      DEVKIT_DISPATCH_LIST_SUPERSET_AVAILABLE=true
+      records="$(devkit_superset_terminals_json 2>/dev/null || true)"
+      DEVKIT_DISPATCH_LIST_SUPERSET_TERMINALS="$records"
+      if printf '%s' "$records" | jq -e . >/dev/null 2>&1; then
+        DEVKIT_DISPATCH_LIST_SUPERSET_VALID=true
+        DEVKIT_DISPATCH_LIST_SUPERSET_IDS="$(printf '%s' "$records" | jq -r '
+          def records: if type == "array" then . else (.result.terminals // .terminals // .sessions // .result.sessions // []) end;
+          records[]? | (.handle // .terminalHandle // .terminalId // .sessionId // .id // "")
+        ' 2>/dev/null || true)"
+      fi
+      ;;
+  esac
+}
+
 devkit_dispatch_host_terminal_records() {
   local meta="$1" host workspace_id
   host="$(printf '%s' "$meta" | jq -r '.childHost // empty')"
   workspace_id="$(printf '%s' "$meta" | jq -r '.workspaceId // empty')"
+  if [ "$DEVKIT_DISPATCH_LIST_CACHE_ACTIVE" = true ]; then
+    devkit_dispatch_list_cache_prepare_host "$host"
+    case "$host" in
+      orca)
+        [ "$DEVKIT_DISPATCH_LIST_ORCA_AVAILABLE" = true ] || return 1
+        printf '%s' "$DEVKIT_DISPATCH_LIST_ORCA_TERMINALS"
+        return 0
+        ;;
+      superset)
+        [ "$DEVKIT_DISPATCH_LIST_SUPERSET_AVAILABLE" = true ] || return 1
+        printf '%s' "$DEVKIT_DISPATCH_LIST_SUPERSET_TERMINALS"
+        return 0
+        ;;
+      *) return 1 ;;
+    esac
+  fi
   case "$host" in
     orca)
       devkit_require_command orca || return 1
@@ -108,6 +194,33 @@ devkit_dispatch_parent_status() {
   DEVKIT_PARENT_STATUS=unknown
   host="$(printf '%s' "$meta" | jq -r '.parentHost // empty')"
   parent="$(printf '%s' "$meta" | jq -r '.parentSessionId // empty')"
+  if [ "$DEVKIT_DISPATCH_LIST_CACHE_ACTIVE" = true ]; then
+    case "$host" in
+      orca)
+        devkit_dispatch_list_cache_prepare_host orca
+        [ "$DEVKIT_DISPATCH_LIST_ORCA_AVAILABLE" = true ] || return 0
+        [ "$DEVKIT_DISPATCH_LIST_ORCA_VALID" = true ] || return 0
+        if [ -n "$parent" ] && printf '%s\n' "$DEVKIT_DISPATCH_LIST_ORCA_IDS" | grep -Fx "$parent" >/dev/null 2>&1; then
+          DEVKIT_PARENT_STATUS=alive
+        else
+          DEVKIT_PARENT_STATUS=gone
+        fi
+        return 0
+        ;;
+      superset)
+        devkit_dispatch_list_cache_prepare_host superset
+        [ "$DEVKIT_DISPATCH_LIST_SUPERSET_AVAILABLE" = true ] || return 0
+        [ "$DEVKIT_DISPATCH_LIST_SUPERSET_VALID" = true ] || return 0
+        if [ -n "$parent" ] && printf '%s\n' "$DEVKIT_DISPATCH_LIST_SUPERSET_IDS" | grep -Fx "$parent" >/dev/null 2>&1; then
+          DEVKIT_PARENT_STATUS=alive
+        else
+          DEVKIT_PARENT_STATUS=gone
+        fi
+        return 0
+        ;;
+      *) return 0 ;;
+    esac
+  fi
   case "$host" in
     orca)
       devkit_require_command orca || return 0
@@ -179,7 +292,11 @@ devkit_dispatch_terminal_status() {
 }
 
 command_orchestrate_list() {
-  local json=false all=false orphans=false arg caller_id caller_host meta_path meta owned orphan entries='[]' state dispatch_id outcome
+  local json=false all=false orphans=false arg caller_id caller_host meta_path
+  local meta_summary dispatch_id state child_host parent_host open_dispatches=''
+  local need_orca=false need_superset=false entries final_orca_ids final_superset_ids
+  local orca_known=false superset_known=false
+  local -a meta_paths
   for arg in "$@"; do
     case "$arg" in
       --json) json=true ;;
@@ -192,27 +309,78 @@ command_orchestrate_list() {
   devkit_session_id >/dev/null
   caller_id="$DEVKIT_SESSION_ID"
   caller_host="$DEVKIT_SESSION_HOST"
+  meta_paths=()
   for meta_path in "$DEVKIT_DISPATCH_DIR"/*/meta.json; do
     [ -f "$meta_path" ] || continue
-    meta="$(cat "$meta_path")"
-    dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId')"
-    if [ "$(printf '%s' "$meta" | jq -r '.state // empty')" != closed ]; then
-      devkit_dispatch_reconcile_one "$dispatch_id" >/dev/null 2>&1 || true
-      meta="$(devkit_dispatch_meta_read "$dispatch_id" 2>/dev/null || printf '%s' "$meta")"
-    fi
-    owned=false
-    if [ -n "$caller_id" ] && printf '%s' "$meta" | jq -e --arg id "$caller_id" --arg host "$caller_host" '.parentSessionId == $id and .parentHost == $host' >/dev/null 2>&1; then
-      owned=true
-    fi
-    orphan=false
-    devkit_dispatch_parent_status "$meta"
-    [ "${DEVKIT_PARENT_STATUS:-unknown}" = gone ] && orphan=true
-    state="$(printf '%s' "$meta" | jq -r '.state // empty')"
-    if [ "$all" != true ] && [ "$orphans" != true ] && [ "$owned" != true ]; then continue; fi
-    if [ "$orphans" = true ] && [ "$orphan" != true ]; then continue; fi
-    outcome="$(printf '%s' "$meta" | jq -r '.reconcileOutcome // "unchanged"')"
-    entries="$(jq --argjson item "$meta" --argjson owned "$owned" --argjson orphan "$orphan" --arg outcome "$outcome" '. + [$item + {ownedByCaller: $owned, orphan: $orphan, reconcileResult: $outcome}]' <<<"$entries")"
+    meta_paths[${#meta_paths[@]}]="$meta_path"
   done
+  if [ "${#meta_paths[@]}" -eq 0 ]; then
+    if [ "$json" = true ]; then
+      printf '[]\n'
+      return 0
+    fi
+    printf '%-38s %-20s %-18s %-12s %-10s %s\n' DISPATCH STATE PROCESS TERMINAL OWNERSHIP WORKTREE
+    return 0
+  fi
+
+  # One slurp keeps field extraction linear instead of spawning jq for each field.
+  meta_summary="$(jq -s -r '
+    .[] | [(.dispatchId // ""), (.state // ""), (.childHost // ""), (.parentHost // "")] | @tsv
+  ' "${meta_paths[@]}")" || return 1
+  while IFS=$'\t' read -r dispatch_id state child_host parent_host; do
+    [ -n "$dispatch_id" ] || continue
+    [ "$state" = closed ] || open_dispatches="${open_dispatches}${dispatch_id}"$'\n'
+    case "$child_host:$parent_host" in
+      orca:*) need_orca=true ;;
+      superset:*) need_superset=true ;;
+    esac
+    case "$parent_host" in
+      orca|superset)
+        [ "$parent_host" = orca ] && need_orca=true
+        [ "$parent_host" = superset ] && need_superset=true
+        ;;
+    esac
+  done <<EOF
+$meta_summary
+EOF
+
+  devkit_dispatch_list_cache_reset
+  [ "$need_orca" = true ] && devkit_dispatch_list_cache_prepare_host orca
+  [ "$need_superset" = true ] && devkit_dispatch_list_cache_prepare_host superset
+  while IFS= read -r dispatch_id; do
+    [ -n "$dispatch_id" ] || continue
+    devkit_dispatch_reconcile_one "$dispatch_id" >/dev/null 2>&1 || true
+  done <<EOF
+$open_dispatches
+EOF
+
+  final_orca_ids="$DEVKIT_DISPATCH_LIST_ORCA_IDS"
+  final_superset_ids="$DEVKIT_DISPATCH_LIST_SUPERSET_IDS"
+  [ "$DEVKIT_DISPATCH_LIST_ORCA_AVAILABLE" = true ] && [ "$DEVKIT_DISPATCH_LIST_ORCA_VALID" = true ] && orca_known=true
+  [ "$DEVKIT_DISPATCH_LIST_SUPERSET_AVAILABLE" = true ] && [ "$DEVKIT_DISPATCH_LIST_SUPERSET_VALID" = true ] && superset_known=true
+  entries="$(jq -s \
+    --arg callerId "$caller_id" --arg callerHost "$caller_host" \
+    --arg orcaIds "$final_orca_ids" --arg supersetIds "$final_superset_ids" \
+    --argjson orcaKnown "$orca_known" --argjson supersetKnown "$superset_known" \
+    --argjson all "$all" --argjson orphans "$orphans" '
+    def ids($value): $value | split("\n") | map(select(length > 0));
+    map(. as $item
+      | ($item.parentSessionId // "") as $parentId
+      | ($item.parentHost // "") as $parentHost
+      | (($callerId != "") and ($item.parentSessionId == $callerId) and ($parentHost == $callerHost)) as $owned
+      | (if $parentHost == "orca" and $orcaKnown then
+           (ids($orcaIds) | index($parentId) == null)
+         elif $parentHost == "superset" and $supersetKnown then
+           (ids($supersetIds) | index($parentId) == null)
+         else false
+         end) as $orphan
+      | $item + {ownedByCaller: $owned, orphan: $orphan, reconcileResult: ($item.reconcileOutcome // "unchanged")})
+    | map(select(($all or $orphans or .ownedByCaller) and (($orphans | not) or .orphan)))
+  ' "${meta_paths[@]}")" || {
+    devkit_dispatch_list_cache_disable
+    return 1
+  }
+  devkit_dispatch_list_cache_disable
   if [ "$json" = true ]; then
     printf '%s\n' "$entries"
     return 0
