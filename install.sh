@@ -26,6 +26,13 @@ INSTALLER_MENU_RESULT=""
 INSTALLER_INPUT_SOURCE=""
 INSTALLER_TERMINAL_OUTPUT=""
 INSTALLER_INTERACTIVE=false
+INSTALLER_COLOR=false
+INSTALLER_STYLE_RESET=""
+INSTALLER_STYLE_BOLD=""
+INSTALLER_STYLE_DIM=""
+INSTALLER_STYLE_GREEN=""
+INSTALLER_STYLE_YELLOW=""
+INSTALLER_STYLE_RED=""
 
 installer_error() {
   printf 'install.sh: %s\n' "$*" >&2
@@ -33,6 +40,18 @@ installer_error() {
 
 installer_summary() {
   SUMMARY_LINES+=("$*")
+}
+
+installer_print_summary_line() {
+  local line="$1" glyph='·' style="$INSTALLER_STYLE_DIM"
+  case "$line" in
+    *needs-your-action*) glyph='!'; style="$INSTALLER_STYLE_YELLOW" ;;
+    *failed*|*failure*|*could\ not*|*error*) glyph='✗'; style="$INSTALLER_STYLE_RED" ;;
+    *skipped*) glyph='–'; style="$INSTALLER_STYLE_DIM" ;;
+    *already-current*|*"already current"*) glyph='·'; style="$INSTALLER_STYLE_DIM" ;;
+    *installed*|*updated*|*removed*|*reconfigured*) glyph='✓'; style="$INSTALLER_STYLE_GREEN" ;;
+  esac
+  printf '%s%s %s%s\n' "$style" "$glyph" "$line" "$INSTALLER_STYLE_RESET"
 }
 
 installer_usage() {
@@ -123,6 +142,46 @@ installer_resolve_input_source() {
   fi
 }
 
+installer_init_style() {
+  local colors
+  INSTALLER_COLOR=false
+  INSTALLER_STYLE_RESET=""
+  INSTALLER_STYLE_BOLD=""
+  INSTALLER_STYLE_DIM=""
+  INSTALLER_STYLE_GREEN=""
+  INSTALLER_STYLE_YELLOW=""
+  INSTALLER_STYLE_RED=""
+  # Check the destination terminal before styling so piped logs remain plain.
+  [ -t 1 ] || return 0
+  [ -z "${NO_COLOR+x}" ] || return 0
+  [ "${TERM:-}" != dumb ] || return 0
+  command -v tput >/dev/null 2>&1 || return 0
+  colors="$(tput colors 2>/dev/null)" || return 0
+  case "$colors" in
+    ''|*[!0-9]*) return 0 ;;
+  esac
+  [ "$colors" -ge 8 ] || return 0
+  if ! INSTALLER_STYLE_RESET="$(tput sgr0 2>/dev/null)" ||
+    ! INSTALLER_STYLE_BOLD="$(tput bold 2>/dev/null)" ||
+    ! INSTALLER_STYLE_DIM="$(tput dim 2>/dev/null)" ||
+    ! INSTALLER_STYLE_GREEN="$(tput setaf 2 2>/dev/null)" ||
+    ! INSTALLER_STYLE_YELLOW="$(tput setaf 3 2>/dev/null)" ||
+    ! INSTALLER_STYLE_RED="$(tput setaf 1 2>/dev/null)"; then
+    INSTALLER_STYLE_RESET=""
+    INSTALLER_STYLE_BOLD=""
+    INSTALLER_STYLE_DIM=""
+    INSTALLER_STYLE_GREEN=""
+    INSTALLER_STYLE_YELLOW=""
+    INSTALLER_STYLE_RED=""
+    return 0
+  fi
+  INSTALLER_COLOR=true
+}
+
+installer_menu_printf() {
+  printf "$@" >>"$INSTALLER_TERMINAL_OUTPUT"
+}
+
 installer_menu() {
   local mode="$1" header="$2" initial="$3" key rest index num
   shift 3
@@ -132,7 +191,7 @@ installer_menu() {
   local total="${#INSTALLER_MENU_OPTIONS[@]}"
   local total_rows="$total"
   local selected=1
-  local value option
+  local value option glyph glyph_style cursor_prefix cursor_suffix marker
   [ "$total" -gt 0 ] || return 1
   if [ "$mode" = multi ]; then
     total_rows=$((total + 1))
@@ -145,42 +204,61 @@ installer_menu() {
     INSTALLER_MENU_SELECTED+=("$value")
   done
   while true; do
-    printf '\033[2J\033[H' >"$INSTALLER_TERMINAL_OUTPUT"
-    printf '%s\n\n' "$header"
+    if [ "$INSTALLER_TERMINAL_OUTPUT" != /dev/stdout ] || [ -t 1 ]; then
+      printf '\033[2J\033[H' >"$INSTALLER_TERMINAL_OUTPUT"
+    fi
+    installer_menu_printf '%s%s%s\n\n' "$INSTALLER_STYLE_BOLD" "$header" "$INSTALLER_STYLE_RESET"
     if [ "$mode" = multi ]; then
-      printf 'Use ↑/↓ or numbers to move; Space/Enter toggle; choose Avançar to continue.\n\n'
+      installer_menu_printf '%sUse ↑/↓ or numbers to move; Space/Enter toggle; choose Avançar to continue.%s\n\n' "$INSTALLER_STYLE_DIM" "$INSTALLER_STYLE_RESET"
     else
-      printf 'Use ↑/↓ or a number, then Enter to confirm.\n\n'
+      installer_menu_printf '%sUse ↑/↓ or a number, then Enter to confirm.%s\n\n' "$INSTALLER_STYLE_DIM" "$INSTALLER_STYLE_RESET"
     fi
     index=1
     for option in "${INSTALLER_MENU_OPTIONS[@]}"; do
+      cursor_prefix=''
+      cursor_suffix=''
+      marker='  '
+      if [ "$index" -eq "$selected" ]; then
+        cursor_prefix="$INSTALLER_STYLE_BOLD"
+        cursor_suffix="$INSTALLER_STYLE_RESET"
+        marker='➜ '
+      fi
       if [ "$mode" = multi ]; then
         if [ "${INSTALLER_MENU_SELECTED[$((index - 1))]}" = true ]; then
-          value='x'
+          glyph='●'
+          glyph_style="$INSTALLER_STYLE_GREEN"
         else
-          value=' '
-        fi
-        if [ "$index" -eq "$selected" ]; then
-          printf '➜ [%s] [%2d] %s\n' "$value" "$index" "$option"
-        else
-          printf '  [%s] [%2d] %s\n' "$value" "$index" "$option"
+          glyph='○'
+          glyph_style="$INSTALLER_STYLE_DIM"
         fi
       elif [ "$index" -eq "$selected" ]; then
-        printf '➜ [*] [%2d] %s\n' "$index" "$option"
+        glyph='●'
+        glyph_style="$INSTALLER_STYLE_GREEN"
       else
-        printf '  [ ] [%2d] %s\n' "$index" "$option"
+        glyph='○'
+        glyph_style="$INSTALLER_STYLE_DIM"
       fi
+      installer_menu_printf '%s%s[%s%s%s] %s[%2d]%s %s%s%s\n' \
+        "$cursor_prefix" "$marker" "$glyph_style" "$glyph" "$INSTALLER_STYLE_RESET" \
+        "$INSTALLER_STYLE_DIM" "$index" "$INSTALLER_STYLE_RESET" \
+        "$INSTALLER_STYLE_BOLD" "$option" "$cursor_suffix"
       index=$((index + 1))
     done
     if [ "$mode" = multi ]; then
-      printf '\n'
+      installer_menu_printf '\n'
+      cursor_prefix=''
+      cursor_suffix=''
+      marker='  '
       if [ "$selected" -eq "$total_rows" ]; then
-        printf '➜ [→] Avançar\n'
-      else
-        printf '  [→] Avançar\n'
+        cursor_prefix="$INSTALLER_STYLE_BOLD"
+        cursor_suffix="$INSTALLER_STYLE_RESET"
+        marker='➜ '
       fi
+      installer_menu_printf '%s%s[%s→%s] %sAvançar%s\n' \
+        "$cursor_prefix" "$marker" "$INSTALLER_STYLE_YELLOW" "$INSTALLER_STYLE_RESET" \
+        "$INSTALLER_STYLE_BOLD" "$cursor_suffix"
     fi
-    printf '\n'
+    installer_menu_printf '\n'
     # Preserve whitespace keys so Space cannot enter the confirmation branch.
     if ! IFS= read -r -s -n 1 key <"$INSTALLER_INPUT_SOURCE"; then
       return 1
@@ -259,7 +337,7 @@ installer_menu() {
   else
     INSTALLER_MENU_RESULT="${INSTALLER_MENU_OPTIONS[$((selected - 1))]}"
   fi
-  printf '\n'
+  installer_menu_printf '\n'
 }
 
 installer_select_agents() {
@@ -766,8 +844,10 @@ installer_install_agents() {
 }
 
 installer_main() {
+  local summary_line
   installer_parse_args "$@" || return $?
   installer_resolve_input_source
+  installer_init_style
   installer_source_root || return 1
   [ -x "$SOURCE_ROOT/devkit" ] && [ -d "$SOURCE_ROOT/lib" ] || { installer_error "devkit checkout is incomplete: $SOURCE_ROOT"; return 1; }
   [ -f "$SOURCE_ROOT/skills/devkit/SKILL.md" ] || { installer_error "devkit skill is missing from $SOURCE_ROOT"; return 1; }
@@ -799,8 +879,10 @@ installer_main() {
   installer_select_modules || return $?
   installer_install_modules || return 1
   installer_write_manifest || return 1
-  printf '\nInstallation summary:\n'
-  printf '%s\n' "${SUMMARY_LINES[@]}"
+  printf '\n%sInstallation summary:%s\n' "$INSTALLER_STYLE_BOLD" "$INSTALLER_STYLE_RESET"
+  for summary_line in "${SUMMARY_LINES[@]}"; do
+    installer_print_summary_line "$summary_line"
+  done
 }
 
 installer_main "$@"
