@@ -40,7 +40,7 @@ devkit_hooks_config_has_entry() {
   case "$agent" in
     cursor)
       jq -e '
-        def devkit_entry: ((.command? // "") | contains("devkit-turn-end.sh"));
+        def devkit_entry: ((.command? // "") | test("(^|/)devkit-turn-end[.]sh($|[[:space:]])"));
         (.hooks? | type == "object") and
         ((.hooks.afterAgentResponse? // []) | type == "array") and
         any(.hooks.afterAgentResponse[]?; devkit_entry)
@@ -48,7 +48,7 @@ devkit_hooks_config_has_entry() {
       ;;
     claude|codex|agy)
       jq -e '
-        def devkit_entry: ((.command? // "") | contains("devkit-turn-end.sh"));
+        def devkit_entry: ((.command? // "") | test("(^|/)devkit-turn-end[.]sh($|[[:space:]])"));
         (.hooks? | type == "object") and
         ((.hooks.Stop? // []) | type == "array") and
         any(.hooks.Stop[]?; (.hooks? | type == "array") and any(.hooks[]?; devkit_entry))
@@ -101,7 +101,7 @@ devkit_hooks_write_config() {
     fi
   elif [ "$agent" = cursor ]; then
     if ! jq --arg command "$command" '
-      def devkit_entry: ((.command? // "") | contains("devkit-turn-end.sh"));
+      def devkit_entry: ((.command? // "") | test("(^|/)devkit-turn-end[.]sh($|[[:space:]])"));
       (.hooks // {}) as $hooks |
       if ($hooks | type) != "object" then error("hooks must be an object")
       elif (($hooks.afterAgentResponse // []) | type) != "array" then error("hooks.afterAgentResponse must be an array")
@@ -126,7 +126,7 @@ devkit_hooks_write_config() {
       return 1
     fi
   elif ! jq --arg command "$command" '
-    def devkit_entry: ((.command? // "") | contains("devkit-turn-end.sh"));
+    def devkit_entry: ((.command? // "") | test("(^|/)devkit-turn-end[.]sh($|[[:space:]])"));
     (.hooks // {}) as $hooks |
     if ($hooks | type) != "object" then error("hooks must be an object")
     elif (($hooks.Stop // []) | type) != "array" then error("hooks.Stop must be an array")
