@@ -980,7 +980,10 @@ devkit_dispatch_reply() {
   [ -n "$answer" ] || { devkit_error "--text is required"; return "$DEVKIT_USAGE_ERROR"; }
   meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
   state="$(printf '%s' "$meta" | jq -r '.state // empty')"
-  [ "$state" = waiting_for_reply ] || { devkit_error "dispatch $dispatch_id is not waiting_for_reply (state: $state)"; return 1; }
+  case "$state" in
+    running|waiting_for_reply) ;;
+    *) devkit_error "dispatch $dispatch_id cannot receive a reply in state $state"; return 1 ;;
+  esac
   devkit_dispatch_message_append "$dispatch_id" parent reply "$answer" "$DEVKIT_SESSION_ID" >/dev/null || return 1
   idle="$(devkit_dispatch_child_is_idle "$meta" 2>/dev/null || printf 'unknown\n')"
   status=queued
