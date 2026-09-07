@@ -77,6 +77,12 @@ The parent session identity creates a dispatch for one child agent and worktree.
 exchange JSON messages as append-only files in the dispatch directory. Ownership is direct-parent-only:
 a parent can inspect, reply to, or close its own dispatch, but ownership does not pass to a grandparent.
 
+With the optional `tmux-runtime` module enabled, devkit launches each child inside a tmux session
+hosted in the IDE tab instead of the host's own agent primitive. That gives full control of the
+agent command line, real splits for siblings in one tab, per-pane reads, and a close that removes
+the pane. The host app then no longer treats the child as one of its agents, so features tied to
+that (Superset resume/fork/handoff and its agent-attention badge) do not apply.
+
 ## Command reference
 
 ### Install and diagnostics

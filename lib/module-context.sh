@@ -44,11 +44,13 @@ command_orchestrate() {
     spawn) command_worktree create --orchestrate "$@" ;;
     list) command_orchestrate_list "$@" ;;
     watch) devkit_dispatch_watch "$@" ;;
+    read) devkit_dispatch_read "$@" ;;
     reply) devkit_dispatch_reply "$@" ;;
     close) devkit_dispatch_close "$@" ;;
     -h|--help|"")
       printf 'Usage: devkit orchestrate spawn ... | devkit orchestrate list [--all|--orphans] [--json]\n'
       printf '       devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]\n'
+      printf '       devkit orchestrate read <dispatch-id> [--lines <count>] [--json]\n'
       printf '       devkit orchestrate reply <dispatch-id> --text <answer> [--json]\n'
       printf '       devkit orchestrate close <dispatch-id> [--json]\n'
       ;;

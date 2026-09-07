@@ -252,10 +252,24 @@ devkit_project_run_command() {
   printf '%s\n' "$command_text"
 }
 
+devkit_tmux_cleanup_launch() {
+  local context="$1" workspace_id="$2" terminal_id="$3" tmux_session="$4" tmux_pane="$5" host_terminal_created="$6"
+  if [ "$host_terminal_created" = true ]; then
+    tmux kill-session -t "$tmux_session" >/dev/null 2>&1 || true
+    [ -n "$terminal_id" ] || return 0
+    case "$context" in
+      superset) devkit_superset terminals close --workspace "$workspace_id" --terminal "$terminal_id" --json >/dev/null 2>&1 || true ;;
+      orca) orca terminal close --terminal "$terminal_id" --json >/dev/null 2>&1 || true ;;
+    esac
+  elif [ -n "$tmux_pane" ]; then
+    tmux kill-pane -t "$tmux_pane" >/dev/null 2>&1 || true
+  fi
+}
+
 devkit_launch_agent() {
   local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
-  local context command_text response session_id final_prompt agent_lower parent_id parent_host child_host branch
-  local agent_used model_honored=false
+  local context command_text response session_id final_prompt launch_prompt agent_lower parent_id parent_host child_host branch
+  local agent_used model_honored=false dispatch_id runtime=host tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false
   local -a agent_args
   DEVKIT_LAST_DISPATCH=""
   devkit_session_id >/dev/null
@@ -263,9 +277,113 @@ devkit_launch_agent() {
   parent_host="$DEVKIT_SESSION_HOST"
   [ -n "$parent_id" ] || { devkit_error "cannot spawn a managed dispatch from an unmanaged shell"; return 1; }
   context="$parent_host"
-  command_text="$(devkit_agent_command "$agent" "$model" "$effort" "$prompt")"
   agent_used="$agent"
   branch="$(git -C "$worktree_path" symbolic-ref --quiet --short HEAD 2>/dev/null || printf 'detached')"
+  [ -n "$label" ] || label="$(devkit_dispatch_default_label)"
+  case "$label" in
+    *$'\n'*) devkit_error "dispatch label cannot contain a newline"; return "$DEVKIT_USAGE_ERROR" ;;
+  esac
+  if devkit_runtime_enabled; then
+    runtime=tmux
+    devkit_tmux_available || { devkit_error "tmux-runtime is enabled but tmux is not on PATH"; return 1; }
+    dispatch_id="$(devkit_dispatch_new_id)" || return 1
+    case "$context" in
+      orca|superset) ;;
+      *) devkit_error "cannot launch agent from unknown orchestration host"; return 1 ;;
+    esac
+    if [ "$context" = superset ]; then
+      devkit_superset_available || { devkit_error "superset CLI is not available"; return 1; }
+    else
+      devkit_require_command orca || { devkit_error "orca CLI is not available"; return 1; }
+    fi
+    devkit_tmux_existing_session_for_worktree "$worktree_path" || true
+    existing_session="${DEVKIT_TMUX_EXISTING_SESSION:-}"
+    if [ -n "$existing_session" ]; then
+      tmux_session="$existing_session"
+      session_id="$(devkit_tmux_host_terminal_for_session "$tmux_session" 2>/dev/null || true)"
+      [ -n "$session_id" ] || { devkit_error "tmux session $tmux_session has no managed host terminal"; return 1; }
+      tmux_pane="$(devkit_tmux_split_pane "$tmux_session" "$worktree_path")" || {
+        devkit_error "could not split tmux session $tmux_session"
+        return 1
+      }
+    else
+      tmux_session="devkit-$dispatch_id"
+      # Start a shell first so terminal-identification replies cannot leak into the agent composer.
+      tmux_command="tmux new-session -A -s $(printf '%q' "$tmux_session")"
+      if [ "$context" = orca ]; then
+        response="$(orca terminal create --worktree "path:$worktree_path" --title "$agent $worktree_path" --command "$tmux_command" --json)" || return 1
+        host_terminal_created=true
+        session_id="$(printf '%s' "$response" | jq -r '.result.terminal.handle // .terminal.handle // .handle // empty' 2>/dev/null)"
+      else
+        response="$(devkit_superset terminals create --workspace "$workspace_id" --command "$tmux_command" --json)" || return 1
+        host_terminal_created=true
+        session_id="$(printf '%s' "$response" | jq -r '.terminalId // .sessionId // .result.terminalId // .result.sessionId // .terminal.sessionId // .result.terminal.sessionId // .terminal.id // .result.terminal.id // .id // empty' 2>/dev/null)"
+      fi
+      if [ -z "$session_id" ]; then
+        devkit_tmux_cleanup_launch "$context" "$workspace_id" "" "$tmux_session" "" "$host_terminal_created"
+        devkit_error "$context terminal create returned no terminal identity; raw response: $response"
+        return 1
+      fi
+      devkit_tmux_wait_for_session "$tmux_session" || {
+        devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "" "$host_terminal_created"
+        devkit_error "tmux session $tmux_session did not become available"
+        return 1
+      }
+      tmux_pane="$(devkit_tmux_first_pane "$tmux_session")"
+    fi
+    if [ -z "$tmux_pane" ]; then
+      devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "" "$host_terminal_created"
+      devkit_error "tmux session $tmux_session has no pane"
+      return 1
+    fi
+    devkit_tmux_apply_config "$tmux_session" || {
+      devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+      devkit_error "could not apply devkit tmux configuration to $tmux_session"
+      return 1
+    }
+    devkit_tmux_settle_pane "$tmux_pane" || {
+      devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+      devkit_error "tmux pane $tmux_pane did not settle"
+      return 1
+    }
+    if [ "$context" = superset ]; then
+      final_prompt="[devkit dispatch: ${label}]
+
+${DEVKIT_SUPERSET_PROTOCOL}
+
+${prompt}"
+      launch_prompt="$final_prompt"
+    else
+      launch_prompt="$prompt"
+    fi
+    command_text="$(devkit_agent_command "$agent_used" "$model" "$effort" "$launch_prompt")"
+    command_text="cd $(printf '%q' "$worktree_path") && DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") DEVKIT_TMUX_SESSION=$(printf '%q' "$tmux_session") DEVKIT_TMUX_PANE=$(printf '%q' "$tmux_pane") $command_text"
+    devkit_dispatch_meta_write "$dispatch_id" "$parent_id" "$parent_host" "$context" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" true "$agent_used" "$tmux_session" "$tmux_pane" tmux >/dev/null || {
+      devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+      devkit_error "could not persist dispatch metadata: $dispatch_id"
+      return 1
+    }
+    if ! devkit_tmux_send_agent "$tmux_pane" "$command_text"; then
+      devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+      devkit_dispatch_meta_update_state "$dispatch_id" failed >/dev/null 2>&1 || true
+      return 1
+    fi
+    if ! devkit_tmux_agent_output_clean "$tmux_pane"; then
+      devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+      devkit_error "agent output contains terminal-identification escape leakage in pane $tmux_pane"
+      devkit_dispatch_meta_update_state "$dispatch_id" failed >/dev/null 2>&1 || true
+      return 1
+    fi
+    devkit_dispatch_meta_update_state "$dispatch_id" running || {
+      devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+      devkit_error "could not persist tmux dispatch state: $dispatch_id"
+      return 1
+    }
+    DEVKIT_LAST_DISPATCH="$dispatch_id"
+    printf '%s\n' "$response"
+    return 0
+  fi
+  command_text="$(devkit_agent_command "$agent" "$model" "$effort" "$prompt")"
   case "$context" in
     orca)
       devkit_require_command orca || { devkit_error "orca CLI is not available"; return 1; }
@@ -275,10 +393,6 @@ devkit_launch_agent() {
       ;;
     superset)
       devkit_superset_available || { devkit_error "superset CLI is not available"; return 1; }
-      [ -n "$label" ] || label="$(devkit_dispatch_default_label)"
-      case "$label" in
-        *$'\n'*) devkit_error "dispatch label cannot contain a newline"; return "$DEVKIT_USAGE_ERROR" ;;
-      esac
       final_prompt="[devkit dispatch: ${label}]
 
 ${DEVKIT_SUPERSET_PROTOCOL}
@@ -315,14 +429,15 @@ ${prompt}"
       ;;
   esac
   [ -n "$session_id" ] || { devkit_error "agent launch returned no terminal identity"; return 1; }
+  dispatch_id="$session_id"
   if [ -n "$model" ] && [ "$child_host" = orca ]; then
     model_honored=true
   fi
-  devkit_dispatch_meta_write "$session_id" "$parent_id" "$parent_host" "$child_host" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" "$model_honored" "$agent_used" >/dev/null || {
+  devkit_dispatch_meta_write "$dispatch_id" "$parent_id" "$parent_host" "$child_host" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" "$model_honored" "$agent_used" >/dev/null || {
     devkit_error "could not persist dispatch metadata: $session_id"
     return 1
   }
-  devkit_dispatch_meta_update_state "$session_id" running || {
+  devkit_dispatch_meta_update_state "$dispatch_id" running || {
         devkit_error "could not persist Superset dispatch state: $session_id"
         return 1
       }

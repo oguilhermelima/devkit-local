@@ -38,6 +38,7 @@ Commands:
   orchestrate spawn ...                Create a worktree and start an agent
   orchestrate list [--json]            List managed dispatches
   orchestrate watch <dispatch-id> ...  Watch a dispatch file channel for child messages
+  orchestrate read <dispatch-id> ...   Read a tmux dispatch pane
   orchestrate reply <dispatch-id> ...  Reply to a waiting Superset dispatch
   orchestrate close <dispatch-id> ...  Close a Superset dispatch terminal
   ask "question"                       Ask the direct coordinator from a child dispatch
