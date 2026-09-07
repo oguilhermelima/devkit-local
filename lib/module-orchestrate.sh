@@ -601,6 +601,18 @@ devkit_dispatch_find_child() {
   return 1
 }
 
+devkit_dispatch_child_is_idle() {
+  local meta="$1" child_meta
+  child_meta="$(printf '%s' "$meta" | jq '
+    .parentSessionId = .terminalId
+    | .parentHost = .childHost
+    | .parentWorkspaceId = .workspaceId
+    | .parentTmuxSession = .tmuxSession
+    | .parentTmuxPane = .tmuxPane
+  ')" || return 1
+  devkit_parent_is_idle "$child_meta"
+}
+
 devkit_dispatch_native_send() {
   local meta="$1" text="$2" host workspace_id terminal_id runtime tmux_session tmux_pane
   host="$(printf '%s' "$meta" | jq -r '.childHost')"
@@ -862,7 +874,7 @@ devkit_dispatch_ack() {
 }
 
 devkit_dispatch_reply() {
-  local dispatch_id="${1:-}" answer="" json=false arg meta state
+  local dispatch_id="${1:-}" answer="" json=false arg meta state idle status
   [ -n "$dispatch_id" ] || { devkit_error "Usage: devkit orchestrate reply <dispatch-id> --text <answer> [--json]"; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
@@ -878,13 +890,17 @@ devkit_dispatch_reply() {
   meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
   state="$(printf '%s' "$meta" | jq -r '.state // empty')"
   [ "$state" = waiting_for_reply ] || { devkit_error "dispatch $dispatch_id is not waiting_for_reply (state: $state)"; return 1; }
-  devkit_dispatch_native_send "$meta" "$answer" || { devkit_error "could not deliver reply to dispatch $dispatch_id"; return 1; }
   devkit_dispatch_message_append "$dispatch_id" parent reply "$answer" "$DEVKIT_SESSION_ID" >/dev/null || return 1
+  idle="$(devkit_dispatch_child_is_idle "$meta" 2>/dev/null || printf 'unknown\n')"
+  status=queued
+  if [ "$idle" = true ] && devkit_dispatch_native_send "$meta" "$answer"; then
+    status=replied
+  fi
   devkit_dispatch_meta_update_state "$dispatch_id" running || return 1
   if [ "$json" = true ]; then
-    jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "replied"}'
+    jq -n --arg dispatchId "$dispatch_id" --arg status "$status" '{dispatchId: $dispatchId, status: $status}'
   else
-    printf 'replied: %s\n' "$dispatch_id"
+    printf '%s: %s\n' "$status" "$dispatch_id"
   fi
 }
 
