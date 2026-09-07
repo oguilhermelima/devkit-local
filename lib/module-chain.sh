@@ -364,7 +364,7 @@ command_chain_delete() {
 devkit_chain_limits_update_providers() {
   local config="$1" action="$2" providers="$3" provider result
   result="$config"
-  while IFS= read -r provider; do
+  for provider in $(printf '%s' "$providers" | tr ',' ' '); do
     [ -n "$provider" ] || continue
     devkit_chain_agent_known "$provider" || { devkit_error "unknown provider: $provider"; return 1; }
     if [ "$action" = enable ]; then
@@ -376,7 +376,7 @@ devkit_chain_limits_update_providers() {
         .usageLimits = ((.usageLimits // {}) + {liveProviders: ((.usageLimits.liveProviders // []) - [$provider]), cacheTtlSeconds: (.usageLimits.cacheTtlSeconds // 30), timeoutSeconds: (.usageLimits.timeoutSeconds // 5), notice: (.usageLimits.notice // {enabled: false, intervalSeconds: 3600})})
       ')"
     fi
-  done < <(printf '%s' "$providers" | tr ',' '\n')
+  done
   printf '%s' "$result"
 }
 
@@ -402,17 +402,20 @@ devkit_chain_limits_print_rows() {
 }
 
 command_chain_limits() {
-  local json=false enable="" disable="" arg config result agent window rows line tmp_file first_reason
+  local json=false enable="" disable="" notice_on=false notice_off=false notice_interval="" arg config result agent window rows line tmp_file first_reason
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) json=true ;;
       --enable) enable="${2:-}"; shift 2 ;;
       --disable) disable="${2:-}"; shift 2 ;;
-      -h|--help) printf 'Usage: devkit chain limits [--json] [--enable <providers>] [--disable <providers>]\n'; return 0 ;;
+      --notice-on) notice_on=true ;;
+      --notice-off) notice_off=true ;;
+      --notice-interval) notice_interval="${2:-}"; shift 2 ;;
+      -h|--help) printf 'Usage: devkit chain limits [--json] [--enable <providers>] [--disable <providers>] [--notice-on|--notice-off] [--notice-interval <seconds>]\n'; return 0 ;;
       *) devkit_error "unknown chain limits option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
-    [ "$arg" = --enable ] || [ "$arg" = --disable ] || shift
+    [ "$arg" = --enable ] || [ "$arg" = --disable ] || [ "$arg" = --notice-interval ] || shift
   done
   config="$(devkit_chain_read)" || return 1
   devkit_chain_validate_config "$config" || return 1
@@ -422,6 +425,15 @@ command_chain_limits() {
   fi
   if [ -n "$disable" ]; then
     result="$(devkit_chain_limits_update_providers "$result" disable "$disable")" || return 1
+  fi
+  if [ "$notice_on" = true ] || [ "$notice_off" = true ] || [ -n "$notice_interval" ]; then
+    if [ "$notice_on" = true ] && [ "$notice_off" = true ]; then
+      devkit_error 'cannot enable and disable the usage notice together'
+      return "$DEVKIT_USAGE_ERROR"
+    fi
+    result="$(printf '%s' "$result" | jq --argjson turnOn "$( [ "$notice_on" = true ] && printf true || printf false )" --argjson turnOff "$( [ "$notice_off" = true ] && printf true || printf false )" --arg interval "$notice_interval" '
+      .usageLimits = ((.usageLimits // {}) + {liveProviders: (.usageLimits.liveProviders // []), cacheTtlSeconds: (.usageLimits.cacheTtlSeconds // 30), timeoutSeconds: (.usageLimits.timeoutSeconds // 5), notice: {enabled: (if $turnOn then true elif $turnOff then false else (.usageLimits.notice.enabled // false) end), intervalSeconds: (if $interval == "" then (.usageLimits.notice.intervalSeconds // 3600) else ($interval | tonumber) end)}})
+    ')" || return 1
   fi
   if [ "$result" != "$config" ]; then
     devkit_chain_validate_config "$result" || return 1
@@ -559,6 +571,70 @@ devkit_chain_limit_cache_write() {
     return 1
   fi
   mv -f "$tmp" "$path"
+}
+
+devkit_chain_usage_notice_config() {
+  local config
+  config="$(devkit_chain_limit_config)" || return 1
+  printf '%s' "$config" | jq -c '.usageLimits.notice // {enabled: false, intervalSeconds: 3600}'
+}
+
+devkit_chain_usage_notice_report() {
+  local agent result summary report="Usage limits:"
+  for agent in codex claude agy; do
+    devkit_chain_limit_read "$agent" 5h
+    result="$DEVKIT_CHAIN_LIMIT_RESULT"
+    if [ -n "$result" ]; then
+      summary="$(printf '%s' "$result" | jq -r '[.windows[] | ((.bucket // "default") + " " + .name + " " + (.usedPercent | tostring) + "% used, resets " + .resetsAt)] | join("; ")')"
+    else
+      summary="unknown (${DEVKIT_CHAIN_LIMIT_REASON#* window unknown (}"
+      summary="${summary%)}"
+    fi
+    report="$report $agent $summary;"
+  done
+  printf '%s\n' "$report"
+}
+
+devkit_chain_usage_notice_state_path() {
+  printf '%s/usage-limit-notice.json\n' "$DEVKIT_STATE_DIR"
+}
+
+devkit_chain_usage_notice_due() {
+  local notice="$1" path now sent_at interval
+  printf '%s' "$notice" | jq -e '.enabled == true' >/dev/null 2>&1 || return 1
+  interval="$(printf '%s' "$notice" | jq -r '.intervalSeconds // 3600')"
+  path="$(devkit_chain_usage_notice_state_path)"
+  sent_at=0
+  if [ -f "$path" ]; then
+    sent_at="$(jq -r '.sentAt // 0' "$path" 2>/dev/null || printf '0')"
+  fi
+  now="$(date +%s)"
+  case "$sent_at:$interval" in
+    ''|*[!0-9:]*) return 1 ;;
+  esac
+  [ "$sent_at" -gt "$now" ] || [ $((now - sent_at)) -ge "$interval" ]
+}
+
+devkit_chain_usage_notice_mark() {
+  local path tmp now
+  mkdir -p "$DEVKIT_STATE_DIR" || return 1
+  path="$(devkit_chain_usage_notice_state_path)"
+  tmp="$(mktemp "$DEVKIT_STATE_DIR/usage-limit-notice.XXXXXX")" || return 1
+  now="$(date +%s)"
+  jq -n --argjson sentAt "$now" '{sentAt: $sentAt}' >"$tmp" || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$path"
+}
+
+devkit_chain_usage_notice_maybe() {
+  local dispatch_id="$1" notice meta report
+  notice="$(devkit_chain_usage_notice_config)" || return 0
+  devkit_chain_usage_notice_due "$notice" || return 0
+  report="$(devkit_chain_usage_notice_report)" || return 0
+  meta="$(devkit_dispatch_meta_read "$dispatch_id" 2>/dev/null || true)"
+  [ -n "$meta" ] || return 0
+  devkit_dispatch_message_append "$dispatch_id" devkit usage "$report" "${DEVKIT_SESSION_ID:-devkit}" >/dev/null 2>&1 || return 0
+  devkit_parent_notify_dispatch "$meta" >/dev/null 2>&1 || true
+  devkit_chain_usage_notice_mark >/dev/null 2>&1 || true
 }
 
 devkit_chain_limit_apply() {
@@ -962,7 +1038,7 @@ devkit_chain_clear_dispatch_context() {
 command_chain_run() {
   local explicit_name="" parent_agent="${SUPERSET_AGENT_ID:-}" parent_model="${SUPERSET_AGENT_MODEL:-}" parent_effort="${SUPERSET_AGENT_EFFORT:-}"
   local repo="" branch="" base="" slug="" worktree="" prompt="" label="" tmux_choice="" json=false arg config step_count index step agent model effort until_json threshold window
-  local spawn_output spawn_json spawn_error error_file reason limit_reason reset_text failure_reason final_reason report_chain reasons_json spawn_succeeded
+  local spawn_output spawn_json spawn_error error_file reason limit_reason reset_text failure_reason final_reason report_chain reasons_json spawn_succeeded dispatch_id
   local -a agent_args=()
   if [ "$#" -gt 0 ] && [ "${1#--}" = "$1" ]; then
     explicit_name="$1"
@@ -1056,6 +1132,10 @@ command_chain_run() {
         spawn_json="$spawn_output"
       else
         spawn_json=null
+      fi
+      dispatch_id="$(printf '%s' "$spawn_json" | jq -r '.dispatch // empty' 2>/dev/null)"
+      if [ -n "$dispatch_id" ]; then
+        devkit_chain_usage_notice_maybe "$dispatch_id"
       fi
       if [ "$json" = true ]; then
         jq -cn --arg chain "$report_chain" --argjson step "$index" --argjson total "$step_count" --arg reason "$final_reason" --argjson skipped "$reasons_json" --arg agent "$agent" --argjson spawn "$spawn_json" '{ok: true, chain: $chain, step: $step, totalSteps: $total, agent: $agent, reason: $reason, skipped: $skipped, dispatch: $spawn}'
