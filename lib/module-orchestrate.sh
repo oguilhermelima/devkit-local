@@ -663,6 +663,24 @@ devkit_dispatch_native_send() {
   esac
 }
 
+devkit_dispatch_close_refuse_caller() {
+  local meta="$1" runtime target_session target_pane caller_session
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  [ "$runtime" = tmux ] || return 0
+  [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] || return 0
+  target_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
+  target_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
+  caller_session="$(devkit_dispatch_tmux_caller_session || true)"
+  if [ "$target_pane" = "$TMUX_PANE" ] && {
+    [ -z "$caller_session" ] || [ "$target_session" = "$caller_session" ]
+  }; then
+    # Caller protection is unconditional so --force-release cannot kill the requesting process.
+    devkit_error "refusing to close dispatch $(printf '%s' "$meta" | jq -r '.dispatchId'): target tmux pane $target_pane is the calling pane"
+    return 1
+  fi
+  return 0
+}
+
 devkit_dispatch_native_close() {
   local meta="$1" host workspace_id terminal_id runtime tmux_session tmux_pane pane_count close_rc=0
   DEVKIT_DISPATCH_CLOSE_LAST_PANE=false
@@ -1039,6 +1057,7 @@ devkit_dispatch_close() {
     esac
   done
   meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
+  devkit_dispatch_close_refuse_caller "$meta" || return 1
   terminal_state="$(printf '%s' "$meta" | jq -r '.terminalState // "owned"')"
   if [ "$terminal_state" = retained ] && [ "$force_release" != true ]; then
     devkit_error "dispatch $dispatch_id terminal is retained because identity is unproven; refusing release; verify it manually or rerun with --force-release"
