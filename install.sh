@@ -23,6 +23,9 @@ SUMMARY_LINES=()
 INSTALLER_MENU_OPTIONS=()
 INSTALLER_MENU_SELECTED=()
 INSTALLER_MENU_RESULT=""
+INSTALLER_INPUT_SOURCE=""
+INSTALLER_TERMINAL_OUTPUT=""
+INSTALLER_INTERACTIVE=false
 
 installer_error() {
   printf 'install.sh: %s\n' "$*" >&2
@@ -103,6 +106,23 @@ installer_list_contains() {
   return 1
 }
 
+installer_resolve_input_source() {
+  # Under curl | bash, stdin contains the script rather than the user's input.
+  if [ -t 0 ]; then
+    INSTALLER_INPUT_SOURCE=/dev/stdin
+    INSTALLER_INTERACTIVE=true
+    if [ -r /dev/tty ] && { : </dev/tty; } 2>/dev/null; then
+      INSTALLER_TERMINAL_OUTPUT=/dev/tty
+    else
+      INSTALLER_TERMINAL_OUTPUT=/dev/stdout
+    fi
+  elif [ -r /dev/tty ] && { : </dev/tty; } 2>/dev/null; then
+    INSTALLER_INPUT_SOURCE=/dev/tty
+    INSTALLER_TERMINAL_OUTPUT=/dev/tty
+    INSTALLER_INTERACTIVE=true
+  fi
+}
+
 installer_menu() {
   local mode="$1" header="$2" initial="$3" key rest index num
   shift 3
@@ -121,7 +141,7 @@ installer_menu() {
     INSTALLER_MENU_SELECTED+=("$value")
   done
   while true; do
-    printf '\033[2J\033[H'
+    printf '\033[2J\033[H' >"$INSTALLER_TERMINAL_OUTPUT"
     printf '%s\n\n' "$header"
     if [ "$mode" = multi ]; then
       printf 'Use ↑/↓ or numbers to move, Space to toggle, Enter to confirm.\n\n'
@@ -149,12 +169,12 @@ installer_menu() {
       index=$((index + 1))
     done
     printf '\n'
-    if ! read -r -s -n 1 key; then
+    if ! read -r -s -n 1 key <"$INSTALLER_INPUT_SOURCE"; then
       return 1
     fi
     if [ "$key" = $'\033' ]; then
       rest=''
-      read -r -s -n 2 -t 0.1 rest || true
+      read -r -s -n 2 -t 1 rest <"$INSTALLER_INPUT_SOURCE" || true
       key="$key$rest"
     fi
     case "$key" in
@@ -219,7 +239,7 @@ installer_select_agents() {
       installer_error "no supported agent CLI (claude, codex, or agy) is installed; pass --agents none or install one"
       return 1
     fi
-    if [ ! -t 0 ]; then
+    if [ "$INSTALLER_INTERACTIVE" = false ]; then
       installer_error "agent selection requires --agents in a non-interactive shell"
       return 1
     fi
@@ -338,7 +358,7 @@ installer_prepare_existing_install() {
     installer_summary "installation already current"
     return 0
   fi
-  if [ ! -t 0 ]; then
+  if [ "$INSTALLER_INTERACTIVE" = false ]; then
     installer_summary "existing installation reconfigured (updated)"
     INSTALL_ACTION=reconfigure
     return 0
@@ -418,7 +438,7 @@ installer_write_manifest() {
 
 installer_prompt_mode() {
   local label="$1"
-  [ -t 0 ] || { installer_error "$label requires --skill or --agents-md in a non-interactive shell"; return 1; }
+  [ "$INSTALLER_INTERACTIVE" = true ] || { installer_error "$label requires --skill or --agents-md in a non-interactive shell"; return 1; }
   installer_menu single "$label" '' none global project || return $?
   PROMPT_MODE="$INSTALLER_MENU_RESULT"
 }
@@ -428,7 +448,7 @@ installer_select_modules() {
   local -a modules=(orchestration orchestration-hooks worktree simulator-web simulator-native simulator-tv tv-adb)
   SELECTED_MODULES=""
   if [ -z "$raw" ]; then
-    [ -t 0 ] || return 0
+    [ "$INSTALLER_INTERACTIVE" = true ] || return 0
     installer_menu multi 'Select devkit modules to install' '' "${modules[@]}" || return $?
     raw="$INSTALLER_MENU_RESULT"
   fi
@@ -457,8 +477,8 @@ installer_warn_path() {
   printf 'Warning: %s is not on PATH. Add it with:\n' "$bin_dir" >&2
   printf 'export PATH="%s:$PATH"\n' "$bin_dir" >&2
   installer_summary "PATH needs-your-action: add $bin_dir"
-  if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
-    read -r -p 'Press Enter to continue: ' _ || true
+  if [ "$ASSUME_YES" = false ] && [ "$INSTALLER_INTERACTIVE" = true ]; then
+    read -r -p 'Press Enter to continue: ' _ <"$INSTALLER_INPUT_SOURCE" || true
   fi
 }
 
@@ -573,7 +593,7 @@ installer_reconcile_marketplace() {
   fi
   printf 'Existing %s marketplace: %s\n' "$agent" "$existing"
   printf 'Installer marketplace: %s\n' "$SOURCE_ROOT"
-  if [ -t 0 ]; then
+  if [ "$INSTALLER_INTERACTIVE" = true ]; then
     installer_menu single "The $agent marketplace name already points elsewhere" '' keep replace || return $?
     choice="$INSTALLER_MENU_RESULT"
   else
@@ -581,7 +601,7 @@ installer_reconcile_marketplace() {
     installer_summary "$agent marketplace needs-your-action; kept existing path $existing"
   fi
   if [ "$choice" = keep ]; then
-    [ -t 0 ] && installer_summary "$agent marketplace already-current; kept existing path $existing"
+    [ "$INSTALLER_INTERACTIVE" = true ] && installer_summary "$agent marketplace already-current; kept existing path $existing"
     return 0
   fi
   case "$agent" in
@@ -715,6 +735,7 @@ installer_install_agents() {
 
 installer_main() {
   installer_parse_args "$@" || return $?
+  installer_resolve_input_source
   installer_source_root || return 1
   [ -x "$SOURCE_ROOT/devkit" ] && [ -d "$SOURCE_ROOT/lib" ] || { installer_error "devkit checkout is incomplete: $SOURCE_ROOT"; return 1; }
   [ -f "$SOURCE_ROOT/skills/devkit/SKILL.md" ] || { installer_error "devkit skill is missing from $SOURCE_ROOT"; return 1; }
