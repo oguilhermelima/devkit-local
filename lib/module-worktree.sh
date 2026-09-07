@@ -487,6 +487,7 @@ ${prompt}"
     fi
     devkit_dispatch_meta_update_state "$dispatch_id" running || {
       devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+      devkit_spawn_mark_prompt_failed "$dispatch_id" state-persist-failed
       devkit_error "could not persist tmux dispatch state: $dispatch_id"
       return 1
     }
