@@ -113,6 +113,23 @@ devkit_tmux_registry_main_pane_for_session() {
   return 1
 }
 
+devkit_tmux_registry_agent_for_session() {
+  local session="$1" record_path record agent role
+  devkit_tmux_session_exists "$session" || return 1
+  devkit_tmux_session_registry_prune
+  for record_path in "$DEVKIT_TMUX_SESSION_DIR"/*.json; do
+    [ -f "$record_path" ] || continue
+    record="$(cat "$record_path" 2>/dev/null || true)"
+    role="$(printf '%s' "$record" | jq -r '.role // empty' 2>/dev/null || true)"
+    [ "$role" = main ] || continue
+    agent="$(printf '%s' "$record" | jq -r --arg session "$session" 'select(.tmuxSession == $session) | .agent // empty' 2>/dev/null || true)"
+    [ -n "$agent" ] || continue
+    printf '%s\n' "$agent"
+    return 0
+  done
+  return 1
+}
+
 devkit_tmux_existing_session_for_worktree() {
   local worktree_path="$1" meta_path meta session state
   DEVKIT_TMUX_EXISTING_SESSION=""

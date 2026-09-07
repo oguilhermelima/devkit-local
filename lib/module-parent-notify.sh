@@ -48,6 +48,17 @@ devkit_parent_notify_pointer() {
   printf '[devkit] mail available for dispatch %s; run devkit orchestrate watch %s\n' "$dispatch_id" "$dispatch_id"
 }
 
+devkit_parent_notify_queues_input() {
+  local meta="$1" runtime session agent
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  [ "$runtime" = tmux ] || { printf 'false\n'; return 0; }
+  session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
+  [ -n "$session" ] || { printf 'false\n'; return 0; }
+  declare -F devkit_tmux_registry_agent_for_session >/dev/null 2>&1 || { printf 'false\n'; return 0; }
+  agent="$(devkit_tmux_registry_agent_for_session "$session" 2>/dev/null || true)"
+  [ "$agent" = claude ] && printf 'true\n' || printf 'false\n'
+}
+
 devkit_parent_notify_wake_path() {
   printf '%s/nudge.log\n' "$(devkit_dispatch_dir "$1")"
 }
@@ -186,22 +197,25 @@ devkit_parent_notify() {
 }
 
 devkit_parent_notify_dispatch() {
-  local meta="$1" dispatch_id idle pointer
+  local meta="$1" dispatch_id idle pointer queueing
   DEVKIT_PARENT_NOTIFY_RESULT=skipped
   dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty')"
   [ -n "$dispatch_id" ] || { DEVKIT_PARENT_NOTIFY_RESULT=failed; return 1; }
   pointer="$(devkit_parent_notify_pointer "$dispatch_id")"
-  devkit_parent_notify_wake "$dispatch_id" "$pointer" >/dev/null 2>&1 || true
   if devkit_parent_notify_waiter_active "$dispatch_id"; then
     DEVKIT_PARENT_NOTIFY_RESULT=suppressed
     return 0
   fi
-  idle="$(devkit_parent_is_idle "$meta")"
-  case "$idle" in
-    true) ;;
-    false) DEVKIT_PARENT_NOTIFY_RESULT=busy; return 0 ;;
-    *) DEVKIT_PARENT_NOTIFY_RESULT=unknown; return 0 ;;
-  esac
+  queueing="$(devkit_parent_notify_queues_input "$meta")"
+  # Claude Code's TUI queues input while busy.
+  if [ "$queueing" != true ]; then
+    idle="$(devkit_parent_is_idle "$meta")"
+    case "$idle" in
+      true) ;;
+      false) DEVKIT_PARENT_NOTIFY_RESULT=busy; return 0 ;;
+      *) DEVKIT_PARENT_NOTIFY_RESULT=unknown; return 0 ;;
+    esac
+  fi
   if devkit_parent_notify_waiter_active "$dispatch_id"; then
     DEVKIT_PARENT_NOTIFY_RESULT=suppressed
     return 0
