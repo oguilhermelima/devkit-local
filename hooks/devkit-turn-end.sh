@@ -26,6 +26,13 @@ case "$DEVKIT_HOOK_STATE" in
   waiting_for_reply|done|stalled|closed|orphaned) devkit_hook_finish ;;
 esac
 
+devkit_dispatch_terminal_status "$DEVKIT_HOOK_META"
+case "${DEVKIT_TERMINAL_STATUS:-unknown}" in
+  proven) devkit_hook_finish ;;
+  missing) ;;
+  *) devkit_dispatch_has_recent_child_activity "$DEVKIT_HOOK_DISPATCH" && devkit_hook_finish ;;
+esac
+
 if [ -n "${1:-}" ]; then
   DEVKIT_HOOK_PAYLOAD="$1"
 else

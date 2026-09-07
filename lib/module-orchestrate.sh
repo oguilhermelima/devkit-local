@@ -9,6 +9,7 @@ DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS="${DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS:-
 DEVKIT_PROMPT_BUDGET_ARGV_BYTES=262144
 DEVKIT_PROMPT_BUDGET_TMUX_BYTES=12000
 DEVKIT_DISPATCH_CLOSE_OUTCOME=unknown
+DEVKIT_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS=60
 
 if ! declare -F devkit_dispatch_preamble >/dev/null 2>&1; then
   # shellcheck source=local/devkit/lib/module-facts.sh
@@ -321,6 +322,21 @@ devkit_dispatch_meta_normalize() {
   else
     mv -f "$tmp" "$path"
   fi
+}
+
+devkit_dispatch_has_recent_child_activity() {
+  local dispatch_id="$1" messages_dir path modified latest=0 now
+  messages_dir="$(devkit_dispatch_messages_dir "$dispatch_id")" || return 1
+  for path in "$messages_dir"/*.json; do
+    [ -f "$path" ] || continue
+    jq -e '.from == "child" and (.type == "received" or .type == "ask" or .type == "done")' "$path" >/dev/null 2>&1 || continue
+    modified="$(stat -f '%m' "$path" 2>/dev/null || stat -c '%Y' "$path" 2>/dev/null || true)"
+    [[ "$modified" =~ ^[0-9]+$ ]] || continue
+    [ "$modified" -gt "$latest" ] && latest="$modified"
+  done
+  [ "$latest" -gt 0 ] || return 1
+  now="$(date +%s)"
+  [ $((now - latest)) -le "$DEVKIT_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS" ]
 }
 
 devkit_dispatch_reconcile_one() {
