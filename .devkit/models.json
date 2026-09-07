@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "models": [
+    {"agent": "agy", "model": "gemini-3.8-flash-high", "reasoning": {"separateAxis": false, "levels": ["high"]}, "provenance": {"kind": "live", "command": "agy models", "obtainedAt": "2026-09-07T21:06:31Z"}},
+    {"agent": "agy", "model": "gemini-3.8-flash-medium", "reasoning": {"separateAxis": false, "levels": ["medium"]}, "provenance": {"kind": "live", "command": "agy models", "obtainedAt": "2026-09-07T21:06:31Z"}},
+    {"agent": "agy", "model": "gemini-3.8-flash-low", "reasoning": {"separateAxis": false, "levels": ["low"]}, "provenance": {"kind": "live", "command": "agy models", "obtainedAt": "2026-09-07T21:06:31Z"}},
+    {"agent": "agy", "model": "gemini-3.7-flash-high", "reasoning": {"separateAxis": false, "levels": ["high"]}, "provenance": {"kind": "live", "command": "agy models", "obtainedAt": "2026-09-07T21:06:31Z"}},
+    {"agent": "agy", "model": "gemini-3.7-flash-medium", "reasoning": {"separateAxis": false, "levels": ["medium"]}, "provenance": {"kind": "live", "command": "agy models", "obtainedAt": "2026-09-07T21:06:31Z"}},
+    {"agent": "agy", "model": "gemini-3.7-flash-low", "reasoning": {"separateAxis": false, "levels": ["low"]}, "provenance": {"kind": "live", "command": "agy models", "obtainedAt": "2026-09-07T21:06:31Z"}},
+    {"agent": "agy", "model": "gemini-3.6-flash-high", "reasoning": {"separateAxis": false, "levels": ["high"]}, "provenance": {"kind": "live", "command": "agy models", "obtainedAt": "2026-09-07T21:06:31Z"}},
+    {"agent": "agy", "model": "gemini-3.6-flash-medium", "reasoning": {"separateAxis": false, "levels": ["medium"]}, "provenance": {"kind": "live", "command": "agy models", "obtainedAt": "2026-09-07T21:06:31Z"}},
+    {"agent": "agy", "model": "gemini-3.6-flash-low", "reasoning": {"separateAxis": false, "levels": ["low"]}, "provenance": {"kind": "live", "command": "agy models", "obtainedAt": "2026-09-07T21:06:31Z"}},
+    {"agent": "agy", "model": "gemini-3.1-pro-high", "reasoning": {"separateAxis": false, "levels": ["high"]}, "provenance": {"kind": "live", "command": "agy models", "obtainedAt": "2026-09-07T21:06:31Z"}},
+    {"agent": "agy", "model": "gemini-3.1-pro-low", "reasoning": {"separateAxis": false, "levels": ["low"]}, "provenance": {"kind": "live", "command": "agy models", "obtainedAt": "2026-09-07T21:06:31Z"}},
+    {"agent": "agy", "model": "claude-sonnet-4-6", "reasoning": {"separateAxis": false, "levels": ["none"]}, "provenance": {"kind": "live", "command": "agy models", "obtainedAt": "2026-09-07T21:06:31Z"}},
+    {"agent": "agy", "model": "claude-opus-4-6-thinking", "reasoning": {"separateAxis": false, "levels": ["none"]}, "provenance": {"kind": "live", "command": "agy models", "obtainedAt": "2026-09-07T21:06:31Z"}},
+    {"agent": "agy", "model": "gpt-oss-120b-medium", "reasoning": {"separateAxis": false, "levels": ["medium"]}, "provenance": {"kind": "live", "command": "agy models", "obtainedAt": "2026-09-07T21:06:31Z"}},
+    {"agent": "codex", "model": "gpt-5.6-luna", "reasoning": {"separateAxis": true, "levels": ["low", "medium", "high", "xhigh"]}, "provenance": {"kind": "curated", "method": "manual curation", "obtainedAt": "2026-09-07T19:27:29Z"}},
+    {"agent": "codex", "model": "gpt-5.6-sol", "reasoning": {"separateAxis": true, "levels": ["low", "medium", "high", "xhigh"]}, "provenance": {"kind": "curated", "method": "manual curation", "obtainedAt": "2026-09-07T19:27:29Z"}},
+    {"agent": "claude", "model": "claude-sonnet-5", "reasoning": {"separateAxis": true, "levels": ["low", "medium", "high"]}, "provenance": {"kind": "curated", "method": "manual curation", "obtainedAt": "2026-09-07T19:27:29Z"}},
+    {"agent": "claude", "model": "claude-sonnet-4-6", "reasoning": {"separateAxis": true, "levels": ["low", "medium", "high"]}, "provenance": {"kind": "curated", "method": "manual curation", "obtainedAt": "2026-09-07T19:27:29Z"}},
+    {"agent": "claude", "model": "claude-opus-5", "reasoning": {"separateAxis": true, "levels": ["low", "medium", "high"]}, "provenance": {"kind": "curated", "method": "manual curation", "obtainedAt": "2026-09-07T19:27:29Z"}},
+    {"agent": "claude", "model": "claude-fable-5", "reasoning": {"separateAxis": true, "levels": ["low", "medium", "high"]}, "provenance": {"kind": "curated", "method": "manual curation", "obtainedAt": "2026-09-07T19:27:29Z"}}
+  ]
+}
