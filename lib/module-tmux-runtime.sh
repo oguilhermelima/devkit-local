@@ -232,38 +232,6 @@ devkit_tmux_capture_pane() {
   tmux capture-pane -p -t "$pane" -S "$start"
 }
 
-devkit_tmux_capture_input() {
-  local pane="$1" cursor_y
-  cursor_y="$(tmux display-message -p -t "$pane" '#{cursor_y}' 2>/dev/null || true)"
-  if [[ "$cursor_y" =~ ^[0-9]+$ ]]; then
-    tmux capture-pane -p -J -t "$pane" -S "$cursor_y" -E "$cursor_y"
-  else
-    devkit_tmux_capture_pane "$pane" -20
-  fi
-}
-
-devkit_tmux_delivery_marker() {
-  local text="$1" normalized
-  normalized="$(printf '%s' "$text" | tr '\n' ' ' | tr -s '[:space:]' ' ')"
-  normalized="${normalized# }"
-  normalized="${normalized% }"
-  [ -n "$normalized" ] || return 1
-  if [ "${#normalized}" -gt 32 ]; then
-    printf '%s\n' "${normalized: -32}"
-  else
-    printf '%s\n' "$normalized"
-  fi
-}
-
-devkit_tmux_input_contains_marker() {
-  local input="$1" marker="$2" normalized
-  normalized="$(printf '%s' "$input" | tr '\n' ' ' | tr -s '[:space:]' ' ')"
-  case "$normalized" in
-    *"$marker"*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 devkit_tmux_agent_output_clean() {
   local pane="$1" output
   output="$(devkit_tmux_capture_pane "$pane" -200 2>/dev/null || true)"
@@ -273,22 +241,9 @@ devkit_tmux_agent_output_clean() {
 }
 
 devkit_tmux_send_text() {
-  local pane="$1" text="$2" attempt typed after marker
-  marker="$(devkit_tmux_delivery_marker "$text")" || return 1
+  local pane="$1" text="$2"
   tmux send-keys -t "$pane" -l "$text" || return 1
-  typed="$(devkit_tmux_capture_input "$pane" 2>/dev/null || true)"
-  devkit_tmux_input_contains_marker "$typed" "$marker" || {
-    devkit_error "tmux did not render input in the composer for pane $pane"
-    return 1
-  }
-  for ((attempt = 1; attempt <= DEVKIT_TMUX_ENTER_RETRIES; attempt++)); do
-    tmux send-keys -t "$pane" Enter || return 1
-    sleep "$DEVKIT_TMUX_ENTER_WAIT"
-    after="$(devkit_tmux_capture_input "$pane" 2>/dev/null || true)"
-    devkit_tmux_input_contains_marker "$after" "$marker" || return 0
-  done
-  devkit_error "tmux did not consume input in pane $pane after $DEVKIT_TMUX_ENTER_RETRIES Enter attempts"
-  return 1
+  tmux send-keys -t "$pane" Enter
 }
 
 devkit_tmux_apply_config() {

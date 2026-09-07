@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 
-DEVKIT_SUPERSET_PROTOCOL="This is a managed devkit dispatch. If you need coordinator input, run devkit ask \"your question\" and stop until the coordinator replies. When the requested work is complete, run devkit done \"short outcome summary\". Do not print protocol markers and do not continue past an unanswered question."
+DEVKIT_DISPATCH_PROTOCOL="This is a managed devkit dispatch. Before starting work, run devkit received to confirm that you received this prompt. If you need coordinator input, run devkit ask \"your question\" and stop until the coordinator replies. When the requested work is complete, run devkit done \"short outcome summary\". Do not print protocol markers and do not continue past an unanswered question."
+DEVKIT_SUPERSET_PROTOCOL="$DEVKIT_DISPATCH_PROTOCOL"
 DEVKIT_LAST_DISPATCH=""
 DEVKIT_DISPATCH_CLOSE_LAST_PANE=false
 DEVKIT_DISPATCH_DELIVERY_BATCH_CAP="${DEVKIT_DISPATCH_DELIVERY_BATCH_CAP:-50}"
+DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS="${DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS:-30}"
 DEVKIT_PROMPT_BUDGET_ARGV_BYTES=262144
 DEVKIT_PROMPT_BUDGET_TMUX_BYTES=12000
 
@@ -516,6 +518,7 @@ devkit_dispatch_delivery_report() {
     done) status=done ;;
     stalled) status=stalled ;;
     reply) status=reply ;;
+    received) status=received ;;
     *) status=done ;;
   esac
   if [ "$json" = true ]; then
@@ -813,7 +816,7 @@ devkit_dispatch_mailbox_watch() {
       type="$(jq -r '.type // empty' "$path")"
       if [ "$mailbox" = parent ]; then
         [ "$from" = child ] || continue
-        case "$type" in ask|done|stalled) ;; *) continue ;; esac
+        case "$type" in ask|done|stalled|received) ;; *) continue ;; esac
       else
         [ "$from" = parent ] || continue
         [ "$type" = reply ] || continue
@@ -848,6 +851,15 @@ devkit_dispatch_mailbox_watch() {
 
 devkit_dispatch_watch() {
   devkit_dispatch_mailbox_watch parent "$@"
+}
+
+devkit_dispatch_wait_for_prompt_receipt() {
+  local dispatch_id="$1" result delivery_id message_type timeout="${DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS:-30}"
+  result="$(devkit_dispatch_watch "$dispatch_id" --timeout "$timeout" --poll-interval 1 --wait-mode poll --json)" || return 1
+  delivery_id="$(printf '%s' "$result" | jq -r '.deliveryId // empty')"
+  message_type="$(printf '%s' "$result" | jq -r '.messages[0].type // empty')"
+  [ -n "$delivery_id" ] && [ "$message_type" = received ] || return 1
+  devkit_dispatch_ack "$dispatch_id" "$delivery_id" --json >/dev/null
 }
 
 devkit_dispatch_child_check() {
@@ -1044,7 +1056,7 @@ devkit_dispatch_close() {
 devkit_dispatch_child_message() {
   local type="$1" text="$2" dispatch_id meta process_state
   case "$type" in
-    ask|done) ;;
+    received|ask|done) ;;
     *) devkit_error "unsupported child message type: $type"; return "$DEVKIT_USAGE_ERROR" ;;
   esac
   devkit_dispatch_find_child || return 1
@@ -1055,7 +1067,9 @@ devkit_dispatch_child_message() {
   case "$process_state" in
     starting|start-unproven) devkit_dispatch_meta_update_process_state "$dispatch_id" running || return 1 ;;
   esac
-  if [ "$type" = ask ]; then
+  if [ "$type" = received ]; then
+    :
+  elif [ "$type" = ask ]; then
     devkit_dispatch_meta_update_state "$dispatch_id" waiting_for_reply || return 1
     devkit_dispatch_meta_update_process_state "$dispatch_id" running || return 1
   else
@@ -1069,6 +1083,11 @@ devkit_dispatch_child_message() {
 command_ask() {
   [ "$#" -eq 1 ] && [ -n "$1" ] || { devkit_error 'Usage: devkit ask "question"'; return "$DEVKIT_USAGE_ERROR"; }
   devkit_dispatch_child_message ask "$1"
+}
+
+command_received() {
+  [ "$#" -eq 0 ] || { devkit_error 'Usage: devkit received'; return "$DEVKIT_USAGE_ERROR"; }
+  devkit_dispatch_child_message received 'prompt received'
 }
 
 command_done() {
