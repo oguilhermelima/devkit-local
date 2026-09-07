@@ -26,16 +26,16 @@ From a checkout, run:
 ```
 
 The installer links `devkit` into `$HOME/.local/bin`, detects the installed agent CLIs
-(`claude`, `codex`, and `agy`), and asks which ones to configure. Claude's global mode
-registers this checkout as the `devkit-local` marketplace and installs `devkit@devkit-local`;
-Claude's project mode keeps a project-local bare skill copy because Claude marketplace plugins
-are user-scoped. The AGENTS.md snippet is independent and can still be installed globally or in
-the current project.
+(`claude`, `codex`, and `agy`), and offers keyboard selectors for the agents and optional
+devkit modules to configure. Claude's global mode registers the install root as the
+`devkit-local` marketplace and installs `devkit@devkit-local`; Claude's project mode keeps a
+project-local bare skill copy because Claude marketplace plugins are user-scoped. The AGENTS.md
+snippet is independent and can still be installed globally or in the current project.
 
 Use flags for an unattended install:
 
 ```sh
-./install.sh --agents claude,codex,agy --skill global --agents-md global --yes
+./install.sh --agents claude,codex,agy --skill global --agents-md global --modules none --yes
 ```
 
 Pass `--agents none` to install only the CLI symlink and optional AGENTS.md snippet. The
@@ -45,12 +45,24 @@ marketplace manifest at `.claude-plugin/marketplace.json`; Codex uses the compan
 `.agents/plugins/marketplace.json` manifest, and both point to this repository as the local
 plugin source.
 
-The same installer can be run directly from the repository with curl; it clones the repository
-to `$HOME/.devkit-local` before continuing:
+The same installer can be run directly from the repository with curl; it downloads the GitHub
+source tarball, strips its top-level directory, and installs it at `$HOME/.devkit-local` without
+requiring Git:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/oguilhermelima/devkit-local/main/install.sh | bash
 ```
+
+The installer records its version, source ref, install date, selected agents, and selected
+modules in `$HOME/.devkit-local/install-manifest.json`. On a later run it shows the existing
+installation and offers update, reconfigure, or abort. Existing Claude and Codex marketplaces
+are compared by path; a different path is kept unless the user explicitly chooses replace.
+Already-installed plugins are treated as successful and already-current.
+
+For unattended installs, use `--agents`, `--skill`, `--agents-md`, and `--modules` explicitly.
+A non-interactive invocation without the required choices exits with an explanatory error rather
+than waiting for input. Interactive selectors support arrows, number keys, Space for multi-select,
+and Enter to confirm.
 
 ## Commands
 
@@ -69,7 +81,8 @@ The available modules are:
 
 - `orchestration` checks that `orca status --json` and `superset workspaces list --json` work.
 - `orchestration-hooks` installs and checks the turn-end safety hook for each installed Claude,
-  Codex, agy, and Cursor CLI, preserving the other hooks in their configuration files.
+  Codex, agy, and Cursor CLI, preserving the other hooks in their configuration files and
+  replacing stale devkit entries by script identity.
 - `worktree` checks Orca, Superset.sh, and the configured Superset `worktreeBaseDir`.
 - `simulator-web` checks that `npx -y @playwright/mcp@latest --version` runs and that the
   Playwright MCP server is registered with installed Claude Code, Codex, and agy CLIs.
@@ -142,8 +155,14 @@ devkit reports this known preset limitation clearly and does not create a dispat
 The `orchestration-hooks` module is a safety net for silent child death: when an installed agent
 turn ends without `devkit ask` or `devkit done`, its final text is recorded as a stalled dispatch
 message. Installation edits hook configuration files also managed by Orca and Superset, while
-preserving their existing entries; run `devkit doctor orchestration-hooks` because those apps may
-rewrite the files during updates and drop the devkit entry.
+preserving their existing entries and replacing stale devkit entries by script identity. Run
+`devkit doctor orchestration-hooks` because those apps may rewrite the files during updates and
+drop the devkit entry.
+
+When the Codex hook is installed or present, Codex requires a one-time trust action after a path
+change. Open a plain terminal, run `codex`, and choose `Trust all and continue`. Opening Codex
+through Superset does not complete this action because Superset passes
+`--dangerously-bypass-hook-trust`; the same reminder is printed by `devkit doctor`.
 
 `devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>]`
 polls the file channel for the next child message and returns `waiting_for_reply`, `done`, `stalled`,
