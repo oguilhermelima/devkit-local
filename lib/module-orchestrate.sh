@@ -506,6 +506,7 @@ devkit_dispatch_delivery_report() {
     ask) status=waiting_for_reply ;;
     done) status=done ;;
     stalled) status=stalled ;;
+    reply) status=reply ;;
     *) status=done ;;
   esac
   if [ "$json" = true ]; then
@@ -526,6 +527,17 @@ devkit_dispatch_empty_delivery_report() {
       '{dispatchId: $dispatchId, deliveryId: null, replayed: false, status: "timeout", messageSeqs: [], messages: [], text: ""}'
   else
     devkit_dispatch_report "$dispatch_id" timeout "" false
+  fi
+}
+
+devkit_dispatch_child_consumer() {
+  local session
+  if [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
+    session="$(devkit_dispatch_tmux_caller_session || true)"
+    [ -n "$session" ] || return 1
+    printf 'child/%s/%s/%s\n' "$DEVKIT_SESSION_HOST" "$session" "$TMUX_PANE"
+  else
+    printf 'child/%s/%s\n' "$DEVKIT_SESSION_HOST" "$DEVKIT_SESSION_ID"
   fi
 }
 
@@ -707,12 +719,19 @@ devkit_dispatch_report() {
   fi
 }
 
-devkit_dispatch_watch() {
-  local dispatch_id="${1:-}" timeout=120 poll_interval=3 wait_mode=nudge json=false arg meta start_time now remaining
+devkit_dispatch_mailbox_watch() {
+  local mailbox="$1" dispatch_id timeout=120 poll_interval=3 wait_mode=nudge json=false arg meta start_time now remaining
   local consumer="${DEVKIT_CONSUMER_ID:-}" generation="${DEVKIT_CONSUMER_GENERATION:-1}"
   local messages_dir deliveries_dir lock path seq from type message_seqs delivery_id outstanding_path outstanding_consumer outstanding_generation
-  [ -n "$dispatch_id" ] || { devkit_error "Usage: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
   shift
+  if [ "$mailbox" = parent ]; then
+    dispatch_id="${1:-}"
+    [ -n "$dispatch_id" ] || { devkit_error "Usage: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
+    shift
+  else
+    devkit_dispatch_find_child || return 1
+    dispatch_id="$DEVKIT_FOUND_DISPATCH"
+  fi
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -723,7 +742,14 @@ devkit_dispatch_watch() {
       --consumer) consumer="${2:-}"; shift 2 ;;
       --generation) generation="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--json]\n'; return 0 ;;
+      -h|--help)
+        if [ "$mailbox" = parent ]; then
+          printf 'Usage: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--json]\n'
+        else
+          printf 'Usage: devkit check [--timeout <seconds>] [--poll-interval <seconds>] [--json]\n'
+        fi
+        return 0
+        ;;
       *) devkit_error "unknown orchestrate watch option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
@@ -732,13 +758,20 @@ devkit_dispatch_watch() {
   case "$wait_mode" in nudge|poll) ;; *) devkit_error "--wait-mode must be nudge or poll"; return "$DEVKIT_USAGE_ERROR" ;; esac
   [[ "$generation" =~ ^[1-9][0-9]*$ ]] || { devkit_error "--generation must be a positive number"; return "$DEVKIT_USAGE_ERROR"; }
   [[ "$DEVKIT_DISPATCH_DELIVERY_BATCH_CAP" =~ ^[1-9][0-9]*$ ]] || { devkit_error "delivery batch cap is invalid"; return 1; }
-  meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
-  [ -n "$consumer" ] || consumer="$DEVKIT_SESSION_HOST/$DEVKIT_SESSION_ID"
+  if [ "$mailbox" = parent ]; then
+    meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
+    [ -n "$consumer" ] || consumer="$DEVKIT_SESSION_HOST/$DEVKIT_SESSION_ID"
+  else
+    meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
+    [ -n "$consumer" ] || consumer="$(devkit_dispatch_child_consumer)" || return 1
+  fi
   [ -n "$consumer" ] || { devkit_error "consumer identity is empty"; return 1; }
   messages_dir="$(devkit_dispatch_messages_dir "$dispatch_id")"
   deliveries_dir="$(devkit_dispatch_deliveries_dir "$dispatch_id")"
   mkdir -p "$deliveries_dir" || return 1
-  devkit_parent_notify_waiter_register "$dispatch_id" "$meta" || return 1
+  if [ "$mailbox" = parent ]; then
+    devkit_parent_notify_waiter_register "$dispatch_id" "$meta" || return 1
+  fi
   lock="$messages_dir/.lock"
   start_time="$(date +%s)"
   while true; do
@@ -746,7 +779,8 @@ devkit_dispatch_watch() {
     outstanding_path=""
     for path in "$deliveries_dir"/*.json; do
       [ -f "$path" ] || continue
-      if [ "$(jq -r '.status // empty' "$path" 2>/dev/null || true)" = outstanding ]; then
+      if [ "$(jq -r '.status // empty' "$path" 2>/dev/null || true)" = outstanding ] &&
+        [ "$(jq -r '.consumer // empty' "$path" 2>/dev/null || true)" = "$consumer" ]; then
         outstanding_path="$path"
         break
       fi
@@ -757,39 +791,44 @@ devkit_dispatch_watch() {
       delivery_id="$(jq -r '.id // empty' "$outstanding_path")"
       if [ "$outstanding_consumer" = "$consumer" ] && [ "$outstanding_generation" = "$generation" ]; then
         rmdir "$lock"
-        devkit_parent_notify_waiter_unregister "$dispatch_id"
+        [ "$mailbox" = parent ] && devkit_parent_notify_waiter_unregister "$dispatch_id"
         devkit_dispatch_delivery_report "$dispatch_id" "$delivery_id" true "$json"
         return $?
       fi
-      devkit_dispatch_delivery_fence "$outstanding_path" || { rmdir "$lock"; devkit_parent_notify_waiter_unregister "$dispatch_id"; return 1; }
+      devkit_dispatch_delivery_fence "$outstanding_path" || { rmdir "$lock"; [ "$mailbox" = parent ] && devkit_parent_notify_waiter_unregister "$dispatch_id"; return 1; }
     fi
     message_seqs='[]'
     while IFS=$'\t' read -r seq path; do
       [ -n "$path" ] || continue
       from="$(jq -r '.from // empty' "$path")"
       type="$(jq -r '.type // empty' "$path")"
-      [ "$from" = child ] || continue
-      case "$type" in ask|done|stalled) ;; *) continue ;; esac
+      if [ "$mailbox" = parent ]; then
+        [ "$from" = child ] || continue
+        case "$type" in ask|done|stalled) ;; *) continue ;; esac
+      else
+        [ "$from" = parent ] || continue
+        [ "$type" = reply ] || continue
+      fi
       devkit_dispatch_seq_acknowledged "$deliveries_dir" "$seq" && continue
       message_seqs="$(jq --argjson seq "$seq" '. + [$seq]' <<<"$message_seqs")" || { rmdir "$lock"; return 1; }
       [ "$(jq 'length' <<<"$message_seqs")" -ge "$DEVKIT_DISPATCH_DELIVERY_BATCH_CAP" ] && break
     done < <(devkit_dispatch_message_paths "$messages_dir")
     if [ "$(jq 'length' <<<"$message_seqs")" -gt 0 ]; then
-      delivery_id="$(devkit_dispatch_new_delivery_id "$dispatch_id")" || { rmdir "$lock"; devkit_parent_notify_waiter_unregister "$dispatch_id"; return 1; }
-      devkit_dispatch_delivery_write "$dispatch_id" "$delivery_id" "$consumer" "$generation" "$message_seqs" || { rmdir "$lock"; devkit_parent_notify_waiter_unregister "$dispatch_id"; return 1; }
+      delivery_id="$(devkit_dispatch_new_delivery_id "$dispatch_id")" || { rmdir "$lock"; [ "$mailbox" = parent ] && devkit_parent_notify_waiter_unregister "$dispatch_id"; return 1; }
+      devkit_dispatch_delivery_write "$dispatch_id" "$delivery_id" "$consumer" "$generation" "$message_seqs" || { rmdir "$lock"; [ "$mailbox" = parent ] && devkit_parent_notify_waiter_unregister "$dispatch_id"; return 1; }
       rmdir "$lock"
-      devkit_parent_notify_waiter_unregister "$dispatch_id"
+      [ "$mailbox" = parent ] && devkit_parent_notify_waiter_unregister "$dispatch_id"
       devkit_dispatch_delivery_report "$dispatch_id" "$delivery_id" false "$json"
       return $?
     fi
     rmdir "$lock"
     now="$(date +%s)"
     if [ $((now - start_time)) -ge "$timeout" ]; then
-      devkit_parent_notify_waiter_unregister "$dispatch_id"
+      [ "$mailbox" = parent ] && devkit_parent_notify_waiter_unregister "$dispatch_id"
       devkit_dispatch_empty_delivery_report "$dispatch_id" "$json"
       return 0
     fi
-    if [ "$wait_mode" = nudge ]; then
+    if [ "$mailbox" = parent ] && [ "$wait_mode" = nudge ]; then
       remaining=$((timeout - (now - start_time)))
       [ "$remaining" -gt 0 ] && devkit_parent_notify_wait_for_wake "$dispatch_id" "$remaining" || true
     else
@@ -798,11 +837,30 @@ devkit_dispatch_watch() {
   done
 }
 
-devkit_dispatch_ack() {
-  local dispatch_id="${1:-}" delivery_id="${2:-}" consumer="${DEVKIT_CONSUMER_ID:-}" generation="${DEVKIT_CONSUMER_GENERATION:-1}"
+devkit_dispatch_watch() {
+  devkit_dispatch_mailbox_watch parent "$@"
+}
+
+devkit_dispatch_child_check() {
+  devkit_dispatch_mailbox_watch child "$@"
+}
+
+devkit_dispatch_ack_for_owner() {
+  local owner="$1" dispatch_id="" delivery_id="" consumer="${DEVKIT_CONSUMER_ID:-}" generation="${DEVKIT_CONSUMER_GENERATION:-1}"
   local json=false arg meta path status record_consumer record_generation lock tmp now message_seqs
-  [ -n "$dispatch_id" ] && [ -n "$delivery_id" ] || { devkit_error "Usage: devkit orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
-  shift 2
+  shift
+  if [ "$owner" = parent ]; then
+    dispatch_id="${1:-}"
+    delivery_id="${2:-}"
+    shift 2
+  else
+    delivery_id="${1:-}"
+    shift
+    devkit_dispatch_find_child || return 1
+    dispatch_id="$DEVKIT_FOUND_DISPATCH"
+    [ -n "$consumer" ] || consumer="$(devkit_dispatch_child_consumer)" || return 1
+  fi
+  [ -n "$dispatch_id" ] && [ -n "$delivery_id" ] || { devkit_error "Usage: devkit orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>]"; return "$DEVKIT_USAGE_ERROR"; }
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -814,8 +872,12 @@ devkit_dispatch_ack() {
     esac
   done
   [[ "$generation" =~ ^[1-9][0-9]*$ ]] || { devkit_error "--generation must be a positive number"; return "$DEVKIT_USAGE_ERROR"; }
-  meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
-  [ -n "$consumer" ] || consumer="$DEVKIT_SESSION_HOST/$DEVKIT_SESSION_ID"
+  if [ "$owner" = parent ]; then
+    meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
+    [ -n "$consumer" ] || consumer="$DEVKIT_SESSION_HOST/$DEVKIT_SESSION_ID"
+  else
+    meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
+  fi
   [ -n "$consumer" ] || { devkit_error "consumer identity is empty"; return 1; }
   path="$(devkit_dispatch_delivery_path "$dispatch_id" "$delivery_id")" || return 1
   [ -f "$path" ] || { devkit_error "delivery $delivery_id refused: delivery is unknown"; return 1; }
@@ -871,6 +933,14 @@ devkit_dispatch_ack() {
   else
     printf 'acknowledged: %s\nduplicate: false\n' "$delivery_id"
   fi
+}
+
+devkit_dispatch_ack() {
+  devkit_dispatch_ack_for_owner parent "$@"
+}
+
+devkit_dispatch_child_ack() {
+  devkit_dispatch_ack_for_owner child "$@"
 }
 
 devkit_dispatch_reply() {
@@ -995,4 +1065,12 @@ command_ask() {
 command_done() {
   [ "$#" -eq 1 ] && [ -n "$1" ] || { devkit_error 'Usage: devkit done "summary"'; return "$DEVKIT_USAGE_ERROR"; }
   devkit_dispatch_child_message done "$1"
+}
+
+command_check() {
+  devkit_dispatch_child_check "$@"
+}
+
+command_ack() {
+  devkit_dispatch_child_ack "$@"
 }
