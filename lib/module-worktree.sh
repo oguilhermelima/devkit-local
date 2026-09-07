@@ -2,8 +2,22 @@
 
 DEVKIT_AGENT_OPTION_TEMPLATES='codex|-c|model="%s"|-c|model_reasoning_effort="%s"
 claude|--model|%s|--effort|%s
-agy|--model|%s|--effort|%s'
+agy|--model|%s||'
 # Codex has no --model or --effort flags, so its overrides use -c.
+DEVKIT_AGY_MODEL_IDS='gemini-3.8-flash-high
+gemini-3.8-flash-medium
+gemini-3.8-flash-low
+gemini-3.7-flash-high
+gemini-3.7-flash-medium
+gemini-3.7-flash-low
+gemini-3.6-flash-high
+gemini-3.6-flash-medium
+gemini-3.6-flash-low
+gemini-3.1-pro-high
+gemini-3.1-pro-low
+claude-sonnet-4-6
+claude-opus-4-6-thinking
+gpt-oss-120b-medium'
 DEVKIT_AGENT_LAUNCH_ARGS='codex|--dangerously-bypass-hook-trust
 codex|--dangerously-bypass-approvals-and-sandbox
 claude|--dangerously-skip-permissions
@@ -108,6 +122,32 @@ devkit_slug_from_branch() {
   printf '%s\n' "$branch"
 }
 
+devkit_agy_model_known() {
+  printf '%s\n' "$DEVKIT_AGY_MODEL_IDS" | grep -Fx -- "$1" >/dev/null 2>&1
+}
+
+devkit_agy_model_error() {
+  devkit_error "$1"
+  printf 'Valid agy model ids:\n%s\n' "$DEVKIT_AGY_MODEL_IDS" >&2
+}
+
+devkit_agy_model_id() {
+  local model="$1" effort="$2" base candidate
+  case "$model" in
+    *-high) base="${model%-high}" ;;
+    *-medium) base="${model%-medium}" ;;
+    *-low) base="${model%-low}" ;;
+    *) base="$model" ;;
+  esac
+  candidate="${base}-${effort}"
+  if devkit_agy_model_known "$candidate"; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+  devkit_agy_model_error "agy cannot honor effort '$effort' for model '$model'"
+  return 1
+}
+
 devkit_superset_projects_json() {
   devkit_superset projects list --json 2>/dev/null
 }
@@ -194,6 +234,13 @@ devkit_agent_command() {
   [ "$#" -eq 0 ] || passthrough_args=("$@")
   command_parts=("$agent")
   agent_lower="$(devkit_lower "$agent")"
+  if [ "$agent_lower" = agy ] && [ -n "$model" ]; then
+    [ -n "$effort" ] || {
+      devkit_agy_model_error "agy requires an effort that is part of the model id"
+      return 1
+    }
+    model="$(devkit_agy_model_id "$model" "$effort")" || return 1
+  fi
   while IFS='|' read -r launch_agent launch_arg; do
     [ "$launch_agent" = "$agent_lower" ] && command_parts+=("$launch_arg")
   done <<EOF
@@ -213,7 +260,7 @@ EOF
     printf -v model_value "$model_format" "$model"
     command_parts+=("$model_flag" "$model_value")
   fi
-  if [ -n "$effort" ]; then
+  if [ -n "$effort" ] && [ -n "$effort_flag" ]; then
     printf -v effort_value "$effort_format" "$effort"
     command_parts+=("$effort_flag" "$effort_value")
   fi
