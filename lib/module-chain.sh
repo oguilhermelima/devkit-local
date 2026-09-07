@@ -566,7 +566,11 @@ devkit_chain_limit_cache_write() {
   mkdir -p "$DEVKIT_STATE_DIR" || return 1
   path="$(devkit_chain_limit_cache_path "$agent")"
   tmp="$(mktemp "$DEVKIT_STATE_DIR/usage-limits.XXXXXX")" || return 1
-  if ! printf '%s' "$result" | jq -e --arg provider "$agent" '.provider == $provider and (.fetchedAt | type == "number") and (.windows | type == "array")' >"$tmp" 2>/dev/null; then
+  if ! printf '%s' "$result" | jq -e --arg provider "$agent" '.provider == $provider and (.fetchedAt | type == "number") and (.windows | type == "array")' >/dev/null 2>&1; then
+    rm -f "$tmp"
+    return 1
+  fi
+  if ! printf '%s' "$result" >"$tmp"; then
     rm -f "$tmp"
     return 1
   fi
@@ -750,7 +754,7 @@ devkit_chain_claude_usage() {
        usedPercent: .value.utilization,
        remainingPercent: (100 - .value.utilization), resetsAt: .value.resets_at}) |
     {provider: "claude", fetchedAt: $fetchedAt, windows: .}
-  ' 2>/dev/null)"
+  ' 2>/dev/null)" || result=""
   if [ -z "$result" ] || ! printf '%s' "$result" | jq -e '.windows | length > 0' >/dev/null 2>&1; then
     devkit_chain_limit_unknown claude "$requested_window" 'response body is unparseable or incomplete'
     return 0
@@ -832,7 +836,7 @@ devkit_chain_agy_usage() {
        [.buckets[] | . as $group | (($group.quota // $group) | if type == "object" then quota_entries($group.displayName // $group.name // "unknown") else [] end)] | add
      else [] end) as $groups |
     {provider: "agy", fetchedAt: $fetchedAt, windows: ($legacy + $groups)}
-  ' 2>/dev/null)"
+  ' 2>/dev/null)" || result=""
   if [ -z "$result" ] || ! printf '%s' "$result" | jq -e '.windows | length > 0' >/dev/null 2>&1; then
     devkit_chain_limit_unknown agy "$requested_window" 'response body is unparseable or incomplete'
     return 0
