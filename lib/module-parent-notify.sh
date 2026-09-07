@@ -90,9 +90,10 @@ devkit_parent_notify_tmux_is_idle() {
   sleep "$(awk "BEGIN { printf \"%.3f\", $DEVKIT_PARENT_NOTIFY_SETTLE_MS / 1000 }")"
   second="$(devkit_tmux_capture_pane "$pane" -40 2>/dev/null || true)"
   [ "$first" = "$second" ] || { printf 'unknown\n'; return 0; }
-  last_line="$(printf '%s\n' "$second" | tail -n 1 | sed 's/[[:space:]]*$//')"
+  last_line="$(printf '%s\n' "$second" | tail -n 1 | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
   case "$last_line" in
     *Working*|*Thinking*|*Running*|*'esc to interrupt'*|*'ctrl-c to interrupt'*) printf 'false\n' ;;
+    '⏵⏵ bypass permissions on · 1 shell · ← for agents') printf 'true\n' ;;
     # Unknown is not idle because a failed liveness check must never type into the parent.
     *'›'|*'❯'|*'$'|*'%'|*'#') printf 'true\n' ;;
     *) printf 'unknown\n' ;;
