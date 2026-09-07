@@ -1,8 +1,8 @@
 # devkit
 
 devkit is one command surface for keeping Orca and Superset.sh aligned around Git worktrees and coding agents.
-Both tools create worktrees and spawn agents, but they do not share bookkeeping: a worktree made in one is invisible to the other until it is imported by hand.
-Each tool also has its own way to launch and supervise an agent; devkit keeps both correct at once.
+Both tools create worktrees but do not share bookkeeping: a worktree made in one is invisible to the other until it is imported by hand.
+Devkit owns agent launch and uses either tmux or one host terminal primitive for the child process.
 
 ## Before and after
 
@@ -48,11 +48,35 @@ Their trimmed output shapes are:
 ```text
 [{"module":"orchestration","status":"ok","reason":"..."}, ...]
 {"worktree":"...","branch":"feature/example","workspace":"...","reused":false}
-{"worktree":"...","branch":"feature/agent-task","workspace":"...","dispatch":"...","reused":false}
+{"worktree":"...","branch":"feature/agent-task","workspace":"...","dispatch":"...","reused":false,"runtime":"tmux"}
 ```
 
 `orchestrate spawn` must run inside a managed Orca or Superset terminal. It creates the worktree,
-registers it, and starts the child agent in one operation.
+registers it, starts the child agent, waits for readiness, and sends the prompt in one operation.
+
+### Spawn runtimes
+
+The runtime is resolved once before the worktree or terminal is created:
+
+- `--tmux true` always selects tmux and fails if tmux is unavailable.
+- `--tmux false` always selects the IDE terminal primitive.
+- Without `--tmux`, an installed tmux-runtime module selects tmux; otherwise the IDE terminal primitive is selected.
+
+IDE mode uses the issuing terminal identity: `SUPERSET_TERMINAL_ID` selects Superset and
+`ORCA_TERMINAL_HANDLE` selects Orca. An unmanaged shell fails before creating anything. In IDE
+mode the only host operation that starts the child is `terminals create` in Superset or
+`terminal create` in Orca, with the worktree and complete devkit-built command. In tmux mode the
+same host operation opens a shell in the worktree; devkit then launches the child in that pane.
+
+The prompt is never part of the agent command line. Tmux readiness means a non-shell pane
+command with rendered output. Orca uses `terminal wait --for tui-idle`; Superset polls
+`terminals read` until two consecutive pane reads settle. Only a confirmed send marks
+`promptDelivered` true. A readiness or send timeout leaves the dispatch failed with
+`promptDelivery: "not-delivered"`.
+
+Use repeatable `--agent-arg <value>` to append arbitrary agent flags after devkit's generated
+launch, model, and effort flags. Values are passed as separate shell arguments and retain their
+quoting.
 
 ### Dispatch state axes
 
@@ -168,7 +192,7 @@ then `main`. `terminal create` uses `.superset/config.json` only when `--command
 
 | Command | What it does | Notable flags |
 | --- | --- | --- |
-| `devkit orchestrate spawn --repo "$PWD" --branch feature/agent-task --agent codex --model gpt-5 --effort medium --prompt "Inspect the repository."` | Creates or reuses a worktree and launches a managed child agent. | `--base`, `--name`, `--label`, `--worktree`, `--json` |
+| `devkit orchestrate spawn --repo "$PWD" --branch feature/agent-task --agent codex --model gpt-5 --effort medium --prompt "Inspect the repository."` | Creates or reuses a worktree and launches a managed child agent. | `--base`, `--name`, `--label`, `--worktree`, `--tmux`, `--agent-arg`, `--json` |
 | `devkit orchestrate list --json` | Lists dispatches owned by the current parent. | `--all`, `--orphans`, `--json` |
 | `devkit orchestrate reconcile <dispatch-id> --json` | Reconciles one open dispatch without respawning it. | `--all`, `--json` |
 | `devkit orchestrate watch <dispatch-id> --json` | Waits for the next child Delivery batch. | `--timeout`, `--poll-interval`, `--consumer`, `--generation`, `--json` |
@@ -183,7 +207,8 @@ then `main`. `terminal create` uses `.superset/config.json` only when `--command
 of printing protocol markers.
 
 `orchestrate spawn` selects its prompt budget from the delivery path before creating a worktree,
-workspace, terminal, agent, or dispatch record. The prompt is rejected rather than truncated.
+workspace, terminal, agent, or dispatch record. The prompt is rejected rather than truncated and
+is delivered only after the child is ready.
 
 | Delivery path | Measured capacity | Chosen prompt budget |
 | --- | ---: | ---: |
@@ -226,8 +251,6 @@ The module runs `@playwright/mcp@latest` through npx.
 ## Known limitations
 
 - Closing a Superset dispatch disposes the session, but the pane remains visible as `Desconectado` until a human dismisses it with the pane X. There is no CLI verb to remove a pane; this was verified against the terminal and browser command surfaces, the local database, and app state files.
-- `superset agents create` has no `--model`. Devkit forwards only `--effort` there; for Codex, the agent command uses `-c model_reasoning_effort=<level>`. A model can be pinned only through a pre-configured agent instance. Dispatch metadata records whether the requested model was honored.
-- Superset's `gemini`/`agy` preset passes the prompt as a positional argument, which the agy CLI rejects. agy dispatches through Superset therefore do not work; this is a Superset preset limitation, not something devkit can fix.
 - Installing devkit's turn-end hook changes the agent hook configuration and invalidates Codex's per-entry trust. The next Codex launch shows `Hooks need review` until a human trusts it once. Opening Codex through Superset does not clear it because Superset passes `--dangerously-bypass-hook-trust`.
 - Superset terminals cannot be given a title by any flag. Their pane title follows the running command; `--title` affects Orca terminals only.
 
