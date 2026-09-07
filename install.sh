@@ -456,7 +456,7 @@ installer_warn_path() {
   esac
   printf 'Warning: %s is not on PATH. Add it with:\n' "$bin_dir" >&2
   printf 'export PATH="%s:$PATH"\n' "$bin_dir" >&2
-  installer_summary "PATH warning displayed for $bin_dir"
+  installer_summary "PATH needs-your-action: add $bin_dir"
   if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
     read -r -p 'Press Enter to continue: ' _ || true
   fi
@@ -678,7 +678,7 @@ installer_append_pointer() {
   local file="$1" paragraph="$2" replace_old="${3:-false}" temp
   mkdir -p "$(dirname "$file")" || return 1
   if [ -f "$file" ] && grep -Fqx "$paragraph" "$file"; then
-    installer_summary "AGENTS.md pointer already present in $file"
+    installer_summary "AGENTS.md pointer already-current in $file"
     return 0
   fi
   if [ "$replace_old" = true ] && [ -f "$file" ] && grep -Fq 'Workspaces/local/stack/local/devkit' "$file"; then
@@ -687,14 +687,14 @@ installer_append_pointer() {
       index($0, old) { if (!replaced) { print replacement; replaced = 1 } next }
       { print }
     ' "$file" >"$temp" && mv "$temp" "$file" || { rm -f "$temp"; return 1; }
-    installer_summary "replaced old AGENTS.md pointer in $file"
+    installer_summary "AGENTS.md pointer updated in $file"
     return 0
   fi
   if [ -s "$file" ] && [ "$(tail -c 1 "$file" | wc -l | tr -d ' ')" -eq 0 ]; then
     printf '\n' >>"$file"
   fi
   printf '%s\n' "$paragraph" >>"$file"
-  installer_summary "appended AGENTS.md pointer to $file"
+  installer_summary "AGENTS.md pointer installed in $file"
 }
 
 installer_install_agents() {
