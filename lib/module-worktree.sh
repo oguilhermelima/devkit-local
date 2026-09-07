@@ -376,6 +376,33 @@ devkit_host_cleanup_launch() {
   esac
 }
 
+devkit_host_terminal_readback() {
+  local context="$1" workspace_id="$2" terminal_id="$3" response
+  # WHY: Read-back fails at creation instead of waiting 30 seconds for a receipt from an unreachable terminal.
+  case "$context" in
+    superset)
+      response="$(devkit_superset terminals read --workspace "$workspace_id" --terminal "$terminal_id" --json 2>/dev/null)" || {
+        devkit_error "Superset terminal $terminal_id could not be read immediately after creation"
+        return 1
+      }
+      ;;
+    orca)
+      response="$(orca terminal read --terminal "$terminal_id" --json 2>/dev/null)" || {
+        devkit_error "orca terminal $terminal_id could not be read immediately after creation"
+        return 1
+      }
+      ;;
+    *)
+      devkit_error "unsupported host terminal context: $context"
+      return 1
+      ;;
+  esac
+  printf '%s' "$response" | jq -e . >/dev/null 2>&1 || {
+    devkit_error "$context terminal $terminal_id returned invalid read-back data"
+    return 1
+  }
+}
+
 devkit_superset_wait_for_terminal_ready() {
   local workspace_id="$1" terminal_id="$2" timeout_ms="${DEVKIT_AGENT_READY_TIMEOUT_MS:-10000}"
   local attempts=$(( (timeout_ms + 99) / 100 )) attempt output rendered previous=""
@@ -622,6 +649,10 @@ ${prompt}"
       ;;
   esac
   [ -n "$session_id" ] || { devkit_error "agent launch returned no terminal identity"; return 1; }
+  if ! devkit_host_terminal_readback "$context" "$workspace_id" "$session_id"; then
+    devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
+    return 1
+  fi
   dispatch_id="$session_id"
   model_honored=true
   devkit_dispatch_meta_write "$dispatch_id" "$parent_id" "$parent_host" "$child_host" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" "$model_honored" "$agent_used" "" "" host ide "$parent_tmux_session" "$parent_tmux_pane" "$parent_workspace_id" >/dev/null || {
