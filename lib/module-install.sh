@@ -10,6 +10,7 @@ devkit_module_doctor() {
     simulator-native) module_simulator_native_doctor ;;
     simulator-tv) module_simulator_tv_doctor ;;
     tv-adb) module_tv_adb_doctor ;;
+    tmux-runtime) module_tmux_runtime_doctor ;;
     *) devkit_set_status missing "unknown module"; return 1 ;;
   esac
 }
@@ -24,6 +25,7 @@ devkit_module_install() {
     simulator-native) module_simulator_native_install ;;
     simulator-tv) module_simulator_tv_install ;;
     tv-adb) module_tv_adb_install ;;
+    tmux-runtime) module_tmux_runtime_install ;;
     *) devkit_error "unknown module: $module"; return "$DEVKIT_USAGE_ERROR" ;;
   esac
 }

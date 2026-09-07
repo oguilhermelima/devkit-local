@@ -449,7 +449,7 @@ installer_manifest_summary() {
   [ -f "$manifest" ] || return 0
   printf 'Existing devkit installation:\n'
   if command -v jq >/dev/null 2>&1 && jq empty "$manifest" >/dev/null 2>&1; then
-    jq -r '"  version: " + (.version // "unknown"), "  source: " + (.sourceRef // "unknown"), "  installed: " + (.installedAt // "unknown"), "  agents: " + ((.agents // []) | join(", ") // "none"), "  modules: " + ((.modules // []) | join(", ") // "none")' "$manifest"
+    jq -r '"  version: " + (.version // "unknown"), "  source: " + (.sourceRef // "unknown"), "  installed: " + (.installedAt // "unknown"), "  agents: " + ((.agents // []) | join(", ") // "none"), "  modules: " + ((.modules // []) | join(", ") // "none"), "  runtime: " + (.runtime // "host")' "$manifest"
   else
     sed 's/^/  /' "$manifest"
   fi
@@ -532,7 +532,8 @@ installer_write_manifest() {
     --arg modules "$SELECTED_MODULES" \
     '{version: $version, sourceRef: $sourceRef, installedAt: $installedAt, sourceRoot: $sourceRoot,
       agents: (if $agents == "" then [] else ($agents | split(",")) end),
-      modules: (if $modules == "" then [] else ($modules | split(",")) end)}' >"$temp"; then
+      modules: (if $modules == "" then [] else ($modules | split(",")) end),
+      runtime: (if ($modules == "") then "host" elif (($modules | split(",")) | index("tmux-runtime")) then "tmux" else "host" end)}' >"$temp"; then
     rm -f "$temp"
     installer_error "could not write install manifest"
     return 1
@@ -555,7 +556,7 @@ installer_prompt_mode() {
 
 installer_select_modules() {
   local raw="$MODULES_REQUEST" token normalized
-  local -a modules=(orchestration orchestration-hooks worktree simulator-web simulator-native simulator-tv tv-adb)
+  local -a modules=(orchestration orchestration-hooks worktree simulator-web simulator-native simulator-tv tv-adb tmux-runtime)
   SELECTED_MODULES=""
   if [ -z "$raw" ]; then
     [ "$INSTALLER_INTERACTIVE" = true ] || return 0
@@ -784,7 +785,19 @@ installer_install_plugins() {
 }
 
 installer_install_modules() {
-  local module
+  local module state_file state_tmp
+  if ! installer_list_contains "$SELECTED_MODULES" tmux-runtime; then
+    state_file="$HOME/.devkit/state.json"
+    if [ -f "$state_file" ] && jq empty "$state_file" >/dev/null 2>&1; then
+      state_tmp="$(mktemp "${state_file}.XXXXXX")" || return 1
+      if ! jq 'del(."tmux-runtime")' "$state_file" >"$state_tmp"; then
+        rm -f "$state_tmp"
+        return 1
+      fi
+      mv -f "$state_tmp" "$state_file" || return 1
+      installer_summary "tmux runtime disabled"
+    fi
+  fi
   if [ -z "$SELECTED_MODULES" ]; then
     installer_summary "devkit modules skipped"
     return 0

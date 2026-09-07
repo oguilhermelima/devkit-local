@@ -141,11 +141,16 @@ devkit_superset_json() {
 
 devkit_validate_module() {
   case "$1" in
-    orchestration|orchestration-hooks|worktree|simulator-web|simulator-native|simulator-tv|tv-adb) return 0 ;;
+    orchestration|orchestration-hooks|worktree|simulator-web|simulator-native|simulator-tv|tv-adb|tmux-runtime) return 0 ;;
     *) return 1 ;;
   esac
 }
 
 devkit_module_ids() {
-  printf '%s\n' orchestration orchestration-hooks worktree simulator-web simulator-native simulator-tv tv-adb
+  printf '%s\n' orchestration orchestration-hooks worktree simulator-web simulator-native simulator-tv tv-adb tmux-runtime
+}
+
+devkit_runtime_enabled() {
+  [ -f "$DEVKIT_STATE_FILE" ] || return 1
+  jq -e '."tmux-runtime".installed == true' "$DEVKIT_STATE_FILE" >/dev/null 2>&1
 }
