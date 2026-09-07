@@ -16,14 +16,14 @@ devkit_chain_seed() {
       "when": {"parentAgent": "claude"},
       "steps": [
         {"agent": "codex", "model": "gpt-5.6-luna", "effort": "high", "until": {"usedPercent": 95, "window": "5h"}},
-        {"agent": "agy", "model": "gemini-3.1-pro-high", "effort": "high"}
+        {"agent": "agy", "model": "gemini-3.8-flash-high", "effort": "high"}
       ]
     },
     "codex": {
       "when": {"parentAgent": "codex"},
       "steps": [
         {"agent": "claude", "model": "claude-sonnet-5", "effort": "high"},
-        {"agent": "agy", "model": "gemini-3.1-pro-high", "effort": "high"}
+        {"agent": "agy", "model": "gemini-3.8-flash-high", "effort": "high"}
       ]
     },
     "agy": {
