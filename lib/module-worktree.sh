@@ -510,9 +510,15 @@ ${prompt}"
       return 1
     }
     if [ "${#passthrough_args[@]}" -gt 0 ]; then
-      command_text="$(devkit_agent_command "$agent_used" "$model" "$effort" "${passthrough_args[@]}")"
+      command_text="$(devkit_agent_command "$agent_used" "$model" "$effort" "${passthrough_args[@]}")" || {
+        devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+        return 1
+      }
     else
-      command_text="$(devkit_agent_command "$agent_used" "$model" "$effort")"
+      command_text="$(devkit_agent_command "$agent_used" "$model" "$effort")" || {
+        devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+        return 1
+      }
     fi
     command_text="cd $(printf '%q' "$worktree_path") && DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") DEVKIT_TMUX_SESSION=$(printf '%q' "$tmux_session") DEVKIT_TMUX_PANE=$(printf '%q' "$tmux_pane") $command_text"
     devkit_dispatch_meta_write "$dispatch_id" "$parent_id" "$parent_host" "$context" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" true "$agent_used" "$tmux_session" "$tmux_pane" tmux tmux "$parent_tmux_session" "$parent_tmux_pane" "$parent_workspace_id" >/dev/null || {
@@ -571,9 +577,9 @@ ${prompt}"
     return 0
   fi
   if [ "${#passthrough_args[@]}" -gt 0 ]; then
-    command_text="$(devkit_agent_command "$agent" "$model" "$effort" "${passthrough_args[@]}")"
+    command_text="$(devkit_agent_command "$agent" "$model" "$effort" "${passthrough_args[@]}")" || return 1
   else
-    command_text="$(devkit_agent_command "$agent" "$model" "$effort")"
+    command_text="$(devkit_agent_command "$agent" "$model" "$effort")" || return 1
   fi
   case "$context" in
     orca)
