@@ -92,11 +92,31 @@ dispatch `chain` object in `meta.json`.
 
 Limits are checked before launch. The codex provider reads the newest rollout snapshot under
 `~/.codex/sessions` and supports the 5-hour and weekly windows. A snapshot whose reset has passed
-is stale and becomes unknown. Claude and agy currently have an explicit unknown provider stub;
-unknown is usable and never counts as exhausted. A launch failure is always a valid reason to
-advance to the next step. Keychain or provider-API readers deliberately do not belong in this
-change: they plug into the per-agent `devkit_chain_limit_read` provider seam in
-`lib/module-chain.sh`.
+is stale and becomes unknown. Claude and agy can read live usage only when explicitly enabled in
+`usageLimits.liveProviders`; the seeded configuration leaves this list empty. Use
+`devkit chain limits --enable claude,agy` to opt in, or `--disable claude,agy` to turn it back off.
+Unknown is usable and never counts as exhausted. A launch failure is always a valid reason to
+advance to the next step.
+
+`devkit chain limits [--json]` prints both windows for every provider with status, source, fetched
+time, reset time, and reason. Codex uses source `disk`; successful live reads use `live`, and a
+successful read within the 30-second cache TTL uses `cache`. The normalized in-memory shape is an
+object with `provider`, `fetchedAt`, and `windows`; each window has `name`, `bucket`,
+`usedPercent`, `remainingPercent`, and `resetsAt`. The short TTL keeps a chain run responsive while
+ensuring old numbers are refreshed.
+
+The live readers are unsupported integrations. Claude uses the OAuth usage endpoint and the agy
+reader uses an internal client quota endpoint; either provider may change or disappear without
+notice. Tokens are read from the macOS Keychain only for an enabled live read, held in memory for
+the request, and never cached. An expired Claude credential is reported as unknown; refreshing it
+would require a separate OAuth flow, which this feature deliberately does not attempt.
+
+When `usageLimits.notice.enabled` is true, `chain run` periodically appends a short usage report
+to the newly created dispatch and asks the existing parent notification contract to deliver it.
+Set `usageLimits.notice.intervalSeconds` to choose the cadence and use
+`devkit chain limits --notice-off` to disable it. This is driven by chain runs rather than a daemon,
+so it has no background process and naturally follows existing activity. Notice delivery failures
+leave the durable message queued and do not fail the chain caller.
 
 ### Spawn runtimes
 
