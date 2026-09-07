@@ -8,6 +8,7 @@ DEVKIT_DISPATCH_DELIVERY_BATCH_CAP="${DEVKIT_DISPATCH_DELIVERY_BATCH_CAP:-50}"
 DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS="${DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS:-30}"
 DEVKIT_PROMPT_BUDGET_ARGV_BYTES=262144
 DEVKIT_PROMPT_BUDGET_TMUX_BYTES=12000
+DEVKIT_DISPATCH_CLOSE_OUTCOME=unknown
 
 if ! declare -F devkit_dispatch_preamble >/dev/null 2>&1; then
   # shellcheck source=local/devkit/lib/module-facts.sh
@@ -685,6 +686,7 @@ devkit_dispatch_native_close() {
   local meta="$1" host workspace_id terminal_id runtime tmux_session tmux_pane pane_count close_rc=0
   local parent_tmux_session caller_tmux_session shared_session=false
   DEVKIT_DISPATCH_CLOSE_LAST_PANE=false
+  DEVKIT_DISPATCH_CLOSE_OUTCOME=unknown
   host="$(printf '%s' "$meta" | jq -r '.childHost')"
   workspace_id="$(printf '%s' "$meta" | jq -r '.workspaceId // empty')"
   terminal_id="$(printf '%s' "$meta" | jq -r '.terminalId')"
@@ -699,20 +701,24 @@ devkit_dispatch_native_close() {
       shared_session=true
     fi
     if [ "$shared_session" = true ]; then
+      DEVKIT_DISPATCH_CLOSE_OUTCOME=shared-pane
       devkit_tmux_session_exists "$tmux_session" || return 0
       tmux kill-pane -t "$tmux_pane"
       return $?
     fi
     if ! devkit_tmux_session_exists "$tmux_session"; then
+      DEVKIT_DISPATCH_CLOSE_OUTCOME=exclusive-session
       DEVKIT_DISPATCH_CLOSE_LAST_PANE=true
       pane_count=0
     else
       pane_count="$(tmux list-panes -t "$tmux_session" 2>/dev/null | wc -l | tr -d ' ')"
     fi
     if [ "$pane_count" -gt 1 ]; then
+      DEVKIT_DISPATCH_CLOSE_OUTCOME=exclusive-pane
       tmux kill-pane -t "$tmux_pane"
       return $?
     fi
+    DEVKIT_DISPATCH_CLOSE_OUTCOME=exclusive-session
     DEVKIT_DISPATCH_CLOSE_LAST_PANE=true
     tmux kill-session -t "$tmux_session" >/dev/null 2>&1 || true
     case "$host" in
@@ -1092,10 +1098,12 @@ devkit_dispatch_close() {
   esac
   devkit_dispatch_meta_update_terminal_state "$dispatch_id" released || return 1
   if [ "$json" = true ]; then
-    if [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_LAST_PANE" = true ]; then
-      jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "last tmux pane and the host terminal tab were closed."}'
-    elif [ "$runtime" = tmux ]; then
-      jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "tmux pane removed; the host terminal tab remains available for sibling panes or manual use."}'
+    if [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_OUTCOME" = shared-pane ]; then
+      jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "tmux pane removed; the shared tmux session and host terminal tab were kept."}'
+    elif [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_OUTCOME" = exclusive-pane ]; then
+      jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "tmux pane removed; the exclusive tmux session and host terminal tab were kept for remaining panes."}'
+    elif [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_OUTCOME" = exclusive-session ]; then
+      jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "last tmux pane removed; the exclusive tmux session and host terminal tab were closed."}'
     elif [ "$child_host" = superset ]; then
       jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "Superset leaves the pane visible as Desconectado until the human dismisses it with the pane X."}'
     else
@@ -1103,10 +1111,12 @@ devkit_dispatch_close() {
     fi
   else
     printf 'closed: %s\n' "$dispatch_id"
-    if [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_LAST_PANE" = true ]; then
-      printf 'last tmux pane and the host terminal tab were closed.\n'
-    elif [ "$runtime" = tmux ]; then
-      printf 'tmux pane removed; the host terminal tab remains available for sibling panes or manual use.\n'
+    if [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_OUTCOME" = shared-pane ]; then
+      printf 'tmux pane removed; the shared tmux session and host terminal tab were kept.\n'
+    elif [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_OUTCOME" = exclusive-pane ]; then
+      printf 'tmux pane removed; the exclusive tmux session and host terminal tab were kept for remaining panes.\n'
+    elif [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_OUTCOME" = exclusive-session ]; then
+      printf 'last tmux pane removed; the exclusive tmux session and host terminal tab were closed.\n'
     elif [ "$child_host" = superset ]; then
       printf 'Superset leaves the pane visible as Desconectado until the human dismisses it with the pane X.\n'
     fi
