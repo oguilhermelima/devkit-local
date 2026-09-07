@@ -259,6 +259,43 @@ EOF
   printf '%s%s%s\n' "$agent_lower" "$launch_args" "$rest"
 }
 
+devkit_resolve_spawn_runtime() {
+  local requested="${1:-auto}"
+  DEVKIT_SPAWN_RUNTIME=""
+  DEVKIT_SPAWN_CONTEXT=""
+  case "$requested" in
+    auto)
+      if devkit_runtime_enabled; then
+        requested=tmux
+      else
+        requested=host
+      fi
+      ;;
+    true) requested=tmux ;;
+    false) requested=host ;;
+    tmux|host) ;;
+    *) devkit_error "invalid spawn runtime: $requested"; return "$DEVKIT_USAGE_ERROR" ;;
+  esac
+  if [ "$requested" = tmux ]; then
+    devkit_tmux_available || { devkit_error "tmux spawn runtime was selected but tmux is not on PATH"; return 1; }
+  fi
+  devkit_session_id >/dev/null
+  if [ -z "$DEVKIT_SESSION_ID" ]; then
+    if [ "$requested" = host ]; then
+      devkit_error "IDE spawn runtime requires a managed Orca or Superset terminal"
+      return 1
+    fi
+    devkit_error "tmux spawn runtime requires a managed Orca or Superset terminal"
+    return 1
+  fi
+  DEVKIT_SPAWN_RUNTIME="$requested"
+  DEVKIT_SPAWN_CONTEXT="$DEVKIT_SESSION_HOST"
+  case "$DEVKIT_SPAWN_CONTEXT" in
+    orca|superset) ;;
+    *) devkit_error "cannot launch agent from unknown orchestration host"; return 1 ;;
+  esac
+}
+
 devkit_project_run_command() {
   local repo_root="$1" config_path="$1/.superset/config.json" command_text
   [ -f "$config_path" ] || return 1
@@ -291,28 +328,25 @@ devkit_tmux_cleanup_launch() {
 devkit_launch_agent() {
   local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
   local context command_text response session_id final_prompt launch_prompt agent_lower parent_id parent_host child_host branch
-  local agent_used model_honored=false dispatch_id runtime=host tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false
+  local agent_used model_honored=false dispatch_id runtime tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false
   local -a agent_args
   DEVKIT_LAST_DISPATCH=""
   devkit_session_id >/dev/null
   parent_id="$DEVKIT_SESSION_ID"
   parent_host="$DEVKIT_SESSION_HOST"
   [ -n "$parent_id" ] || { devkit_error "cannot spawn a managed dispatch from an unmanaged shell"; return 1; }
-  context="$parent_host"
+  devkit_resolve_spawn_runtime "${DEVKIT_SPAWN_RUNTIME:-auto}" || return 1
+  runtime="$DEVKIT_SPAWN_RUNTIME"
+  context="$DEVKIT_SPAWN_CONTEXT"
+  DEVKIT_LAST_RUNTIME="$runtime"
   agent_used="$agent"
   branch="$(git -C "$worktree_path" symbolic-ref --quiet --short HEAD 2>/dev/null || printf 'detached')"
   [ -n "$label" ] || label="$(devkit_dispatch_default_label)"
   case "$label" in
     *$'\n'*) devkit_error "dispatch label cannot contain a newline"; return "$DEVKIT_USAGE_ERROR" ;;
   esac
-  if devkit_runtime_enabled; then
-    runtime=tmux
-    devkit_tmux_available || { devkit_error "tmux-runtime is enabled but tmux is not on PATH"; return 1; }
+  if [ "$runtime" = tmux ]; then
     dispatch_id="$(devkit_dispatch_new_id)" || return 1
-    case "$context" in
-      orca|superset) ;;
-      *) devkit_error "cannot launch agent from unknown orchestration host"; return 1 ;;
-    esac
     if [ "$context" = superset ]; then
       devkit_superset_available || { devkit_error "superset CLI is not available"; return 1; }
     else
@@ -540,7 +574,7 @@ devkit_terminal_create() {
 
 devkit_worktree_create() {
   local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" prompt="" label="" worktree_selector="" orchestrate=false json=false reused=false
-  local arg repo_path shared_root worktree_path project_id workspace_id dispatch="" host
+  local arg repo_path shared_root worktree_path project_id workspace_id dispatch="" host runtime=""
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -581,7 +615,10 @@ devkit_worktree_create() {
     [ -n "$model" ] || { devkit_error "--model is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
     [ -n "$effort" ] || { devkit_error "--effort is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
     [ -n "$prompt" ] || { devkit_error "--prompt is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
-    if devkit_runtime_enabled; then
+    devkit_resolve_spawn_runtime auto || return 1
+    runtime="$DEVKIT_SPAWN_RUNTIME"
+    host="$DEVKIT_SPAWN_CONTEXT"
+    if [ "$runtime" = tmux ]; then
       devkit_validate_prompt_budget "$prompt" tmux prompt || return 1
     else
       devkit_validate_prompt_budget "$prompt" argv prompt || return 1
@@ -646,8 +683,9 @@ devkit_worktree_create() {
       devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" || return 1
     fi
     dispatch="$DEVKIT_LAST_DISPATCH"
+    runtime="$DEVKIT_LAST_RUNTIME"
     if [ -n "$dispatch" ] && [ "$json" != true ]; then
-      printf 'dispatch: %s\n' "$dispatch"
+      printf 'dispatch: %s\nruntime: %s\n' "$dispatch" "$runtime"
     fi
   fi
   if [ "$orchestrate" = true ] && [ "$json" != true ]; then
@@ -655,8 +693,8 @@ devkit_worktree_create() {
   fi
   if [ "$json" = true ]; then
     if [ -n "${dispatch:-}" ]; then
-      jq -n --arg worktree "$worktree_path" --arg branch "$branch" --arg workspace "$workspace_id" --arg dispatch "$dispatch" --arg reused "$reused" \
-        '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end), dispatch: $dispatch, reused: ($reused == "true")}'
+      jq -n --arg worktree "$worktree_path" --arg branch "$branch" --arg workspace "$workspace_id" --arg dispatch "$dispatch" --arg reused "$reused" --arg runtime "$runtime" \
+        '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end), dispatch: $dispatch, reused: ($reused == "true"), runtime: $runtime}'
     else
       jq -n --arg worktree "$worktree_path" --arg branch "$branch" --arg workspace "$workspace_id" --arg reused "$reused" \
         '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end), reused: ($reused == "true")}'
