@@ -48,6 +48,7 @@ Commands:
   done "summary"                        Mark a child dispatch done
   check [options]                       Check for replies from the direct coordinator
   ack <delivery-id> [options]          Acknowledge a child reply delivery
+  received                            Confirm receipt of a dispatch prompt
   native appium start|stop|status      Manage the shared Appium server
   tv connect <ip> [--port <port>]      Connect an Android TV over adb
   tv disconnect [<ip>]                 Disconnect an Android TV
@@ -69,6 +70,7 @@ devkit_main() {
   orchestrate) command_orchestrate "$@" ;;
     chain) command_chain "$@" ;;
     ask) command_ask "$@" ;;
+    received) command_received "$@" ;;
     done) command_done "$@" ;;
     check) command_check "$@" ;;
     ack|acknowledge) command_ack "$@" ;;

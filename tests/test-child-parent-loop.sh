@@ -122,6 +122,10 @@ devkit_tmux_available() {
   return 0
 }
 
+devkit_dispatch_wait_for_prompt_receipt() {
+  return 0
+}
+
 prepare_tmux_parent() {
   session_name="devkit-loop-parent-$$"
   tmux_cmd new-session -d -s "$session_name" bash

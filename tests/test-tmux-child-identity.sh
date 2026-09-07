@@ -150,6 +150,7 @@ devkit_tmux_apply_config() { return 0; }
 devkit_tmux_settle_pane() { return 0; }
 devkit_tmux_send_agent() { return 0; }
 devkit_tmux_agent_output_clean() { return 0; }
+devkit_dispatch_wait_for_prompt_receipt() { return 0; }
 devkit_agent_command() { printf 'true\n'; }
 
 SUPERSET_TERMINAL_ID="$parent_id" devkit_launch_agent "$root" "$workspace_id" codex gpt-5 medium prompt label >/dev/null
