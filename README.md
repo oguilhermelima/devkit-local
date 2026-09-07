@@ -184,6 +184,11 @@ a parent can inspect, reply to, or close its own dispatch, but ownership does no
 
 Messages are delivered in FIFO batches of up to 50 through a Delivery record. An outstanding Delivery is replayed with the same delivery id until it is acknowledged; there is one outstanding Delivery per mailbox. A different consumer identity or generation fences the old Delivery and receives the same unread messages under a new id. Acknowledgement is idempotent, and cursor.json is retained for compatibility but is not the source of read state.
 
+The child reads queued parent replies with `devkit check [--timeout 0] --json`. It receives a
+Delivery with the same replay behavior as the parent watch path; until it acknowledges that
+Delivery, another check returns the same delivery id and messages. A child acknowledges with
+`devkit ack <delivery-id> --json`; acknowledgement is idempotent.
+
 Child ask, done, and stalled messages also make a best-effort parent nudge. The durable message
 queue and Delivery record remain the source of truth: the nudge contains only a short pointer
 with the dispatch id, never the message body. A failed, skipped, or lost nudge cannot fail the
@@ -287,6 +292,8 @@ then `main`. `terminal create` uses `.superset/config.json` only when `--command
 | `devkit orchestrate close <dispatch-id> --json` | Closes the child terminal and records the dispatch as closed. | `--force-release`, `--json` |
 | `devkit ask "question"` | Sends a question from a child to its direct parent. | One question argument. |
 | `devkit done "summary"` | Sends completion from a child to its direct parent. | One summary argument. |
+| `devkit check --timeout 0 --json` | Reads queued replies addressed to the current child. | `--timeout`, `--poll-interval`, `--consumer`, `--generation`, `--json` |
+| `devkit ack <delivery-id> --json` | Acknowledges a child reply Delivery. | `--consumer`, `--generation`, `--json` |
 
 `watch` reports the Delivery id, replayed flag, covered message sequences, and messages alongside
 `waiting_for_reply`, `done`, `stalled`, or `timeout`. A child should use `ask` or `done` instead
