@@ -231,6 +231,9 @@ installer_select_agents() {
       installer_error "choose at least one installed agent or none"
       return 2
     fi
+    if installer_list_contains "$raw" none; then
+      raw=none
+    fi
   fi
   IFS=',' read -r -a requested <<<"$raw"
   for token in "${requested[@]}"; do
