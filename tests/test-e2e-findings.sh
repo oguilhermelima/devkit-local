@@ -67,6 +67,13 @@ devkit_superset() {
     printf '{"terminalId":"child-terminal"}\n'
     return 0
   fi
+  if [ "$1" = terminals ] && [ "$2" = read ]; then
+    if [ "$host_mode" = read-failure ]; then
+      return 42
+    fi
+    printf '{"terminalId":"child-terminal","text":"READY"}\n'
+    return 0
+  fi
   return 1
 }
 
@@ -89,12 +96,22 @@ fi
 assert_contains "$host_failure_output" 'Superset terminals create failed'
 printf 'host launch failure reports the failed operation\n'
 
+host_mode=read-failure
+: >"$host_call_log"
+if host_read_failure_output="$(devkit_launch_agent "$root" workspace-test codex gpt-5 medium ping label 2>&1)"; then
+  fail 'host read-back failure unexpectedly succeeded'
+fi
+assert_contains "$host_read_failure_output" 'could not be read immediately after creation'
+assert_equal "$(wc -l <"$host_call_log" | tr -d ' ')" 3
+assert_contains "$(sed -n '2p' "$host_call_log")" 'terminals read'
+printf 'host launch fails immediately when terminal read-back fails\n'
+
 host_mode=success
 : >"$host_call_log"
 host_output="$(devkit_launch_agent "$root" workspace-test codex gpt-5 medium ping label 2>&1)"
 assert_contains "$host_output" 'terminalId'
-assert_equal "$(wc -l <"$host_call_log" | tr -d ' ')" 1
-printf 'host launch success persists and sends a dispatch\n'
+assert_equal "$(wc -l <"$host_call_log" | tr -d ' ')" 2
+printf 'host launch success verifies and sends a dispatch\n'
 
 devkit_dispatch_meta_write list-live parent-terminal superset superset workspace-test child-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
 : >"$host_call_log"

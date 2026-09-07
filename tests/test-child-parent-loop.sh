@@ -22,6 +22,10 @@ assert_equal() {
   [ "$1" = "$2" ] || fail "expected '$2', got '$1'"
 }
 
+assert_not_equal() {
+  [ "$1" != "$2" ] || fail "expected values to differ, both were '$1'"
+}
+
 assert_contains() {
   case "$1" in
     *"$2"*) ;;
@@ -158,12 +162,19 @@ assert_claude_idle_fixtures() {
 }
 
 child_command() {
-  local verb="$1" text="$2"
-  shift 2
+  local verb="$1" text="${2:-}"
   if [ "$DEVKIT_TEST_RUNTIME" = tmux ]; then
-    env -u SUPERSET_TERMINAL_ID DEVKIT_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/devkit" "$verb" "$text"
+    if [ "$verb" = received ]; then
+      env -u SUPERSET_TERMINAL_ID DEVKIT_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/devkit" "$verb"
+    else
+      env -u SUPERSET_TERMINAL_ID DEVKIT_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/devkit" "$verb" "$text"
+    fi
   else
-    env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/devkit" "$verb" "$text"
+    if [ "$verb" = received ]; then
+      env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/devkit" "$verb"
+    else
+      env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/devkit" "$verb" "$text"
+    fi
   fi
 }
 
@@ -227,7 +238,15 @@ run_flow() {
     assert_contains "$(tmux_cmd capture-pane -p -t "$child_pane" -S -30)" 'agent-response:chain-launch'
   else
     assert_contains "$(cat "$state_dir/fake-sends.log")" chain-launch
+    assert_not_equal "$dispatch_id" "$(printf '%s' "$dispatch_meta" | jq -r '.terminalId')"
+    assert_contains "$(cat "$state_dir/fake-sends.log")" "SUPERSET_TERMINAL_ID=child-terminal"
+    assert_contains "$(cat "$state_dir/fake-sends.log")" "DEVKIT_DISPATCH_ID=$dispatch_id"
+    assert_contains "$(cat "$state_dir/fake-sends.log")" "DEVKIT_STATE_DIR=$state_dir"
   fi
+  child_command received >/dev/null
+  receipt_delivery="$(parent_watch)"
+  receipt_delivery_id="$(jq -r '.deliveryId' <<<"$receipt_delivery")"
+  parent_ack "$receipt_delivery_id" >/dev/null
   child_command ask "$runtime-question" >/dev/null
   delivery="$(parent_watch)"
   replay="$(parent_watch)"
@@ -279,6 +298,11 @@ run_flow() {
   done_delivery_id="$(jq -r '.deliveryId' <<<"$done_delivery")"
   parent_ack "$done_delivery_id" >/dev/null
   assert_equal "$(jq -r '.duplicate' <<<"$(parent_ack "$done_delivery_id")")" true
+  queue_types="$(find "$state_dir/dispatches/$dispatch_id/messages" -name '*.json' -exec jq -r '[.from, .type] | join("/")' {} \; | sort)"
+  assert_contains "$queue_types" 'child/received'
+  assert_contains "$queue_types" 'child/ask'
+  assert_contains "$queue_types" 'parent/reply'
+  assert_contains "$queue_types" 'child/done'
   if [ "$runtime" = tmux ]; then
     tmux_cmd kill-pane -t "$(printf '%s' "$dispatch_meta" | jq -r '.tmuxPane')"
     devkit_dispatch_close "$dispatch_id" --json >/dev/null
