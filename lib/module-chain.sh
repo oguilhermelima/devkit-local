@@ -497,6 +497,87 @@ devkit_chain_claude_usage() {
   DEVKIT_CHAIN_LIMIT_FETCHED_AT="$now"
 }
 
+devkit_chain_agy_credentials() {
+  local credentials encoded
+  credentials="$(security find-generic-password -s gemini -w 2>/dev/null)" || return 1
+  case "$credentials" in
+    go-keyring-base64:*) encoded="${credentials#go-keyring-base64:}" ;;
+    *) unset credentials; return 2 ;;
+  esac
+  credentials="$(printf '%s' "$encoded" | base64 -D 2>/dev/null)" || { unset encoded; return 2; }
+  DEVKIT_CHAIN_AGY_TOKEN="$(printf '%s' "$credentials" | jq -r '.token // empty' 2>/dev/null)"
+  unset credentials encoded
+  [ -n "$DEVKIT_CHAIN_AGY_TOKEN" ] || return 3
+  return 0
+}
+
+devkit_chain_agy_usage() {
+  local requested_window="$1" response http_status curl_rc=0 url result now credential_rc
+  DEVKIT_CHAIN_AGY_TOKEN=""
+  if devkit_chain_agy_credentials; then
+    credential_rc=0
+  else
+    credential_rc=$?
+  fi
+  if [ "$credential_rc" -ne 0 ]; then
+    case "$credential_rc" in
+      1) devkit_chain_limit_unknown agy "$requested_window" 'Keychain item is missing' ;;
+      2) devkit_chain_limit_unknown agy "$requested_window" 'Keychain credential wrapper is unsupported' ;;
+      *) devkit_chain_limit_unknown agy "$requested_window" 'Keychain credential has no token' ;;
+    esac
+    return 0
+  fi
+  url="${DEVKIT_CHAIN_AGY_USAGE_URL:-https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary}"
+  # WHY: this is an undocumented client endpoint and its response contract can change.
+  response="$(curl -sS --connect-timeout "${DEVKIT_CHAIN_LIMIT_TIMEOUT_SECONDS:-5}" --max-time "${DEVKIT_CHAIN_LIMIT_TIMEOUT_SECONDS:-5}" \
+    -X POST -H "Authorization: Bearer $DEVKIT_CHAIN_AGY_TOKEN" -H 'Content-Type: application/json' \
+    -d '{}' -w '\nDEVKIT_HTTP_STATUS:%{http_code}' "$url" 2>/dev/null)" || curl_rc=$?
+  unset DEVKIT_CHAIN_AGY_TOKEN
+  http_status="${response##*DEVKIT_HTTP_STATUS:}"
+  response="${response%$'\n'DEVKIT_HTTP_STATUS:*}"
+  if [ "$curl_rc" -eq 28 ]; then
+    devkit_chain_limit_unknown agy "$requested_window" 'request timed out'
+    return 0
+  fi
+  if [ "$curl_rc" -ne 0 ] || [ "$http_status" = 000 ]; then
+    devkit_chain_limit_unknown agy "$requested_window" 'network request failed'
+    return 0
+  fi
+  if [ "$http_status" -lt 200 ] || [ "$http_status" -ge 300 ]; then
+    devkit_chain_limit_unknown agy "$requested_window" "provider returned HTTP $http_status"
+    return 0
+  fi
+  now="$(date +%s)"
+  result="$(printf '%s' "$response" | jq -c --argjson fetchedAt "$now" '
+    def reset_at:
+      (.reset_at // .resets_at // .reset_time // .resetTime // empty) as $reset |
+      if ($reset | type) == "string" then $reset
+      elif ($reset | type) == "object" and ($reset.seconds? | type) == "number" then ($reset.seconds | todateiso8601)
+      else empty end;
+    def quota_entries($bucket):
+      to_entries |
+      map(select((.value.remaining_fraction | type) == "number") |
+        select((.value | reset_at) != "") |
+        {name: (if (.key | endswith("-5h")) then "5h" elif (.key | endswith("-weekly")) then "weekly" else empty end),
+         bucket: $bucket,
+         usedPercent: ((100 - (.value.remaining_fraction * 100)) | if . < 0 then 0 elif . > 100 then 100 else . end),
+         remainingPercent: ((.value.remaining_fraction * 100) | if . < 0 then 0 elif . > 100 then 100 else . end),
+         resetsAt: (.value | reset_at)}) |
+      map(select(.name != null));
+    ((.quota // {}) | if type == "object" then quota_entries("default") else [] end) as $legacy |
+    (if (.buckets? | type) == "array" then
+       [.buckets[] | . as $group | (($group.quota // $group) | if type == "object" then quota_entries($group.displayName // $group.name // "unknown") else [] end)] | add
+     else [] end) as $groups |
+    {provider: "agy", fetchedAt: $fetchedAt, windows: ($legacy + $groups)}
+  ' 2>/dev/null)"
+  if [ -z "$result" ] || ! printf '%s' "$result" | jq -e '.windows | length > 0' >/dev/null 2>&1; then
+    devkit_chain_limit_unknown agy "$requested_window" 'response body is unparseable or incomplete'
+    return 0
+  fi
+  DEVKIT_CHAIN_LIMIT_RESULT="$result"
+  DEVKIT_CHAIN_LIMIT_FETCHED_AT="$now"
+}
+
 devkit_chain_limit_read() {
   local agent="$1" window="$2" rollout snapshot field expected_minutes now fetched_at result
   DEVKIT_CHAIN_LIMIT_STATUS=unknown
@@ -516,7 +597,12 @@ devkit_chain_limit_read() {
           [ -n "$DEVKIT_CHAIN_LIMIT_REASON" ] || devkit_chain_limit_unknown claude "$window" 'provider reader returned no result'
         fi
       else
-        devkit_chain_limit_unknown agy "$window" 'provider reader not installed'
+        devkit_chain_agy_usage "$window"
+        if [ -n "$DEVKIT_CHAIN_LIMIT_RESULT" ]; then
+          devkit_chain_limit_apply "$DEVKIT_CHAIN_LIMIT_RESULT" agy "$window" live
+        else
+          [ -n "$DEVKIT_CHAIN_LIMIT_REASON" ] || devkit_chain_limit_unknown agy "$window" 'provider reader returned no result'
+        fi
       fi
       return 0
       ;;
