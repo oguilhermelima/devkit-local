@@ -188,7 +188,8 @@ devkit_agent_command() {
   local agent_lower model_flag model_format effort_flag effort_format model_value effort_value
   local option_template known_agent known_model_flag known_model_format known_effort_flag known_effort_format
   local launch_agent launch_arg
-  local -a command_parts
+  shift 3
+  local -a command_parts passthrough_args=("$@")
   command_parts=("$agent")
   agent_lower="$(devkit_lower "$agent")"
   while IFS='|' read -r launch_agent launch_arg; do
@@ -214,6 +215,7 @@ EOF
     printf -v effort_value "$effort_format" "$effort"
     command_parts+=("$effort_flag" "$effort_value")
   fi
+  command_parts+=("${passthrough_args[@]}")
   printf '%q ' "${command_parts[@]}"
 }
 
@@ -309,6 +311,9 @@ devkit_launch_agent() {
   local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
   local context command_text response session_id final_prompt parent_id parent_host child_host branch
   local agent_used model_honored=false dispatch_id runtime tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false
+  local -a passthrough_args
+  shift 7
+  passthrough_args=("$@")
   DEVKIT_LAST_DISPATCH=""
   devkit_session_id >/dev/null
   parent_id="$DEVKIT_SESSION_ID"
@@ -377,7 +382,7 @@ devkit_launch_agent() {
       devkit_error "could not apply devkit tmux configuration to $tmux_session"
       return 1
     }
-    command_text="$(devkit_agent_command "$agent_used" "$model" "$effort")"
+    command_text="$(devkit_agent_command "$agent_used" "$model" "$effort" "${passthrough_args[@]}")"
     command_text="cd $(printf '%q' "$worktree_path") && DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") DEVKIT_TMUX_SESSION=$(printf '%q' "$tmux_session") DEVKIT_TMUX_PANE=$(printf '%q' "$tmux_pane") $command_text"
     devkit_dispatch_meta_write "$dispatch_id" "$parent_id" "$parent_host" "$context" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" true "$agent_used" "$tmux_session" "$tmux_pane" tmux >/dev/null || {
       devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
@@ -404,7 +409,7 @@ devkit_launch_agent() {
     printf '%s\n' "$response"
     return 0
   fi
-  command_text="$(devkit_agent_command "$agent" "$model" "$effort")"
+  command_text="$(devkit_agent_command "$agent" "$model" "$effort" "${passthrough_args[@]}")"
   case "$context" in
     orca)
       devkit_require_command orca || { devkit_error "orca CLI is not available"; return 1; }
@@ -512,6 +517,7 @@ devkit_terminal_create() {
 devkit_worktree_create() {
   local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" prompt="" label="" worktree_selector="" orchestrate=false json=false reused=false
   local arg repo_path shared_root worktree_path project_id workspace_id dispatch="" host runtime="" tmux_choice=auto
+  local -a agent_args=()
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -526,10 +532,15 @@ devkit_worktree_create() {
       --label) label="${2:-}"; shift 2 ;;
       --worktree) worktree_selector="${2:-}"; shift 2 ;;
       --tmux) tmux_choice="${2:-}"; shift 2 ;;
+      --agent-arg)
+        [ "$#" -ge 2 ] && [ -n "${2:-}" ] || { devkit_error "--agent-arg requires a non-empty value"; return "$DEVKIT_USAGE_ERROR"; }
+        agent_args+=("$2")
+        shift 2
+        ;;
       --orchestrate) orchestrate=true; shift ;;
       --json) json=true; shift ;;
       -h|--help)
-        printf 'Usage: devkit worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--json]\n'
+        printf 'Usage: devkit worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]\n'
         return 0
         ;;
       *) devkit_error "unknown worktree create option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
@@ -620,9 +631,9 @@ devkit_worktree_create() {
   fi
   if [ -n "$agent" ]; then
     if [ "$json" = true ]; then
-      devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" >/dev/null || return 1
+      devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "${agent_args[@]}" >/dev/null || return 1
     else
-      devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" || return 1
+      devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "${agent_args[@]}" || return 1
     fi
     dispatch="$DEVKIT_LAST_DISPATCH"
     runtime="$DEVKIT_LAST_RUNTIME"
