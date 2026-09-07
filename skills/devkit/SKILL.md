@@ -42,3 +42,5 @@ Superset tabs are not titled; only Orca tabs are.
 Dispatch messages are append-only under $DEVKIT_STATE_DIR/dispatches/; direct-parent ownership is
 required for reply and close. Closing a Superset dispatch leaves its pane visible as Desconectado
 until the human dismisses it with the pane X because no CLI verb removes that pane.
+
+To fix tmux colours and match the default terminal, run `devkit tmux tune`.

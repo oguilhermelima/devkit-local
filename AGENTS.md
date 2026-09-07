@@ -41,3 +41,5 @@ This repository ships one shared skill at `skills/devkit/SKILL.md`. Claude Code 
 point at this repository and both agent manifests load the shared `skills/` directory. Use
 `install.sh --agents claude,codex,agy --skill global` to register the installed agent CLIs, or
 `--skill project` for Claude's project-local bare skill fallback.
+
+To fix tmux colours and match the default terminal, run `devkit tmux tune`.

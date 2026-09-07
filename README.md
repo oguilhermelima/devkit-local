@@ -83,6 +83,10 @@ agent command line, real splits for siblings in one tab, per-pane reads, and a c
 the pane. The host app then no longer treats the child as one of its agents, so features tied to
 that (Superset resume/fork/handoff and its agent-attention badge) do not apply.
 
+### Tmux tuning
+
+To fix tmux colours and match the default terminal, run `devkit tmux tune`.
+
 ## Command reference
 
 ### Install and diagnostics
