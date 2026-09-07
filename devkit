@@ -43,7 +43,7 @@ Commands:
   orchestrate ack <dispatch-id> ...    Acknowledge a delivery batch
   orchestrate reply <dispatch-id> ...  Reply to a waiting Superset dispatch
   orchestrate close <dispatch-id> ...  Close a Superset dispatch terminal
-  chain list|add|edit|delete|run ...  Manage ordered child-agent chains
+  chain list|limits|add|edit|delete|run ...  Manage ordered child-agent chains
   ask "question"                       Ask the direct coordinator from a child dispatch
   done "summary"                        Mark a child dispatch done
   native appium start|stop|status      Manage the shared Appium server

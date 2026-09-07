@@ -361,6 +361,96 @@ command_chain_delete() {
   fi
 }
 
+devkit_chain_limits_update_providers() {
+  local config="$1" action="$2" providers="$3" provider result
+  result="$config"
+  while IFS= read -r provider; do
+    [ -n "$provider" ] || continue
+    devkit_chain_agent_known "$provider" || { devkit_error "unknown provider: $provider"; return 1; }
+    if [ "$action" = enable ]; then
+      result="$(printf '%s' "$result" | jq --arg provider "$provider" '
+        .usageLimits = ((.usageLimits // {}) + {liveProviders: ((.usageLimits.liveProviders // []) + [$provider] | unique), cacheTtlSeconds: (.usageLimits.cacheTtlSeconds // 30), timeoutSeconds: (.usageLimits.timeoutSeconds // 5), notice: (.usageLimits.notice // {enabled: false, intervalSeconds: 3600})})
+      ')"
+    else
+      result="$(printf '%s' "$result" | jq --arg provider "$provider" '
+        .usageLimits = ((.usageLimits // {}) + {liveProviders: ((.usageLimits.liveProviders // []) - [$provider]), cacheTtlSeconds: (.usageLimits.cacheTtlSeconds // 30), timeoutSeconds: (.usageLimits.timeoutSeconds // 5), notice: (.usageLimits.notice // {enabled: false, intervalSeconds: 3600})})
+      ')"
+    fi
+  done < <(printf '%s' "$providers" | tr ',' '\n')
+  printf '%s' "$result"
+}
+
+devkit_chain_limits_print_rows() {
+  local agent="$1" result="$2" source="$3" fetched_at="$4" reason="$5" requested_window="${6:-}" window used reset bucket
+  if [ -n "$result" ]; then
+    while IFS=$'\t' read -r window bucket used reset; do
+      if [ "${DEVKIT_CHAIN_LIMIT_STATUS:-unknown}" = current ]; then
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t%s\n' "$agent" "$window" current "$used" "$reset" "$source" "$fetched_at" "$bucket"
+      else
+        printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\n' "$agent" "$window" "$fetched_at" "$reason"
+      fi
+    done < <(printf '%s' "$result" | jq -r '.windows[]? | [.name, (.bucket // "default"), .usedPercent, .resetsAt] | @tsv')
+  else
+    if [ -n "$requested_window" ]; then
+      printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\n' "$agent" "$requested_window" "$fetched_at" "$reason"
+    else
+      for window in 5h weekly; do
+        printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\n' "$agent" "$window" "$fetched_at" "$reason"
+      done
+    fi
+  fi
+}
+
+command_chain_limits() {
+  local json=false enable="" disable="" arg config result agent window rows line tmp_file first_reason
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=true ;;
+      --enable) enable="${2:-}"; shift 2 ;;
+      --disable) disable="${2:-}"; shift 2 ;;
+      -h|--help) printf 'Usage: devkit chain limits [--json] [--enable <providers>] [--disable <providers>]\n'; return 0 ;;
+      *) devkit_error "unknown chain limits option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+    esac
+    [ "$arg" = --enable ] || [ "$arg" = --disable ] || shift
+  done
+  config="$(devkit_chain_read)" || return 1
+  devkit_chain_validate_config "$config" || return 1
+  result="$config"
+  if [ -n "$enable" ]; then
+    result="$(devkit_chain_limits_update_providers "$result" enable "$enable")" || return 1
+  fi
+  if [ -n "$disable" ]; then
+    result="$(devkit_chain_limits_update_providers "$result" disable "$disable")" || return 1
+  fi
+  if [ "$result" != "$config" ]; then
+    devkit_chain_validate_config "$result" || return 1
+    devkit_chain_write "$result" || return 1
+    config="$result"
+  fi
+  tmp_file="$(mktemp "$DEVKIT_STATE_DIR/chain-limits.XXXXXX")" || return 1
+  for agent in codex claude agy; do
+    devkit_chain_limit_read "$agent" 5h
+    if [ -n "$DEVKIT_CHAIN_LIMIT_RESULT" ]; then
+      devkit_chain_limits_print_rows "$agent" "$DEVKIT_CHAIN_LIMIT_RESULT" "$DEVKIT_CHAIN_LIMIT_SOURCE" "$DEVKIT_CHAIN_LIMIT_FETCHED_AT" "$DEVKIT_CHAIN_LIMIT_REASON" >>"$tmp_file"
+    else
+      first_reason="$DEVKIT_CHAIN_LIMIT_REASON"
+      devkit_chain_limit_read "$agent" weekly
+      devkit_chain_limits_print_rows "$agent" '' unknown "$DEVKIT_CHAIN_LIMIT_FETCHED_AT" "$first_reason" 5h >>"$tmp_file"
+      devkit_chain_limits_print_rows "$agent" '' unknown "$DEVKIT_CHAIN_LIMIT_FETCHED_AT" "$DEVKIT_CHAIN_LIMIT_REASON" weekly >>"$tmp_file"
+    fi
+  done
+  if [ "$json" = true ]; then
+    jq -Rn '[inputs | split("\t") | {provider: .[0], window: .[1], status: .[2], usedPercent: (if .[3] == "" then null else (.[3] | tonumber) end), resetsAt: (if .[4] == "" then null else .[4] end), source: .[5], fetchedAt: (if .[6] == "" then null else (.[6] | tonumber) end), reason: (if .[7] == "" then null else .[7] end), bucket: (if .[8] == "" then null else .[8] end)}]' "$tmp_file"
+  else
+    printf '%-8s %-8s %-9s %-12s %-28s %-8s %s\n' PROVIDER WINDOW STATUS USED RESET SOURCE REASON
+    while IFS=$'\t' read -r agent window line used reset result fetched_at reason; do
+      printf '%-8s %-8s %-9s %-12s %-28s %-8s %s\n' "$agent" "$window" "$line" "${used:--}" "${reset:--}" "$result" "${reason:--}"
+    done <"$tmp_file"
+  fi
+  rm -f "$tmp_file"
+}
+
 DEVKIT_CHAIN_LIMIT_STATUS="unknown"
 DEVKIT_CHAIN_LIMIT_USED=""
 DEVKIT_CHAIN_LIMIT_RESETS=""
@@ -1000,12 +1090,13 @@ command_chain() {
   shift || true
   case "$subcommand" in
     list) command_chain_list "$@" ;;
+    limits) command_chain_limits "$@" ;;
     add) command_chain_add "$@" ;;
     edit) command_chain_edit "$@" ;;
     delete) command_chain_delete "$@" ;;
     run) command_chain_run "$@" ;;
     -h|--help|"")
-      printf 'Usage: devkit chain list|add|edit|delete|run ...\n'
+      printf 'Usage: devkit chain list|limits|add|edit|delete|run ...\n'
       ;;
     *) devkit_error "unknown chain command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
   esac
