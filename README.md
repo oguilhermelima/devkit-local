@@ -54,6 +54,50 @@ Their trimmed output shapes are:
 `orchestrate spawn` must run inside a managed Orca or Superset terminal. It creates the worktree,
 registers it, starts the child agent, waits for readiness, and sends the prompt in one operation.
 
+### Agent chains
+
+`devkit chain` stores ordered fallback agents in `$DEVKIT_STATE_DIR/chains.json` (by default
+`~/.devkit/chains.json`). A chain name is the parent agent it applies to; it is not the child
+agent that the chain launches. The first use seeds exactly the `claude`, `codex`, and `agy`
+parent-agent chains. Their selectors contain only `parentAgent`; selectors may also use
+`parentModel` and `parentEffort` in user-created chains.
+
+List and manage chains with JSON definitions:
+
+```sh
+devkit chain list [--json]
+devkit chain add <name> --when '{"parentAgent":"codex"}' \
+  --steps '[{"agent":"agy","model":"gemini-2.5-pro","effort":"high"}]' [--json]
+devkit chain edit <name> [--json]
+devkit chain delete <name> [--json]
+```
+
+`add` and `edit` validate the complete configuration before replacing the file. Steps require a
+known agent (`codex`, `claude`, or `agy`), model, effort, and, when present, an `until` object with
+`usedPercent` and `window` (`5h` or `weekly`). `edit` opens a temporary copy with `$EDITOR` and
+leaves the real file untouched when validation fails or the editor makes no change.
+
+Run a chain with the same launch options as `orchestrate spawn`:
+
+```sh
+devkit chain run [name] --parent-agent codex --repo "$PWD" --branch feature/child \
+  --prompt "Inspect the task" [--json]
+```
+
+An explicit name wins. Without one, the most-specific matching selector wins; an equally specific
+tie is an error. Missing parent model or effort values do not satisfy a requirement. If no chain
+matches, `defaultSteps` is selected and the report says so. Every report identifies the selected
+chain, step position, and reasons earlier steps were skipped; the same decision is saved in the
+dispatch `chain` object in `meta.json`.
+
+Limits are checked before launch. The codex provider reads the newest rollout snapshot under
+`~/.codex/sessions` and supports the 5-hour and weekly windows. A snapshot whose reset has passed
+is stale and becomes unknown. Claude and agy currently have an explicit unknown provider stub;
+unknown is usable and never counts as exhausted. A launch failure is always a valid reason to
+advance to the next step. Keychain or provider-API readers deliberately do not belong in this
+change: they plug into the per-agent `devkit_chain_limit_read` provider seam in
+`lib/module-chain.sh`.
+
 ### Spawn runtimes
 
 The runtime is resolved once before the worktree or terminal is created:

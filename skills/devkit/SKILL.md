@@ -27,6 +27,7 @@ description: >-
 - Spawn prompt budgets are 262144 bytes on argv paths and 12000 bytes on tmux paths.
 - If you need to reply to a Superset dispatch, run: devkit orchestrate reply <dispatch-id> --text <answer> [--json]
 - If you need to close a Superset dispatch, run: devkit orchestrate close <dispatch-id> [--json]
+- If you need to manage ordered child-agent chains, run: devkit chain list|add|edit|delete|run ...
 - If you need to reconcile a dispatch without respawning it, run: devkit orchestrate reconcile <dispatch-id> [--json]
 - If you need to override retained-terminal protection, run: devkit orchestrate close <dispatch-id> --force-release [--json]
 - If you are a child session, send a question with devkit ask "question" or completion with devkit done "summary".
@@ -51,3 +52,16 @@ until the human dismisses it with the pane X because no CLI verb removes that pa
 
 To fix tmux colours and match the default terminal, run `devkit tmux tune`.
 To install the hand-typed agent tmux wrapper, run `devkit tmux wrapper`.
+
+Chain names identify the parent agent they apply to, not the child they launch. The first use
+creates the `claude`, `codex`, and `agy` parent-agent chains. `run` selects an explicit name first,
+then the most-specific matching `parentAgent`, `parentModel`, and `parentEffort` selectors, and
+finally `defaultSteps`. Equal-specificity matches fail instead of choosing arbitrarily. Unknown
+parent values do not satisfy a selector.
+
+`run` delegates every launch to `orchestrate spawn`; it does not duplicate runtime or terminal
+creation. Each result reports the chain, step position, and skip reasons, and persists that choice
+in dispatch metadata. A limit condition may skip a step, while a launch failure always advances to
+the next one. Unknown limits are usable. Codex limits are read from the newest disk rollout; Claude
+and agy providers are currently unknown stubs. Provider implementations belong in
+`lib/module-chain.sh` through `devkit_chain_limit_read`.
