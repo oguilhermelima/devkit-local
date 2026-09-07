@@ -184,6 +184,69 @@ devkit_dispatch_message_append() {
   printf '%s\n' "$seq"
 }
 
+devkit_dispatch_message_paths() {
+  local messages_dir="$1" path seq
+  for path in "$messages_dir"/*.json; do
+    [ -f "$path" ] || continue
+    seq="$(jq -r '.seq // 0' "$path" 2>/dev/null || true)"
+    [[ "$seq" =~ ^[0-9]+$ ]] || continue
+    printf '%s\t%s\n' "$seq" "$path"
+  done | sort -n -k1,1
+}
+
+devkit_dispatch_seq_acknowledged() {
+  local deliveries_dir="$1" seq="$2" path
+  for path in "$deliveries_dir"/*.json; do
+    [ -f "$path" ] || continue
+    if jq -e --argjson seq "$seq" '.status == "acknowledged" and ((.messageSeqs // []) | index($seq) != null)' "$path" >/dev/null 2>&1; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+devkit_dispatch_delivery_report() {
+  local dispatch_id="$1" delivery_id="$2" replayed="$3" json="$4"
+  local record messages_dir deliveries_dir message_seqs messages='[]' path seq from type text status='done'
+  record="$(cat "$(devkit_dispatch_delivery_path "$dispatch_id" "$delivery_id")")" || return 1
+  messages_dir="$(devkit_dispatch_messages_dir "$dispatch_id")"
+  deliveries_dir="$(devkit_dispatch_deliveries_dir "$dispatch_id")"
+  message_seqs="$(printf '%s' "$record" | jq -c '.messageSeqs')"
+  while IFS=$'\t' read -r seq path; do
+    [ -n "$path" ] || continue
+    if ! jq -n -e --argjson seqs "$message_seqs" --argjson seq "$seq" '$seqs | index($seq) != null' >/dev/null 2>&1; then
+      continue
+    fi
+    messages="$(jq --argjson item "$(cat "$path")" '. + [$item]' <<<"$messages")" || return 1
+  done < <(devkit_dispatch_message_paths "$messages_dir")
+  type="$(printf '%s' "$messages" | jq -r '.[0].type // empty')"
+  case "$type" in
+    ask) status=waiting_for_reply ;;
+    done) status=done ;;
+    stalled) status=stalled ;;
+    *) status=done ;;
+  esac
+  if [ "$json" = true ]; then
+    jq -n --arg dispatchId "$dispatch_id" --arg deliveryId "$delivery_id" \
+      --argjson replayed "$(devkit_bool_json "$replayed")" --arg status "$status" \
+      --argjson messageSeqs "$message_seqs" --argjson messages "$messages" \
+      '{dispatchId: $dispatchId, deliveryId: $deliveryId, replayed: $replayed, status: $status, messageSeqs: $messageSeqs, messages: $messages, text: ($messages | map(.text // "") | join("\n"))}'
+  else
+    printf 'delivery: %s\nreplayed: %s\nstatus: %s\n' "$delivery_id" "$replayed" "$status"
+    printf '%s\n' "$messages" | jq -r '.[] | "[" + (.seq|tostring) + "] " + (.type // "message") + ": " + (.text // "")'
+  fi
+}
+
+devkit_dispatch_empty_delivery_report() {
+  local dispatch_id="$1" json="$2"
+  if [ "$json" = true ]; then
+    jq -n --arg dispatchId "$dispatch_id" \
+      '{dispatchId: $dispatchId, deliveryId: null, replayed: false, status: "timeout", messageSeqs: [], messages: [], text: ""}'
+  else
+    devkit_dispatch_report "$dispatch_id" timeout "" false
+  fi
+}
+
 devkit_dispatch_require_session() {
   devkit_session_id >/dev/null
   if [ -z "${DEVKIT_SESSION_ID:-}" ]; then
@@ -332,8 +395,9 @@ devkit_dispatch_report() {
 }
 
 devkit_dispatch_watch() {
-  local dispatch_id="${1:-}" timeout=120 poll_interval=3 json=false arg meta cursor start_time now path
-  local seq from type text reported=false
+  local dispatch_id="${1:-}" timeout=120 poll_interval=3 json=false arg meta start_time now
+  local consumer="${DEVKIT_CONSUMER_ID:-}" generation="${DEVKIT_CONSUMER_GENERATION:-1}"
+  local messages_dir deliveries_dir lock path seq from type message_seqs delivery_id outstanding_path outstanding_consumer outstanding_generation
   [ -n "$dispatch_id" ] || { devkit_error "Usage: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
@@ -341,39 +405,147 @@ devkit_dispatch_watch() {
     case "$arg" in
       --timeout) timeout="${2:-}"; shift 2 ;;
       --poll-interval) poll_interval="${2:-}"; shift 2 ;;
+      --consumer) consumer="${2:-}"; shift 2 ;;
+      --generation) generation="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--consumer <id>] [--generation <number>] [--json]\n'; return 0 ;;
       *) devkit_error "unknown orchestrate watch option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
   [[ "$timeout" =~ ^[0-9]+$ ]] || { devkit_error "--timeout must be a non-negative number of seconds"; return "$DEVKIT_USAGE_ERROR"; }
   [[ "$poll_interval" =~ ^[0-9]+$ ]] || { devkit_error "--poll-interval must be a non-negative number of seconds"; return "$DEVKIT_USAGE_ERROR"; }
+  [[ "$generation" =~ ^[1-9][0-9]*$ ]] || { devkit_error "--generation must be a positive number"; return "$DEVKIT_USAGE_ERROR"; }
+  [[ "$DEVKIT_DISPATCH_DELIVERY_BATCH_CAP" =~ ^[1-9][0-9]*$ ]] || { devkit_error "delivery batch cap is invalid"; return 1; }
   meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
-  cursor="$(devkit_dispatch_cursor_read "$dispatch_id")" || return 1
+  [ -n "$consumer" ] || consumer="$DEVKIT_SESSION_HOST/$DEVKIT_SESSION_ID"
+  [ -n "$consumer" ] || { devkit_error "consumer identity is empty"; return 1; }
+  messages_dir="$(devkit_dispatch_messages_dir "$dispatch_id")"
+  deliveries_dir="$(devkit_dispatch_deliveries_dir "$dispatch_id")"
+  mkdir -p "$deliveries_dir" || return 1
+  lock="$messages_dir/.lock"
   start_time="$(date +%s)"
   while true; do
-    for path in "$(devkit_dispatch_messages_dir "$dispatch_id")"/*.json; do
+    while ! mkdir "$lock" 2>/dev/null; do sleep 0.02; done
+    outstanding_path=""
+    for path in "$deliveries_dir"/*.json; do
       [ -f "$path" ] || continue
-      seq="$(jq -r '.seq // 0' "$path" 2>/dev/null || true)"
-      [[ "$seq" =~ ^[0-9]+$ ]] || continue
-      [ "$seq" -gt "$cursor" ] || continue
+      if [ "$(jq -r '.status // empty' "$path" 2>/dev/null || true)" = outstanding ]; then
+        outstanding_path="$path"
+        break
+      fi
+    done
+    if [ -n "$outstanding_path" ]; then
+      outstanding_consumer="$(jq -r '.consumer // empty' "$outstanding_path")"
+      outstanding_generation="$(jq -r '.consumerGeneration // empty' "$outstanding_path")"
+      delivery_id="$(jq -r '.id // empty' "$outstanding_path")"
+      if [ "$outstanding_consumer" = "$consumer" ] && [ "$outstanding_generation" = "$generation" ]; then
+        rmdir "$lock"
+        devkit_dispatch_delivery_report "$dispatch_id" "$delivery_id" true "$json"
+        return $?
+      fi
+      rmdir "$lock"
+      devkit_error "delivery $delivery_id is outstanding for consumer $outstanding_consumer generation $outstanding_generation"
+      return 1
+    fi
+    message_seqs='[]'
+    while IFS=$'\t' read -r seq path; do
+      [ -n "$path" ] || continue
       from="$(jq -r '.from // empty' "$path")"
       type="$(jq -r '.type // empty' "$path")"
       [ "$from" = child ] || continue
-      case "$type" in
-        ask) text="$(jq -r '.text // empty' "$path")"; devkit_dispatch_cursor_write "$dispatch_id" "$seq" || return 1; devkit_dispatch_report "$dispatch_id" waiting_for_reply "$text" "$json"; reported=true ;;
-        done) text="$(jq -r '.text // empty' "$path")"; devkit_dispatch_cursor_write "$dispatch_id" "$seq" || return 1; devkit_dispatch_report "$dispatch_id" done "$text" "$json"; reported=true ;;
-        stalled) text="$(jq -r '.text // empty' "$path")"; devkit_dispatch_cursor_write "$dispatch_id" "$seq" || return 1; devkit_dispatch_report "$dispatch_id" stalled "$text" "$json"; reported=true ;;
-      esac
-      [ "$reported" = true ] && return 0
-    done
+      case "$type" in ask|done|stalled) ;; *) continue ;; esac
+      devkit_dispatch_seq_acknowledged "$deliveries_dir" "$seq" && continue
+      message_seqs="$(jq --argjson seq "$seq" '. + [$seq]' <<<"$message_seqs")" || { rmdir "$lock"; return 1; }
+      [ "$(jq 'length' <<<"$message_seqs")" -ge "$DEVKIT_DISPATCH_DELIVERY_BATCH_CAP" ] && break
+    done < <(devkit_dispatch_message_paths "$messages_dir")
+    if [ "$(jq 'length' <<<"$message_seqs")" -gt 0 ]; then
+      delivery_id="$(devkit_dispatch_new_delivery_id "$dispatch_id")" || { rmdir "$lock"; return 1; }
+      devkit_dispatch_delivery_write "$dispatch_id" "$delivery_id" "$consumer" "$generation" "$message_seqs" || { rmdir "$lock"; return 1; }
+      rmdir "$lock"
+      devkit_dispatch_delivery_report "$dispatch_id" "$delivery_id" false "$json"
+      return $?
+    fi
+    rmdir "$lock"
     now="$(date +%s)"
     if [ $((now - start_time)) -ge "$timeout" ]; then
-      devkit_dispatch_report "$dispatch_id" timeout "" "$json"
+      devkit_dispatch_empty_delivery_report "$dispatch_id" "$json"
       return 0
     fi
     sleep "$poll_interval"
   done
+}
+
+devkit_dispatch_ack() {
+  local dispatch_id="${1:-}" delivery_id="${2:-}" consumer="${DEVKIT_CONSUMER_ID:-}" generation="${DEVKIT_CONSUMER_GENERATION:-1}"
+  local json=false arg meta path status record_consumer record_generation lock tmp now message_seqs
+  [ -n "$dispatch_id" ] && [ -n "$delivery_id" ] || { devkit_error "Usage: devkit orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
+  shift 2
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --consumer) consumer="${2:-}"; shift 2 ;;
+      --generation) generation="${2:-}"; shift 2 ;;
+      --json) json=true; shift ;;
+      -h|--help) printf 'Usage: devkit orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json]\n'; return 0 ;;
+      *) devkit_error "unknown orchestrate ack option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+    esac
+  done
+  [[ "$generation" =~ ^[1-9][0-9]*$ ]] || { devkit_error "--generation must be a positive number"; return "$DEVKIT_USAGE_ERROR"; }
+  meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
+  [ -n "$consumer" ] || consumer="$DEVKIT_SESSION_HOST/$DEVKIT_SESSION_ID"
+  [ -n "$consumer" ] || { devkit_error "consumer identity is empty"; return 1; }
+  path="$(devkit_dispatch_delivery_path "$dispatch_id" "$delivery_id")" || return 1
+  [ -f "$path" ] || { devkit_error "delivery $delivery_id refused: delivery is unknown"; return 1; }
+  lock="$(devkit_dispatch_messages_dir "$dispatch_id")/.lock"
+  while ! mkdir "$lock" 2>/dev/null; do sleep 0.02; done
+  status="$(jq -r '.status // empty' "$path")"
+  case "$status" in
+    acknowledged)
+      message_seqs="$(jq -c '.messageSeqs // []' "$path")"
+      rmdir "$lock"
+      if [ "$json" = true ]; then
+        jq -n --arg dispatchId "$dispatch_id" --arg deliveryId "$delivery_id" --argjson messageSeqs "$message_seqs" \
+          '{dispatchId: $dispatchId, deliveryId: $deliveryId, acknowledged: true, duplicate: true, status: "acknowledged", messageSeqs: $messageSeqs}'
+      else
+        printf 'acknowledged: %s\nduplicate: true\n' "$delivery_id"
+      fi
+      return 0
+      ;;
+    fenced)
+      rmdir "$lock"
+      devkit_error "delivery $delivery_id refused: delivery is fenced"
+      return 1
+      ;;
+    outstanding) ;;
+    *)
+      rmdir "$lock"
+      devkit_error "delivery $delivery_id refused: status is invalid ($status)"
+      return 1
+      ;;
+  esac
+  record_consumer="$(jq -r '.consumer // empty' "$path")"
+  record_generation="$(jq -r '.consumerGeneration // empty' "$path")"
+  if [ "$record_consumer" != "$consumer" ] || [ "$record_generation" != "$generation" ]; then
+    rmdir "$lock"
+    devkit_error "delivery $delivery_id refused: outstanding delivery belongs to consumer $record_consumer generation $record_generation"
+    return 1
+  fi
+  now="$(devkit_iso_now)"
+  tmp="$(mktemp "$(dirname "$path")/.delivery.XXXXXX")" || { rmdir "$lock"; return 1; }
+  if ! jq --arg now "$now" '.status = "acknowledged" | .acknowledgedAt = $now | .updatedAt = $now' "$path" >"$tmp"; then
+    rm -f "$tmp"
+    rmdir "$lock"
+    return 1
+  fi
+  mv -f "$tmp" "$path"
+  message_seqs="$(jq -c '.messageSeqs // []' "$path")"
+  rmdir "$lock"
+  if [ "$json" = true ]; then
+    jq -n --arg dispatchId "$dispatch_id" --arg deliveryId "$delivery_id" --argjson messageSeqs "$message_seqs" \
+      '{dispatchId: $dispatchId, deliveryId: $deliveryId, acknowledged: true, duplicate: false, status: "acknowledged", messageSeqs: $messageSeqs}'
+  else
+    printf 'acknowledged: %s\nduplicate: false\n' "$delivery_id"
+  fi
 }
 
 devkit_dispatch_reply() {
