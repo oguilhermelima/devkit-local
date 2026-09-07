@@ -8,6 +8,7 @@ DEVKIT_AGENT_LAUNCH_ARGS='codex|--dangerously-bypass-hook-trust
 codex|--dangerously-bypass-approvals-and-sandbox
 claude|--dangerously-skip-permissions
 agy|--dangerously-skip-permissions'
+DEVKIT_AGENT_READY_TIMEOUT_MS="${DEVKIT_AGENT_READY_TIMEOUT_MS:-10000}"
 
 devkit_worktree_root() {
   local raw read_only=false
@@ -189,7 +190,8 @@ devkit_agent_command() {
   local option_template known_agent known_model_flag known_model_format known_effort_flag known_effort_format
   local launch_agent launch_arg
   shift 3
-  local -a command_parts passthrough_args=("$@")
+  local -a command_parts passthrough_args=()
+  [ "$#" -eq 0 ] || passthrough_args=("$@")
   command_parts=("$agent")
   agent_lower="$(devkit_lower "$agent")"
   while IFS='|' read -r launch_agent launch_arg; do
@@ -307,13 +309,54 @@ devkit_tmux_cleanup_launch() {
   fi
 }
 
+devkit_host_cleanup_launch() {
+  local context="$1" workspace_id="$2" terminal_id="$3"
+  case "$context" in
+    superset) devkit_superset terminals close --workspace "$workspace_id" --terminal "$terminal_id" --json >/dev/null 2>&1 || true ;;
+    orca) orca terminal close --terminal "$terminal_id" --json >/dev/null 2>&1 || true ;;
+  esac
+}
+
+devkit_superset_wait_for_terminal_ready() {
+  local workspace_id="$1" terminal_id="$2" timeout_ms="${DEVKIT_AGENT_READY_TIMEOUT_MS:-10000}"
+  local attempts=$(( (timeout_ms + 99) / 100 )) attempt output rendered previous=""
+  [ "$attempts" -gt 0 ] || attempts=1
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    output="$(devkit_superset terminals read --workspace "$workspace_id" --terminal "$terminal_id" --json 2>/dev/null || true)"
+    rendered="$(printf '%s' "$output" | jq -r '
+      if type == "string" then .
+      elif type == "object" then (.text // .output // .content // .result.text // .result.output // tostring)
+      else tostring
+      end
+    ' 2>/dev/null || true)"
+    if [ -n "$(printf '%s' "$rendered" | tr -d '[:space:]')" ] && [ "$rendered" = "$previous" ]; then
+      return 0
+    fi
+    previous="$rendered"
+    sleep 0.1
+  done
+  devkit_error "Superset terminal $terminal_id did not settle within ${timeout_ms}ms"
+  return 1
+}
+
+devkit_spawn_mark_prompt_delivered() {
+  devkit_dispatch_meta_update_prompt "$1" true delivered
+}
+
+devkit_spawn_mark_prompt_failed() {
+  local dispatch_id="$1" reason="$2"
+  devkit_dispatch_meta_update_prompt "$dispatch_id" false not-delivered "$reason" >/dev/null 2>&1 || true
+  devkit_dispatch_meta_update_state "$dispatch_id" failed >/dev/null 2>&1 || true
+  devkit_dispatch_meta_update_process_state "$dispatch_id" failed >/dev/null 2>&1 || true
+}
+
 devkit_launch_agent() {
   local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
   local context command_text response session_id final_prompt parent_id parent_host child_host branch
   local agent_used model_honored=false dispatch_id runtime tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false
-  local -a passthrough_args
+  local -a passthrough_args=()
   shift 7
-  passthrough_args=("$@")
+  [ "$#" -eq 0 ] || passthrough_args=("$@")
   DEVKIT_LAST_DISPATCH=""
   devkit_session_id >/dev/null
   parent_id="$DEVKIT_SESSION_ID"
@@ -323,12 +366,31 @@ devkit_launch_agent() {
   runtime="$DEVKIT_SPAWN_RUNTIME"
   context="$DEVKIT_SPAWN_CONTEXT"
   DEVKIT_LAST_RUNTIME="$runtime"
+  if [ "$runtime" = tmux ]; then
+    DEVKIT_LAST_SPAWN_RUNTIME=tmux
+  else
+    DEVKIT_LAST_SPAWN_RUNTIME=ide
+  fi
   agent_used="$agent"
   branch="$(git -C "$worktree_path" symbolic-ref --quiet --short HEAD 2>/dev/null || printf 'detached')"
   [ -n "$label" ] || label="$(devkit_dispatch_default_label)"
   case "$label" in
     *$'\n'*) devkit_error "dispatch label cannot contain a newline"; return "$DEVKIT_USAGE_ERROR" ;;
   esac
+  if [ "$context" = superset ]; then
+    final_prompt="[devkit dispatch: ${label}]
+
+${DEVKIT_SUPERSET_PROTOCOL}
+
+${prompt}"
+  else
+    final_prompt="$prompt"
+  fi
+  if [ "$runtime" = tmux ]; then
+    devkit_validate_prompt_budget "$final_prompt" tmux prompt || return 1
+  else
+    devkit_validate_prompt_budget "$final_prompt" argv prompt || return 1
+  fi
   if [ "$runtime" = tmux ]; then
     dispatch_id="$(devkit_dispatch_new_id)" || return 1
     if [ "$context" = superset ]; then
@@ -382,22 +444,41 @@ devkit_launch_agent() {
       devkit_error "could not apply devkit tmux configuration to $tmux_session"
       return 1
     }
-    command_text="$(devkit_agent_command "$agent_used" "$model" "$effort" "${passthrough_args[@]}")"
+    if [ "${#passthrough_args[@]}" -gt 0 ]; then
+      command_text="$(devkit_agent_command "$agent_used" "$model" "$effort" "${passthrough_args[@]}")"
+    else
+      command_text="$(devkit_agent_command "$agent_used" "$model" "$effort")"
+    fi
     command_text="cd $(printf '%q' "$worktree_path") && DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") DEVKIT_TMUX_SESSION=$(printf '%q' "$tmux_session") DEVKIT_TMUX_PANE=$(printf '%q' "$tmux_pane") $command_text"
-    devkit_dispatch_meta_write "$dispatch_id" "$parent_id" "$parent_host" "$context" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" true "$agent_used" "$tmux_session" "$tmux_pane" tmux >/dev/null || {
+    devkit_dispatch_meta_write "$dispatch_id" "$parent_id" "$parent_host" "$context" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" true "$agent_used" "$tmux_session" "$tmux_pane" tmux tmux >/dev/null || {
       devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
       devkit_error "could not persist dispatch metadata: $dispatch_id"
       return 1
     }
     if ! devkit_tmux_send_agent "$tmux_pane" "$command_text"; then
       devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
-      devkit_dispatch_meta_update_state "$dispatch_id" failed >/dev/null 2>&1 || true
+      devkit_spawn_mark_prompt_failed "$dispatch_id" command-not-submitted
+      return 1
+    fi
+    if ! devkit_tmux_settle_pane "$tmux_pane"; then
+      devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+      devkit_spawn_mark_prompt_failed "$dispatch_id" readiness-timeout
       return 1
     fi
     if ! devkit_tmux_agent_output_clean "$tmux_pane"; then
       devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
       devkit_error "agent output contains terminal-identification escape leakage in pane $tmux_pane"
-      devkit_dispatch_meta_update_state "$dispatch_id" failed >/dev/null 2>&1 || true
+      devkit_spawn_mark_prompt_failed "$dispatch_id" readiness-output-invalid
+      return 1
+    fi
+    if ! devkit_tmux_send_agent "$tmux_pane" "$final_prompt" prompt; then
+      devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+      devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-send-failed
+      return 1
+    fi
+    if ! devkit_spawn_mark_prompt_delivered "$dispatch_id"; then
+      devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+      devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-confirmation-failed
       return 1
     fi
     devkit_dispatch_meta_update_state "$dispatch_id" running || {
@@ -409,7 +490,11 @@ devkit_launch_agent() {
     printf '%s\n' "$response"
     return 0
   fi
-  command_text="$(devkit_agent_command "$agent" "$model" "$effort" "${passthrough_args[@]}")"
+  if [ "${#passthrough_args[@]}" -gt 0 ]; then
+    command_text="$(devkit_agent_command "$agent" "$model" "$effort" "${passthrough_args[@]}")"
+  else
+    command_text="$(devkit_agent_command "$agent" "$model" "$effort")"
+  fi
   case "$context" in
     orca)
       devkit_require_command orca || { devkit_error "orca CLI is not available"; return 1; }
@@ -432,11 +517,34 @@ devkit_launch_agent() {
   [ -n "$session_id" ] || { devkit_error "agent launch returned no terminal identity"; return 1; }
   dispatch_id="$session_id"
   model_honored=true
-  devkit_dispatch_meta_write "$dispatch_id" "$parent_id" "$parent_host" "$child_host" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" "$model_honored" "$agent_used" "" "" host >/dev/null || {
+  devkit_dispatch_meta_write "$dispatch_id" "$parent_id" "$parent_host" "$child_host" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" "$model_honored" "$agent_used" "" "" host ide >/dev/null || {
+    devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     devkit_error "could not persist dispatch metadata: $session_id"
     return 1
   }
+  if [ "$child_host" = orca ]; then
+    if ! orca terminal wait --terminal "$session_id" --for tui-idle --timeout-ms "$DEVKIT_AGENT_READY_TIMEOUT_MS" >/dev/null; then
+      devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
+      devkit_spawn_mark_prompt_failed "$dispatch_id" readiness-timeout
+      return 1
+    fi
+  elif ! devkit_superset_wait_for_terminal_ready "$workspace_id" "$session_id"; then
+    devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
+    devkit_spawn_mark_prompt_failed "$dispatch_id" readiness-timeout
+    return 1
+  fi
+  if ! devkit_dispatch_native_send "$(devkit_dispatch_meta_read "$dispatch_id")" "$final_prompt"; then
+    devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
+    devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-send-failed
+    return 1
+  fi
+  if ! devkit_spawn_mark_prompt_delivered "$dispatch_id"; then
+    devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
+    devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-confirmation-failed
+    return 1
+  fi
   devkit_dispatch_meta_update_state "$dispatch_id" running || {
+    devkit_spawn_mark_prompt_failed "$dispatch_id" state-persist-failed
     devkit_error "could not persist host dispatch state: $session_id"
     return 1
   }
@@ -636,7 +744,7 @@ devkit_worktree_create() {
       devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "${agent_args[@]}" || return 1
     fi
     dispatch="$DEVKIT_LAST_DISPATCH"
-    runtime="$DEVKIT_LAST_RUNTIME"
+    runtime="$DEVKIT_LAST_SPAWN_RUNTIME"
     if [ -n "$dispatch" ] && [ "$json" != true ]; then
       printf 'dispatch: %s\nruntime: %s\n' "$dispatch" "$runtime"
     fi

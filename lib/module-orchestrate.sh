@@ -147,7 +147,11 @@ devkit_dispatch_meta_write() {
   local dispatch_id="$1" parent_session="$2" parent_host="$3" child_host="$4"
   local workspace_id="$5" terminal_id="$6" worktree_path="$7" branch="$8"
   local agent="$9" label="${10}" state="${11}" model="${12:-}" model_honored="${13:-false}"
-  local agent_id="${14:-$agent}" tmux_session="${15:-}" tmux_pane="${16:-}" runtime="${17:-host}" dispatch_dir tmp
+  local agent_id="${14:-$agent}" tmux_session="${15:-}" tmux_pane="${16:-}" runtime="${17:-host}" spawn_runtime="${18:-}"
+  local dispatch_dir tmp
+  if [ -z "$spawn_runtime" ]; then
+    [ "$runtime" = tmux ] && spawn_runtime=tmux || spawn_runtime=ide
+  fi
   dispatch_dir="$(devkit_dispatch_dir "$dispatch_id")" || return 1
   mkdir -p "$dispatch_dir/messages" "$dispatch_dir/deliveries" || return 1
   devkit_dispatch_cursor_write "$dispatch_id" 0 || return 1
@@ -159,16 +163,31 @@ devkit_dispatch_meta_write() {
     --arg worktreePath "$worktree_path" --arg branch "$branch" \
     --arg agent "$agent" --arg label "$label" --arg state "$state" \
     --arg model "$model" --arg agentId "$agent_id" --arg runtime "$runtime" \
-    --arg tmuxSession "$tmux_session" --arg tmuxPane "$tmux_pane" \
+    --arg tmuxSession "$tmux_session" --arg tmuxPane "$tmux_pane" --arg spawnRuntime "$spawn_runtime" \
     --argjson modelHonored "$(devkit_bool_json "$model_honored")" \
     --arg now "$(devkit_iso_now)" \
-    '{dispatchId: $dispatchId, parentSessionId: $parentSessionId, parentHost: $parentHost, childHost: $childHost, workspaceId: $workspaceId, terminalId: $terminalId, worktreePath: $worktreePath, branch: $branch, agent: $agent, agentId: $agentId, model: $model, modelHonored: $modelHonored, runtime: $runtime, tmuxSession: (if $tmuxSession == "" then null else $tmuxSession end), tmuxPane: (if $tmuxPane == "" then null else $tmuxPane end), label: $label, state: $state, processState: (if $state == "spawning" then "starting" elif $state == "running" then "running" elif $state == "done" then "succeeded" elif $state == "failed" then "failed" elif $state == "closed" then "stopped" else "start-unproven" end), terminalState: "owned", terminalReason: null, failureCount: 0, stage: null, reason: null, reconcileOutcome: null, createdAt: $now, updatedAt: $now}' \
+    '{dispatchId: $dispatchId, parentSessionId: $parentSessionId, parentHost: $parentHost, childHost: $childHost, workspaceId: $workspaceId, terminalId: $terminalId, worktreePath: $worktreePath, branch: $branch, agent: $agent, agentId: $agentId, model: $model, modelHonored: $modelHonored, runtime: $runtime, spawnRuntime: $spawnRuntime, tmuxSession: (if $tmuxSession == "" then null else $tmuxSession end), tmuxPane: (if $tmuxPane == "" then null else $tmuxPane end), label: $label, state: $state, promptDelivered: false, promptDelivery: "pending", promptDeliveryReason: null, processState: (if $state == "spawning" then "starting" elif $state == "running" then "running" elif $state == "done" then "succeeded" elif $state == "failed" then "failed" elif $state == "closed" then "stopped" else "start-unproven" end), terminalState: "owned", terminalReason: null, failureCount: 0, stage: null, reason: null, reconcileOutcome: null, createdAt: $now, updatedAt: $now}' \
     >"$tmp"; then
     rm -f "$tmp"
     return 1
   fi
   mv -f "$tmp" "$(devkit_dispatch_meta_path "$dispatch_id")"
   printf '%s\n' "$dispatch_id"
+}
+
+devkit_dispatch_meta_update_prompt() {
+  local dispatch_id="$1" delivered="$2" delivery="$3" reason="${4:-}" path tmp
+  path="$(devkit_dispatch_meta_path "$dispatch_id")" || return 1
+  tmp="$(mktemp "$(devkit_dispatch_dir "$dispatch_id")/.meta.XXXXXX")" || return 1
+  if ! jq \
+    --argjson delivered "$(devkit_bool_json "$delivered")" --arg delivery "$delivery" --arg reason "$reason" \
+    --arg now "$(devkit_iso_now)" \
+    '.promptDelivered = $delivered | .promptDelivery = $delivery | .promptDeliveryReason = (if $reason == "" then null else $reason end) | .updatedAt = $now' \
+    "$path" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$path"
 }
 
 devkit_dispatch_meta_read() {

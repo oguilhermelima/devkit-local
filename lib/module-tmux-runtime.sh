@@ -42,11 +42,21 @@ devkit_tmux_first_pane() {
 }
 
 devkit_tmux_settle_pane() {
-  local pane="$1" attempt
+  local pane="$1" attempt current output
   for ((attempt = 1; attempt <= DEVKIT_TMUX_SETTLE_ATTEMPTS; attempt++)); do
-    tmux display-message -p -t "$pane" '#{pane_current_command}' >/dev/null 2>&1 || return 1
+    current="$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null || true)"
+    case "$current" in
+      bash|zsh|sh|dash|fish|ksh|tcsh|login|-zsh|-bash|"") ;;
+      *)
+        output="$(devkit_tmux_capture_pane "$pane" -40 2>/dev/null || true)"
+        # A non-shell command with rendered output proves the agent owns the pane and initialized its UI.
+        [ -n "$(printf '%s' "$output" | tr -d '[:space:]')" ] && return 0
+        ;;
+    esac
     sleep "$DEVKIT_TMUX_SETTLE_SECONDS"
   done
+  devkit_error "tmux pane $pane did not show a ready agent within ${DEVKIT_TMUX_SETTLE_ATTEMPTS} checks"
+  return 1
 }
 
 devkit_tmux_session_registry_remove() {
@@ -201,7 +211,11 @@ devkit_tmux_split_pane() {
 }
 
 devkit_tmux_send_agent() {
-  local pane="$1" command_text="$2" attempt current
+  local pane="$1" command_text="$2" mode="${3:-command}" attempt current
+  if [ "$mode" = prompt ]; then
+    devkit_tmux_send_text "$pane" "$command_text"
+    return $?
+  fi
   tmux send-keys -t "$pane" -l "$command_text" || return 1
   # Enter is deliberately a separate call; some host terminal layers lose it when combined with text.
   for ((attempt = 1; attempt <= DEVKIT_TMUX_ENTER_RETRIES; attempt++)); do
