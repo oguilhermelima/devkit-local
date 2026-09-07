@@ -146,6 +146,7 @@ devkit_chain_validate_step() {
     if [ "$strict" = true ]; then
       devkit_model_validate_step "$chain" "$index" "$agent" "$model" "$effort" || return 1
     else
+      devkit_model_error_unknown "$agent" "$model"
       devkit_error "chain migration required: chain $chain step $index uses unknown model '$model' for agent '$agent'; run devkit chain repair $chain --step $index --model <valid-id> --effort <level>"
     fi
   elif [ "$unvalidated" != true ]; then
