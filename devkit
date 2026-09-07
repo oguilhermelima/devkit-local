@@ -63,7 +63,8 @@ devkit_main() {
     context) command_context "$@" ;;
     worktree) command_worktree "$@" ;;
     terminal) command_terminal "$@" ;;
-    orchestrate) command_orchestrate "$@" ;;
+  orchestrate) command_orchestrate "$@" ;;
+    chain) command_chain "$@" ;;
     ask) command_ask "$@" ;;
     done) command_done "$@" ;;
     native) command_native "$@" ;;
