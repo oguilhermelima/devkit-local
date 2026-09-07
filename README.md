@@ -120,6 +120,37 @@ Set `usageLimits.notice.intervalSeconds` to choose the cadence and use
 so it has no background process and naturally follows existing activity. Notice delivery failures
 leave the durable message queued and do not fail the chain caller.
 
+### Environment facts
+
+Environment measurements that are expensive to rediscover live in the versioned
+`.devkit/facts.json` file. JSON keeps the store machine-readable and reviewable in a normal
+diff. A fact has an `id`, the measured `measurement`, a `scope`, and `provenance` containing
+`who`, `when`, and the exact `command` that can measure it again. Provenance is required so a
+reader can verify a measurement instead of treating an unverified statement as truth.
+
+Facts are either global or repository-scoped. Global facts apply to every repository using that
+store. Repository-scoped facts carry the repository's `remote.origin.url`; a child receives them
+only when its repository identity matches. When no remote exists, the Git common directory is the
+identity fallback. This lets linked worktrees share facts without passing facts for another
+repository to a child.
+
+Manage facts with:
+
+    devkit fact list [--json]
+    devkit fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>]
+    devkit fact edit <id> [--json]
+    devkit fact remove <id> [--json]
+
+The add command rejects missing provenance fields before writing. Edit also validates the complete
+store before replacing it. Fact preambles are limited to 20 in-scope facts and 6000 bytes; a
+dispatch fails with a clear error if either limit is exceeded. Every injected fact is described as
+a starting point with provenance, not truth. If a worker's own measurement disagrees, its
+measurement wins and the disagreement must be reported.
+
+The store is for environment measurements that cannot be deduced from repository source and cost
+real time to rediscover, such as installed tool behavior, third-party file layout, or CI gates.
+Architecture rules belong in `AGENTS.md`, and code structure belongs in the code itself.
+
 ### Spawn runtimes
 
 The runtime is resolved once before the worktree or terminal is created:
