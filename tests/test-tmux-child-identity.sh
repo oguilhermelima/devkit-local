@@ -51,6 +51,16 @@ wait_for_file() {
   fail "timed out waiting for $path"
 }
 
+wait_for_message() {
+  local dispatch_id="$1" attempt count
+  for ((attempt = 1; attempt <= 100; attempt++)); do
+    count="$(find "$state_dir/dispatches/$dispatch_id/messages" -name '*.json' -print 2>/dev/null | wc -l | tr -d ' ')"
+    [ "$count" -ge 1 ] && return 0
+    sleep 0.02
+  done
+  fail "timed out waiting for a message in $dispatch_id"
+}
+
 tmux_cmd() {
   tmux -L "$socket_name" "$@"
 }
@@ -66,6 +76,7 @@ send_child_message() {
   tmux_cmd send-keys -t "$pane" -l "$command_text"
   tmux_cmd send-keys -t "$pane" Enter
   wait_for_file "$output"
+  wait_for_message "$dispatch_id"
 }
 
 tmux_cmd new-session -d -s "$session_name" -x 120 -y 30 bash
