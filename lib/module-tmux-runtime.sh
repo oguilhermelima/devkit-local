@@ -4,6 +4,9 @@ DEVKIT_TMUX_SETTLE_ATTEMPTS="${DEVKIT_TMUX_SETTLE_ATTEMPTS:-20}"
 DEVKIT_TMUX_SETTLE_SECONDS="${DEVKIT_TMUX_SETTLE_SECONDS:-0.1}"
 DEVKIT_TMUX_ENTER_RETRIES="${DEVKIT_TMUX_ENTER_RETRIES:-3}"
 DEVKIT_TMUX_ENTER_WAIT="${DEVKIT_TMUX_ENTER_WAIT:-0.5}"
+DEVKIT_TMUX_MAIN_PANE_PERCENT=50
+DEVKIT_TMUX_MAIN_SPLIT_FLAG='-h'
+DEVKIT_TMUX_CHILD_SPLIT_FLAG='-v'
 DEVKIT_TMUX_TUNE_START='# >>> devkit tmux tuning >>>'
 DEVKIT_TMUX_TUNE_END='# <<< devkit tmux tuning <<<'
 DEVKIT_TMUX_TUNE_SOURCE='source-file ~/.devkit/tmux/devkit.tmux.conf'
@@ -141,10 +144,60 @@ devkit_tmux_host_terminal_for_session() {
   return 1
 }
 
+devkit_tmux_main_pane_width() {
+  local session="$1" window_width
+  window_width="$(tmux display-message -p -t "$session" '#{window_width}' 2>/dev/null)" || return 1
+  [[ "$window_width" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$((window_width * DEVKIT_TMUX_MAIN_PANE_PERCENT / 100))"
+}
+
+devkit_tmux_resize_main_pane() {
+  local session="$1" main_pane width
+  main_pane="$(devkit_tmux_registry_main_pane_for_session "$session")" || return 1
+  width="$(devkit_tmux_main_pane_width "$session")" || return 1
+  # Each split lets tmux redistribute the window, so restore the main chat width.
+  tmux resize-pane -t "$main_pane" -x "$width"
+}
+
+devkit_tmux_last_right_pane() {
+  local session="$1" main_pane main_left
+  main_pane="$(devkit_tmux_registry_main_pane_for_session "$session")" || return 1
+  main_left="$(tmux display-message -p -t "$main_pane" '#{pane_left}' 2>/dev/null)" || return 1
+  [[ "$main_left" =~ ^[0-9]+$ ]] || return 1
+  tmux list-panes -t "$session" -F '#{pane_id} #{pane_left} #{pane_top} #{pane_index}' 2>/dev/null |
+    awk -v main_left="$main_left" '
+      $2 > main_left &&
+      (!found || $2 > right_left || ($2 == right_left && $3 > right_top) || ($2 == right_left && $3 == right_top && $4 > right_index)) {
+        pane = $1
+        right_left = $2
+        right_top = $3
+        right_index = $4
+        found = 1
+      }
+      END { if (found) print pane }
+    '
+}
+
 devkit_tmux_split_pane() {
-  local session="$1" worktree_path
+  local session="$1" worktree_path main_pane right_pane target split_flag pane
   worktree_path="$2"
-  tmux split-window -t "$session" -c "$worktree_path" -P -F '#{pane_id}' 2>/dev/null
+  main_pane="$(devkit_tmux_registry_main_pane_for_session "$session" 2>/dev/null || true)"
+  if [ -z "$main_pane" ]; then
+    tmux split-window -t "$session" -c "$worktree_path" -P -F '#{pane_id}' 2>/dev/null
+    return
+  fi
+  right_pane="$(devkit_tmux_last_right_pane "$session" 2>/dev/null || true)"
+  if [ -n "$right_pane" ]; then
+    target="$right_pane"
+    split_flag="$DEVKIT_TMUX_CHILD_SPLIT_FLAG"
+    pane="$(tmux split-window "$split_flag" -t "$target" -c "$worktree_path" -P -F '#{pane_id}' 2>/dev/null)" || return 1
+  else
+    target="$main_pane"
+    split_flag="$DEVKIT_TMUX_MAIN_SPLIT_FLAG"
+    pane="$(tmux split-window "$split_flag" -p "$DEVKIT_TMUX_MAIN_PANE_PERCENT" -t "$target" -c "$worktree_path" -P -F '#{pane_id}' 2>/dev/null)" || return 1
+  fi
+  devkit_tmux_resize_main_pane "$session" || return 1
+  printf '%s\n' "$pane"
 }
 
 devkit_tmux_send_agent() {
