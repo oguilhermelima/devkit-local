@@ -13,6 +13,7 @@ devkit_hook_finish() {
 DEVKIT_HOOK_ROOT="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd -P)" || devkit_hook_finish
 source "$DEVKIT_HOOK_ROOT/lib/common.sh" >/dev/null 2>&1 || devkit_hook_finish
 source "$DEVKIT_HOOK_ROOT/lib/module-orchestrate.sh" >/dev/null 2>&1 || devkit_hook_finish
+source "$DEVKIT_HOOK_ROOT/lib/module-context.sh" >/dev/null 2>&1 || devkit_hook_finish
 source "$DEVKIT_HOOK_ROOT/lib/module-parent-notify.sh" >/dev/null 2>&1 || devkit_hook_finish
 
 devkit_session_id >/dev/null 2>&1 || devkit_hook_finish
