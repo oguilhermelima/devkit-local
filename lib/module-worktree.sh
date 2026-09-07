@@ -574,7 +574,7 @@ devkit_terminal_create() {
 
 devkit_worktree_create() {
   local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" prompt="" label="" worktree_selector="" orchestrate=false json=false reused=false
-  local arg repo_path shared_root worktree_path project_id workspace_id dispatch="" host runtime=""
+  local arg repo_path shared_root worktree_path project_id workspace_id dispatch="" host runtime="" tmux_choice=auto
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -588,10 +588,11 @@ devkit_worktree_create() {
       --prompt) prompt="${2:-}"; shift 2 ;;
       --label) label="${2:-}"; shift 2 ;;
       --worktree) worktree_selector="${2:-}"; shift 2 ;;
+      --tmux) tmux_choice="${2:-}"; shift 2 ;;
       --orchestrate) orchestrate=true; shift ;;
       --json) json=true; shift ;;
       -h|--help)
-        printf 'Usage: devkit worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--json]\n'
+        printf 'Usage: devkit worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--json]\n'
         return 0
         ;;
       *) devkit_error "unknown worktree create option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
@@ -605,6 +606,10 @@ devkit_worktree_create() {
     devkit_error "--worktree is only supported by orchestrate spawn"
     return "$DEVKIT_USAGE_ERROR"
   fi
+  if [ "$orchestrate" != true ] && [ "$tmux_choice" != auto ]; then
+    devkit_error "--tmux is only supported by orchestrate spawn"
+    return "$DEVKIT_USAGE_ERROR"
+  fi
   if [ -z "$worktree_selector" ]; then
     [ -n "$repo_selector" ] || { devkit_error "--repo is required"; return "$DEVKIT_USAGE_ERROR"; }
     [ -n "$branch" ] || { devkit_error "--branch is required"; return "$DEVKIT_USAGE_ERROR"; }
@@ -615,7 +620,7 @@ devkit_worktree_create() {
     [ -n "$model" ] || { devkit_error "--model is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
     [ -n "$effort" ] || { devkit_error "--effort is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
     [ -n "$prompt" ] || { devkit_error "--prompt is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
-    devkit_resolve_spawn_runtime auto || return 1
+    devkit_resolve_spawn_runtime "$tmux_choice" || return 1
     runtime="$DEVKIT_SPAWN_RUNTIME"
     host="$DEVKIT_SPAWN_CONTEXT"
     if [ "$runtime" = tmux ]; then
