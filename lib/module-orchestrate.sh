@@ -191,10 +191,19 @@ devkit_dispatch_find_child() {
 }
 
 devkit_dispatch_native_send() {
-  local meta="$1" text="$2" host workspace_id terminal_id
+  local meta="$1" text="$2" host workspace_id terminal_id runtime tmux_session tmux_pane
   host="$(printf '%s' "$meta" | jq -r '.childHost')"
   workspace_id="$(printf '%s' "$meta" | jq -r '.workspaceId // empty')"
   terminal_id="$(printf '%s' "$meta" | jq -r '.terminalId')"
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  if [ "$runtime" = tmux ]; then
+    tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
+    tmux_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
+    [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] || { devkit_error "tmux dispatch metadata has no session or pane"; return 1; }
+    devkit_tmux_session_exists "$tmux_session" || { devkit_error "tmux session is no longer available: $tmux_session"; return 1; }
+    devkit_tmux_send_text "$tmux_pane" "$text"
+    return $?
+  fi
   case "$host" in
     superset) devkit_superset terminals send --workspace "$workspace_id" --terminal "$terminal_id" --text "$text" --json >/dev/null ;;
     orca) orca terminal send --terminal "$terminal_id" --text "$text" --enter --json >/dev/null ;;
@@ -203,15 +212,56 @@ devkit_dispatch_native_send() {
 }
 
 devkit_dispatch_native_close() {
-  local meta="$1" host workspace_id terminal_id
+  local meta="$1" host workspace_id terminal_id runtime tmux_session tmux_pane pane_count
   host="$(printf '%s' "$meta" | jq -r '.childHost')"
   workspace_id="$(printf '%s' "$meta" | jq -r '.workspaceId // empty')"
   terminal_id="$(printf '%s' "$meta" | jq -r '.terminalId')"
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  if [ "$runtime" = tmux ]; then
+    tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
+    tmux_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
+    [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] || { devkit_error "tmux dispatch metadata has no session or pane"; return 1; }
+    devkit_tmux_session_exists "$tmux_session" || return 0
+    pane_count="$(tmux list-panes -t "$tmux_session" 2>/dev/null | wc -l | tr -d ' ')"
+    if [ "$pane_count" -gt 1 ]; then
+      tmux kill-pane -t "$tmux_pane"
+    else
+      tmux kill-session -t "$tmux_session"
+    fi
+    return $?
+  fi
   case "$host" in
     superset) devkit_superset terminals close --workspace "$workspace_id" --terminal "$terminal_id" --json >/dev/null ;;
     orca) orca terminal close --terminal "$terminal_id" --json >/dev/null ;;
     *) devkit_error "unsupported child host: $host"; return 1 ;;
   esac
+}
+
+devkit_dispatch_read() {
+  local dispatch_id="${1:-}" lines=200 json=false arg meta runtime pane output
+  [ -n "$dispatch_id" ] || { devkit_error "Usage: devkit orchestrate read <dispatch-id> [--lines <count>] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --lines) lines="${2:-}"; shift 2 ;;
+      --json) json=true; shift ;;
+      -h|--help) printf 'Usage: devkit orchestrate read <dispatch-id> [--lines <count>] [--json]\n'; return 0 ;;
+      *) devkit_error "unknown orchestrate read option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+    esac
+  done
+  [[ "$lines" =~ ^[1-9][0-9]*$ ]] || { devkit_error "--lines must be a positive number"; return "$DEVKIT_USAGE_ERROR"; }
+  meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  [ "$runtime" = tmux ] || { devkit_error "dispatch $dispatch_id does not use tmux-runtime"; return 1; }
+  pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
+  output="$(devkit_tmux_capture_pane "$pane" "-$lines")" || { devkit_error "could not read tmux pane $pane"; return 1; }
+  if [ "$json" = true ]; then
+    jq -n --arg dispatchId "$dispatch_id" --arg pane "$pane" --arg output "$output" \
+      '{dispatchId: $dispatchId, pane: $pane, text: $output}'
+  else
+    printf '%s\n' "$output"
+  fi
 }
 
 devkit_dispatch_report() {
@@ -296,7 +346,7 @@ devkit_dispatch_reply() {
 }
 
 devkit_dispatch_close() {
-  local dispatch_id="${1:-}" json=false arg meta
+  local dispatch_id="${1:-}" json=false arg meta runtime child_host
   [ -n "$dispatch_id" ] || { devkit_error "Usage: devkit orchestrate close <dispatch-id> [--json]"; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
@@ -308,17 +358,23 @@ devkit_dispatch_close() {
     esac
   done
   meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  child_host="$(printf '%s' "$meta" | jq -r '.childHost')"
   devkit_dispatch_native_close "$meta" || { devkit_error "could not close dispatch $dispatch_id"; return 1; }
   devkit_dispatch_meta_update_state "$dispatch_id" closed || return 1
   if [ "$json" = true ]; then
-    if [ "$(printf '%s' "$meta" | jq -r '.childHost')" = superset ]; then
+    if [ "$runtime" = tmux ]; then
+      jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "tmux pane removed; the host terminal tab remains available for sibling panes or manual use."}'
+    elif [ "$child_host" = superset ]; then
       jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "Superset leaves the pane visible as Desconectado until the human dismisses it with the pane X."}'
     else
       jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed"}'
     fi
   else
     printf 'closed: %s\n' "$dispatch_id"
-    if [ "$(printf '%s' "$meta" | jq -r '.childHost')" = superset ]; then
+    if [ "$runtime" = tmux ]; then
+      printf 'tmux pane removed; the host terminal tab remains available for sibling panes or manual use.\n'
+    elif [ "$child_host" = superset ]; then
       printf 'Superset leaves the pane visible as Desconectado until the human dismisses it with the pane X.\n'
     fi
   fi
