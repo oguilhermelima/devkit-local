@@ -1,9 +1,27 @@
 #!/usr/bin/env bash
 
 devkit_model_error_unknown() {
-  local agent="$1" model="$2" ids
-  ids="$(devkit_model_list_ids "$agent" | paste -sd ', ' -)"
-  devkit_error "unknown model '$model' for agent '$agent'. Valid model ids: $ids"
+  local agent="$1" model="$2" id
+  devkit_error "unknown model '$model' for agent '$agent'. Valid model ids:"
+  while IFS= read -r id; do
+    [ -n "$id" ] && devkit_error "  $id"
+  done < <(devkit_model_list_ids "$agent")
+}
+
+devkit_model_error_embedded_effort() {
+  local agent="$1" model="$2" level id ids
+  devkit_error "model '$model' for agent '$agent' has effort as part of the model id; do not supply effort"
+  devkit_error 'Model ids by embedded reasoning level:'
+  for level in low medium high xhigh max ultra; do
+    ids="$(devkit_model_read | jq -r --arg agent "$agent" --arg level "$level" '.models[] | select(.agent == $agent and .reasoning.separateAxis == false and (.reasoning.levels | index($level))) | .model')"
+    [ -n "$ids" ] || continue
+    devkit_error "$level:"
+    while IFS= read -r id; do
+      [ -n "$id" ] && devkit_error "  $id"
+    done <<EOF
+$ids
+EOF
+  done
 }
 
 devkit_model_validate_reasoning() {
@@ -13,7 +31,7 @@ devkit_model_validate_reasoning() {
   separate_axis="$(printf '%s' "$entry" | jq -r '.reasoning.separateAxis')"
   if [ "$separate_axis" = false ]; then
     if [ -n "$effort" ]; then
-      devkit_error "model '$model' for agent '$agent' has effort in its model id; do not supply effort"
+      devkit_model_error_embedded_effort "$agent" "$model"
       return 1
     fi
     return 0
@@ -24,8 +42,16 @@ devkit_model_validate_reasoning() {
   }
   levels="$(printf '%s' "$entry" | jq -r '.reasoning.levels[]?')"
   if ! printf '%s\n' "$levels" | grep -Fx -- "$effort" >/dev/null 2>&1; then
-    [ -n "$levels" ] && levels="$(printf '%s\n' "$levels" | paste -sd ', ' -)" || levels=none
-    devkit_error "model '$model' for agent '$agent' does not support reasoning level '$effort'. Supported reasoning levels: $levels"
+    devkit_error "model '$model' for agent '$agent' does not support reasoning level '$effort'. Supported reasoning levels:"
+    if [ -n "$levels" ]; then
+      while IFS= read -r level; do
+        [ -n "$level" ] && devkit_error "  $level"
+      done <<EOF
+$levels
+EOF
+    else
+      devkit_error '  none'
+    fi
     return 1
   fi
 }
