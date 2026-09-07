@@ -861,6 +861,7 @@ devkit_dispatch_wait_for_prompt_receipt() {
   tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
   tmux_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
   started="$(date +%s)"
+  # A queue receipt is authoritative because a status-line tick or spinner frame can fake pane activity.
   while true; do
     now="$(date +%s)"
     remaining=$((timeout - (now - started)))

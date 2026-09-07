@@ -52,7 +52,9 @@ Their trimmed output shapes are:
 ```
 
 `orchestrate spawn` must run inside a managed Orca or Superset terminal. It creates the worktree,
-registers it, starts the child agent, waits for readiness, and sends the prompt in one operation.
+registers it, starts the child agent, and sends the prompt in one operation. The child first
+publishes a durable received message; spawn marks the prompt delivered only after that message is
+delivered and acknowledged.
 
 ### Agent chains
 
@@ -132,11 +134,12 @@ mode the only host operation that starts the child is `terminals create` in Supe
 `terminal create` in Orca, with the worktree and complete devkit-built command. In tmux mode the
 same host operation opens a shell in the worktree; devkit then launches the child in that pane.
 
-The prompt is never part of the agent command line. Tmux readiness means a non-shell pane
-command with rendered output. Orca uses `terminal wait --for tui-idle`; Superset polls
-`terminals read` until two consecutive pane reads settle. Only a confirmed send marks
-`promptDelivered` true. A readiness or send timeout leaves the dispatch failed with
-`promptDelivery: "not-delivered"`.
+The prompt is never part of the agent command line. Tmux and host readiness checks are only cheap
+launch preflights: they establish that an agent process exists, not that it accepts input. The
+dispatch preamble tells the child to run `./devkit received` before starting work. Spawn waits for
+that durable queue message and its Delivery acknowledgement; only that receiver signal marks
+`promptDelivered` true. A send or receipt timeout leaves the dispatch failed with
+`promptDelivery: "not-delivered"` and a reason naming the missing confirmation.
 
 Use repeatable `--agent-arg <value>` to append arbitrary agent flags after devkit's generated
 launch, model, and effort flags. Values are passed as separate shell arguments and retain their
@@ -288,7 +291,7 @@ then `main`. `terminal create` uses `.superset/config.json` only when `--command
 | `devkit orchestrate reconcile <dispatch-id> --json` | Reconciles one open dispatch without respawning it. | `--all`, `--json` |
 | `devkit orchestrate watch <dispatch-id> --json` | Waits for the next child Delivery batch, waking from the parent nudge marker by default. | `--timeout`, `--poll-interval`, `--wait-mode nudge\|poll`, `--poll`, `--consumer`, `--generation`, `--json` |
 | `devkit orchestrate ack <dispatch-id> <delivery-id> --json` | Acknowledges a Delivery batch. | `--consumer`, `--generation`, `--json` |
-| `devkit orchestrate reply <dispatch-id> --text "Continue." --json` | Replies to a child waiting for the parent. | `--json` |
+| `devkit orchestrate reply <dispatch-id> --text "Continue." --json` | Queues a reply for a child that is running or waiting for the parent. | `--json` |
 | `devkit orchestrate close <dispatch-id> --json` | Closes the child terminal and records the dispatch as closed. | `--force-release`, `--json` |
 | `devkit ask "question"` | Sends a question from a child to its direct parent. | One question argument. |
 | `devkit done "summary"` | Sends completion from a child to its direct parent. | One summary argument. |
@@ -296,12 +299,17 @@ then `main`. `terminal create` uses `.superset/config.json` only when `--command
 | `devkit ack <delivery-id> --json` | Acknowledges a child reply Delivery. | `--consumer`, `--generation`, `--json` |
 
 `watch` reports the Delivery id, replayed flag, covered message sequences, and messages alongside
-`waiting_for_reply`, `done`, `stalled`, or `timeout`. A child should use `ask` or `done` instead
+`received`, `waiting_for_reply`, `done`, `stalled`, or `timeout`. A child should use `ask` or `done` instead
 of printing protocol markers.
+
+The dispatch preamble requires the child to run `./devkit received` before work begins. The parent
+waits for that child-authored queue message and acknowledges its Delivery before recording
+`promptDelivered: true`; pane output, composer changes, context percentages, and terminal idle
+states are not delivery evidence.
 
 `orchestrate spawn` selects its prompt budget from the delivery path before creating a worktree,
 workspace, terminal, agent, or dispatch record. The prompt is rejected rather than truncated and
-is delivered only after the child is ready.
+is delivered only after the child-authored receipt is confirmed.
 
 | Delivery path | Measured capacity | Chosen prompt budget |
 | --- | ---: | ---: |
