@@ -87,6 +87,8 @@ that (Superset resume/fork/handoff and its agent-attention badge) do not apply.
 
 To fix tmux colours and match the default terminal, run `devkit tmux tune`.
 
+Agents launched by devkit run without approval prompts because they are isolated in a worktree; launch the agent manually if you want approval prompts.
+
 ## Command reference
 
 ### Install and diagnostics

@@ -4,7 +4,10 @@ DEVKIT_AGENT_OPTION_TEMPLATES='codex|-c|model="%s"|-c|model_reasoning_effort="%s
 claude|--model|%s|--effort|%s
 agy|--model|%s|--effort|%s'
 # Codex has no --model or --effort flags, so its overrides use -c.
-DEVKIT_AGENT_LAUNCH_ARGS='codex|--dangerously-bypass-hook-trust'
+DEVKIT_AGENT_LAUNCH_ARGS='codex|--dangerously-bypass-hook-trust
+codex|--dangerously-bypass-approvals-and-sandbox
+claude|--dangerously-skip-permissions
+agy|--dangerously-skip-permissions'
 
 devkit_worktree_root() {
   local raw read_only=false
@@ -208,10 +211,7 @@ devkit_agent_command() {
   command_parts=("$agent")
   agent_lower="$(devkit_lower "$agent")"
   while IFS='|' read -r launch_agent launch_arg; do
-    if [ "$launch_agent" = "$agent_lower" ]; then
-      command_parts+=("$launch_arg")
-      break
-    fi
+    [ "$launch_agent" = "$agent_lower" ] && command_parts+=("$launch_arg")
   done <<EOF
 $DEVKIT_AGENT_LAUNCH_ARGS
 EOF
@@ -235,6 +235,28 @@ EOF
   fi
   [ -n "$prompt" ] && command_parts+=("$prompt")
   printf '%q ' "${command_parts[@]}"
+}
+
+devkit_terminal_command_with_agent_permissions() {
+  local command_text="$1" agent_lower launch_agent launch_arg launch_args="" rest
+  case "$command_text" in
+    codex|codex\ *) agent_lower=codex ;;
+    claude|claude\ *) agent_lower=claude ;;
+    agy|agy\ *) agent_lower=agy ;;
+    *) printf '%s\n' "$command_text"; return 0 ;;
+  esac
+  rest="${command_text#"$agent_lower"}"
+  while IFS='|' read -r launch_agent launch_arg; do
+    if [ "$launch_agent" = "$agent_lower" ]; then
+      case " $command_text " in
+        *" $launch_arg "*) ;;
+        *) launch_args="$launch_args $(printf '%q' "$launch_arg")" ;;
+      esac
+    fi
+  done <<EOF
+$DEVKIT_AGENT_LAUNCH_ARGS
+EOF
+  printf '%s%s%s\n' "$agent_lower" "$launch_args" "$rest"
 }
 
 devkit_project_run_command() {
@@ -482,6 +504,7 @@ devkit_terminal_create() {
       return "$DEVKIT_USAGE_ERROR"
     }
   fi
+  command_text="$(devkit_terminal_command_with_agent_permissions "$command_text")"
   host="$(devkit_context_detect)"
   case "$host" in
     orca)
