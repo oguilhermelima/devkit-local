@@ -4,6 +4,7 @@ DEVKIT_TMUX_SETTLE_ATTEMPTS="${DEVKIT_TMUX_SETTLE_ATTEMPTS:-20}"
 DEVKIT_TMUX_SETTLE_SECONDS="${DEVKIT_TMUX_SETTLE_SECONDS:-0.1}"
 DEVKIT_TMUX_ENTER_RETRIES="${DEVKIT_TMUX_ENTER_RETRIES:-3}"
 DEVKIT_TMUX_ENTER_WAIT="${DEVKIT_TMUX_ENTER_WAIT:-0.5}"
+DEVKIT_TMUX_ENTER_TIMEOUT_SECONDS="${DEVKIT_TMUX_ENTER_TIMEOUT_SECONDS:-30}"
 DEVKIT_TMUX_MAIN_PANE_PERCENT=50
 DEVKIT_TMUX_MAIN_SPLIT_FLAG='-h'
 DEVKIT_TMUX_CHILD_SPLIT_FLAG='-v'
@@ -224,24 +225,33 @@ devkit_tmux_split_pane() {
 }
 
 devkit_tmux_send_agent() {
-  local pane="$1" command_text="$2" mode="${3:-command}" attempt current
+  local pane="$1" command_text="$2" mode="${3:-command}" attempt=0 current started now elapsed
   if [ "$mode" = prompt ]; then
     devkit_tmux_send_text "$pane" "$command_text"
     return $?
   fi
   tmux send-keys -t "$pane" -l "$command_text" || return 1
   # Enter is deliberately a separate call; some host terminal layers lose it when combined with text.
-  for ((attempt = 1; attempt <= DEVKIT_TMUX_ENTER_RETRIES; attempt++)); do
+  case "$DEVKIT_TMUX_ENTER_TIMEOUT_SECONDS" in
+    ''|*[!0-9]*) devkit_error "tmux agent launch timeout must be a non-negative number of seconds"; return 1 ;;
+  esac
+  started="$(date +%s)"
+  while :; do
     tmux send-keys -t "$pane" Enter || return 1
+    attempt=$((attempt + 1))
     sleep "$DEVKIT_TMUX_ENTER_WAIT"
     current="$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null || true)"
     case "$current" in
       bash|zsh|sh|dash|fish|ksh|tcsh|login|-zsh|-bash) : ;;
       *) return 0 ;;
     esac
+    now="$(date +%s)"
+    elapsed=$((now - started))
+    if [ "$elapsed" -ge "$DEVKIT_TMUX_ENTER_TIMEOUT_SECONDS" ]; then
+      devkit_error "tmux did not submit the agent command in pane $pane after $attempt Enter attempts and ${DEVKIT_TMUX_ENTER_TIMEOUT_SECONDS}s"
+      return 1
+    fi
   done
-  devkit_error "tmux did not submit the agent command in pane $pane after $DEVKIT_TMUX_ENTER_RETRIES Enter attempts"
-  return 1
 }
 
 devkit_tmux_capture_pane() {
