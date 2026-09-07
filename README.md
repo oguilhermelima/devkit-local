@@ -71,11 +71,14 @@ registers it, and starts the child agent in one operation.
                v
 ~/.devkit/dispatches/<id>/
   meta.json  cursor.json  messages/*.json
+  deliveries/*.json
 ```
 
 The parent session identity creates a dispatch for one child agent and worktree. Parent and child
 exchange JSON messages as append-only files in the dispatch directory. Ownership is direct-parent-only:
 a parent can inspect, reply to, or close its own dispatch, but ownership does not pass to a grandparent.
+
+Messages are delivered in FIFO batches of up to 50 through a Delivery record. An outstanding Delivery is replayed with the same delivery id until it is acknowledged; there is one outstanding Delivery per mailbox. A different consumer identity or generation fences the old Delivery and receives the same unread messages under a new id. Acknowledgement is idempotent, and cursor.json is retained for compatibility but is not the source of read state.
 
 With the optional `tmux-runtime` module enabled, devkit launches each child inside a tmux session
 hosted in the IDE tab instead of the host's own agent primitive. That gives full control of the
@@ -131,14 +134,19 @@ then `main`. `terminal create` uses `.superset/config.json` only when `--command
 | --- | --- | --- |
 | `devkit orchestrate spawn --repo "$PWD" --branch feature/agent-task --agent codex --model gpt-5 --effort medium --prompt "Inspect the repository."` | Creates or reuses a worktree and launches a managed child agent. | `--base`, `--name`, `--label`, `--worktree`, `--json` |
 | `devkit orchestrate list --json` | Lists dispatches owned by the current parent. | `--all`, `--orphans`, `--json` |
-| `devkit orchestrate watch <dispatch-id> --json` | Waits for the next child message. | `--timeout`, `--poll-interval`, `--json` |
+| `devkit orchestrate watch <dispatch-id> --json` | Waits for the next child Delivery batch. | `--timeout`, `--poll-interval`, `--consumer`, `--generation`, `--json` |
+| `devkit orchestrate ack <dispatch-id> <delivery-id> --json` | Acknowledges a Delivery batch. | `--consumer`, `--generation`, `--json` |
 | `devkit orchestrate reply <dispatch-id> --text "Continue." --json` | Replies to a child waiting for the parent. | `--json` |
 | `devkit orchestrate close <dispatch-id> --json` | Closes the child terminal and records the dispatch as closed. | `--json` |
 | `devkit ask "question"` | Sends a question from a child to its direct parent. | One question argument. |
 | `devkit done "summary"` | Sends completion from a child to its direct parent. | One summary argument. |
 
-`watch` reports `waiting_for_reply`, `done`, `stalled`, or `timeout`. A child should use `ask`
-or `done` instead of printing protocol markers.
+`watch` reports the Delivery id, replayed flag, covered message sequences, and messages alongside
+`waiting_for_reply`, `done`, `stalled`, or `timeout`. A child should use `ask` or `done` instead
+of printing protocol markers.
+
+`orchestrate spawn` rejects prompts larger than 512 bytes before creating a worktree, workspace,
+terminal, agent, or dispatch record. The prompt is rejected rather than truncated.
 
 ### Native simulators
 

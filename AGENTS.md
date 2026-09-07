@@ -14,6 +14,8 @@ For worktree/orchestration/native-sim/browser tooling shared across repos, read 
 - If you need to spawn an agent in a shared worktree, run: devkit orchestrate spawn --repo <name> --branch <branch> --agent <id> --model <model> --effort <level> --prompt <text> [--label <text>] [--base <ref>] [--name <slug>]
 - If you need to list active Orca and Superset terminals, run: devkit orchestrate list [--json]
 - If you need to watch a Superset dispatch, run: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]
+- If you need to acknowledge a delivery, run: devkit orchestrate ack <dispatch-id> <delivery-id> [--json]
+- Spawn prompts over 512 bytes are rejected before resources are created.
 - If you need to reply to a Superset dispatch, run: devkit orchestrate reply <dispatch-id> --text <answer> [--json]
 - If you need to close a Superset dispatch, run: devkit orchestrate close <dispatch-id> [--json]
 - Known limitation: Superset agy and gemini presets reject prompt launches; devkit reports the preset error instead of creating a stuck dispatch.
