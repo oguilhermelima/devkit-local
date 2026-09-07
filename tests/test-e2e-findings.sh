@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-e2e-findings.XXXXXX")"
+bin_dir="$state_dir/bin"
+mkdir -p "$bin_dir"
+
+cleanup() {
+  rm -rf "$state_dir"
+}
+trap cleanup EXIT
+
+fail() {
+  printf 'FAIL: %s\n' "$*" >&2
+  exit 1
+}
+
+assert_equal() {
+  [ "$1" = "$2" ] || fail "expected '$2', got '$1'"
+}
+
+assert_contains() {
+  case "$1" in
+    *"$2"*) ;;
+    *) fail "expected '$1' to contain '$2'" ;;
+  esac
+}
+
+assert_not_contains() {
+  case "$1" in
+    *"$2"*) fail "expected '$1' not to contain '$2'" ;;
+    *) ;;
+  esac
+}
+
+export DEVKIT_STATE_DIR="$state_dir/state"
+export SUPERSET_TERMINAL_ID=parent-terminal
+export PATH="$bin_dir:$PATH"
+
+source "$root/lib/common.sh"
+source "$root/lib/module-context.sh"
+source "$root/lib/module-orchestrate.sh"
+source "$root/lib/module-parent-notify.sh"
+source "$root/lib/module-worktree.sh"
+
+mkdir -p "$DEVKIT_DISPATCH_DIR"
+host_call_log="$state_dir/host-calls"
+: >"$host_call_log"
+
+devkit_dispatch_preamble() {
+  printf 'preamble\n'
+}
+
+devkit_superset_available() {
+  return 0
+}
+
+host_mode=success
+devkit_superset() {
+  printf '%s\n' "$*" >>"$host_call_log"
+  if [ "$1" = terminals ] && [ "$2" = create ]; then
+    if [ "$host_mode" = failure ]; then
+      return 42
+    fi
+    printf '{"terminalId":"child-terminal"}\n'
+    return 0
+  fi
+  return 1
+}
+
+devkit_superset_wait_for_terminal_ready() {
+  return 0
+}
+
+devkit_dispatch_native_send() {
+  return 0
+}
+
+devkit_dispatch_wait_for_prompt_receipt() {
+  return 0
+}
+
+host_mode=failure
+if host_failure_output="$(devkit_launch_agent "$root" workspace-test codex gpt-5 medium ping label 2>&1)"; then
+  fail 'host launch unexpectedly succeeded'
+fi
+assert_contains "$host_failure_output" 'Superset terminals create failed'
+printf 'host launch failure reports the failed operation\n'
+
+host_mode=success
+: >"$host_call_log"
+host_output="$(devkit_launch_agent "$root" workspace-test codex gpt-5 medium ping label 2>&1)"
+assert_contains "$host_output" 'terminalId'
+assert_equal "$(wc -l <"$host_call_log" | tr -d ' ')" 1
+printf 'host launch success persists and sends a dispatch\n'
+
+devkit_dispatch_meta_write list-live parent-terminal superset superset workspace-test child-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
+: >"$host_call_log"
+list_output="$(command_orchestrate_list --all --json)"
+assert_equal "$(wc -l <"$host_call_log" | tr -d ' ')" 0
+assert_equal "$(printf '%s' "$list_output" | jq -r 'map(select(.dispatchId == "list-live")) | length')" 1
+printf 'dispatch list uses metadata without host calls\n'
+
+devkit_dispatch_meta_write stalled-live live-terminal superset superset workspace-test live-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
+devkit_dispatch_message_append stalled-live child received 'prompt received' live-terminal >/dev/null
+env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=live-terminal DEVKIT_HOOK_AGENT=codex "$root/hooks/devkit-turn-end.sh" '{"last_assistant_message":"still working"}' >/dev/null
+assert_equal "$(jq -r '.state' "$DEVKIT_DISPATCH_DIR/stalled-live/meta.json")" running
+printf 'live queue activity does not trigger stalled\n'
+
+devkit_superset() {
+  if [ "$1" = terminals ] && [ "$2" = list ]; then
+    printf '[]\n'
+    return 0
+  fi
+  return 1
+}
+devkit_dispatch_meta_write stalled-missing child-terminal superset superset workspace-test missing-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
+env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=missing-terminal DEVKIT_HOOK_AGENT=codex "$root/hooks/devkit-turn-end.sh" '{"last_assistant_message":"stuck"}' >/dev/null
+assert_equal "$(jq -r '.state' "$DEVKIT_DISPATCH_DIR/stalled-missing/meta.json")" stalled
+printf 'missing terminal remains evidence for stalled\n'
+
+devkit_dispatch_meta_write stalled-done done-terminal superset superset workspace-test done-terminal "$root" main codex label stalled gpt-5 true codex '' '' host ide >/dev/null
+env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=done-terminal "$root/devkit" done 'completed after recovery' >/dev/null
+assert_equal "$(jq -r '.state' "$DEVKIT_DISPATCH_DIR/stalled-done/meta.json")" done
+printf 'done is accepted from stalled\n'
+
+model_output="$("$root/devkit" model list)"
+assert_contains "$model_output" 'sourced'
+assert_contains "$model_output" 'inferred'
+assert_equal "$("$root/devkit" model list --json | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-5.6-luna") | .provenance.kind')" sourced
+assert_equal "$("$root/devkit" model list --json | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-5.6-luna") | .reasoning.provenance.kind')" inferred
+assert_equal "$("$root/devkit" model list --json | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-5.6-luna") | .reasoning.provenance.verified[0]')" xhigh
+printf 'model list separates sourced ids from inferred effort spellings\n'
+
+printf 'ok: end to end findings coverage\n'
