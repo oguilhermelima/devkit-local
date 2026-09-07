@@ -351,6 +351,7 @@ devkit_spawn_mark_prompt_failed() {
   devkit_dispatch_meta_update_prompt "$dispatch_id" false not-delivered "$reason" >/dev/null 2>&1 || true
   devkit_dispatch_meta_update_state "$dispatch_id" failed >/dev/null 2>&1 || true
   devkit_dispatch_meta_update_process_state "$dispatch_id" failed >/dev/null 2>&1 || true
+  devkit_dispatch_meta_update_fields "$dispatch_id" __keep__ __keep__ __keep__ prompt-delivery "$reason" __keep__ __keep__ __keep__ >/dev/null 2>&1 || true
 }
 
 devkit_launch_agent() {
