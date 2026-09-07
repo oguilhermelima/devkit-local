@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+if ! declare -F devkit_model_init >/dev/null 2>&1; then
+  # shellcheck source=local/devkit/lib/module-model.sh
+  source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/module-model.sh"
+fi
+
 DEVKIT_CHAIN_AGENTS='codex claude agy'
 DEVKIT_CHAIN_WINDOWS='5h weekly'
 
@@ -17,7 +22,7 @@ devkit_chain_seed() {
     "codex": {
       "when": {"parentAgent": "codex"},
       "steps": [
-        {"agent": "claude", "model": "claude-sonnet-4-5", "effort": "high"},
+        {"agent": "claude", "model": "claude-sonnet-5", "effort": "high"},
         {"agent": "agy", "model": "gemini-3.1-pro-high", "effort": "high"}
       ]
     },
@@ -25,7 +30,7 @@ devkit_chain_seed() {
       "when": {"parentAgent": "agy"},
       "steps": [
         {"agent": "codex", "model": "gpt-5.6-luna", "effort": "high", "until": {"usedPercent": 95, "window": "5h"}},
-        {"agent": "claude", "model": "claude-sonnet-4-5", "effort": "high"}
+        {"agent": "claude", "model": "claude-sonnet-5", "effort": "high"}
       ]
     }
   },
@@ -41,11 +46,14 @@ EOF
 }
 
 devkit_chain_init() {
-  local tmp
+  local tmp seed
   mkdir -p "$DEVKIT_STATE_DIR" || return 1
+  devkit_model_init || return 1
   if [ ! -f "$DEVKIT_CHAIN_FILE" ]; then
     tmp="$(mktemp "$DEVKIT_STATE_DIR/chains.XXXXXX")" || return 1
-    if ! devkit_chain_seed >"$tmp"; then
+    seed="$(devkit_chain_seed)" || return 1
+    devkit_chain_validate_config "$seed" true || return 1
+    if ! printf '%s\n' "$seed" >"$tmp"; then
       rm -f "$tmp"
       return 1
     fi
@@ -112,14 +120,14 @@ EOF
 }
 
 devkit_chain_validate_step() {
-  local chain="$1" index="$2" step="$3" key agent model effort until_json used_percent window
+  local chain="$1" index="$2" step="$3" strict="${4:-false}" key agent model effort until_json used_percent window unvalidated
   if ! printf '%s' "$step" | jq -e 'type == "object"' >/dev/null 2>&1; then
     devkit_error "invalid chain $chain step $index: expected an object"
     return 1
   fi
   while IFS= read -r key; do
     case "$key" in
-      agent|model|effort|until) ;;
+      agent|model|effort|until|unvalidated) ;;
       *)
         devkit_error "invalid chain $chain step $index: unsupported field $key"
         return 1
@@ -129,10 +137,20 @@ devkit_chain_validate_step() {
   agent="$(printf '%s' "$step" | jq -r '.agent // empty')"
   model="$(printf '%s' "$step" | jq -r '.model // empty')"
   effort="$(printf '%s' "$step" | jq -r '.effort // empty')"
+  unvalidated="$(printf '%s' "$step" | jq -r '.unvalidated // false')"
   [ -n "$agent" ] || { devkit_error "invalid chain $chain step $index: agent is required"; return 1; }
   devkit_chain_agent_known "$agent" || { devkit_error "invalid chain $chain step $index: unknown agent $agent"; return 1; }
   [ -n "$model" ] || { devkit_error "invalid chain $chain step $index: model is required"; return 1; }
   [ -n "$effort" ] || { devkit_error "invalid chain $chain step $index: effort is required"; return 1; }
+  if [ "$unvalidated" != true ] && ! devkit_model_known "$agent" "$model"; then
+    if [ "$strict" = true ]; then
+      devkit_model_validate_step "$chain" "$index" "$agent" "$model" "$effort" || return 1
+    else
+      devkit_error "chain migration required: chain $chain step $index uses unknown model '$model' for agent '$agent'; run devkit chain repair $chain --step $index --model <valid-id> --effort <level>"
+    fi
+  elif [ "$unvalidated" != true ]; then
+    devkit_model_validate_reasoning "$agent" "$model" "$effort" || return 1
+  fi
   if printf '%s' "$step" | jq -e 'has("until")' >/dev/null 2>&1; then
     until_json="$(printf '%s' "$step" | jq -c '.until')"
     if ! printf '%s' "$until_json" | jq -e 'type == "object" and ((keys | sort) == ["usedPercent", "window"])' >/dev/null 2>&1; then
@@ -150,7 +168,7 @@ devkit_chain_validate_step() {
 }
 
 devkit_chain_validate_config() {
-  local config="$1" chain selector steps step index live_provider field
+  local config="$1" strict="${2:-false}" chain selector steps step index live_provider field rc=0
   if ! printf '%s' "$config" | jq -e 'type == "object" and (.chains | type == "object") and (.defaultSteps | type == "array")' >/dev/null 2>&1; then
     devkit_error "invalid chain config: expected chains object and defaultSteps array"
     return 1
@@ -190,14 +208,15 @@ devkit_chain_validate_config() {
     index=0
     while IFS= read -r step; do
       index=$((index + 1))
-      devkit_chain_validate_step "$chain" "$index" "$step" || return 1
+      devkit_chain_validate_step "$chain" "$index" "$step" "$strict" || rc=1
     done < <(printf '%s' "$steps" | jq -c '.[]')
   done < <(printf '%s' "$config" | jq -r '.chains | keys[]')
   index=0
   while IFS= read -r step; do
     index=$((index + 1))
-    devkit_chain_validate_step default "$index" "$step" || return 1
+    devkit_chain_validate_step default "$index" "$step" "$strict" || rc=1
   done < <(printf '%s' "$config" | jq -c '.defaultSteps[]')
+  return "$rc"
 }
 
 devkit_chain_write() {
@@ -233,12 +252,12 @@ command_chain_list() {
     esac
   done
   config="$(devkit_chain_read)" || return 1
-  devkit_chain_validate_config "$config" || return 1
+  devkit_chain_validate_config "$config" true || return 1
   devkit_chain_format_list "$config" "$json"
 }
 
 command_chain_add() {
-  local name="" when_json='{}' steps_json='[]' json=false arg value chain config result
+  local name="" when_json='{}' steps_json='[]' json=false allow_unknown=false arg value chain config result registry
   [ "$#" -gt 0 ] || { devkit_error 'Usage: devkit chain add <name> --when <json> --steps <json> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
   name="$1"
   shift
@@ -257,6 +276,7 @@ command_chain_add() {
         esac
         shift 2
         ;;
+      --allow-unknown-model) allow_unknown=true; shift ;;
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: devkit chain add <name> --when <json> --steps <json> [--json]\n'; return 0 ;;
       *) devkit_error "unknown chain add option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
@@ -272,8 +292,12 @@ command_chain_add() {
     devkit_error "chain $name has invalid JSON definition"
     return 1
   fi
+  if [ "$allow_unknown" = true ]; then
+    registry="$(devkit_model_read)" || return 1
+    result="$(printf '%s' "$result" | jq --argjson models "$(printf '%s' "$registry" | jq '.models')" ' .steps |= map(. as $step | if any($models[]; .agent == $step.agent and .model == $step.model) then . else . + {unvalidated: true} end)')"
+  fi
   config="$(printf '%s' "$config" | jq --arg name "$name" --argjson chain "$result" '.chains[$name] = $chain')"
-  devkit_chain_validate_config "$config" || return 1
+  devkit_chain_validate_config "$config" true || return 1
   devkit_chain_write "$config" || return 1
   if [ "$json" = true ]; then
     printf '%s\n' "$result" | jq -c --arg name "$name" '. + {name: $name}'
@@ -283,7 +307,7 @@ command_chain_add() {
 }
 
 command_chain_edit() {
-  local name="" json=false arg config tmp edited editor
+  local name="" json=false allow_unknown=false arg config tmp edited editor registry
   [ "$#" -gt 0 ] || { devkit_error 'Usage: devkit chain edit <name> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
   name="$1"
   shift
@@ -291,6 +315,7 @@ command_chain_edit() {
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
+      --allow-unknown-model) allow_unknown=true; shift ;;
       -h|--help) printf 'Usage: devkit chain edit <name> [--json]\n'; return 0 ;;
       *) devkit_error "unknown chain edit option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
@@ -319,7 +344,11 @@ command_chain_edit() {
   fi
   edited="$(cat "$tmp")"
   rm -f "$tmp"
-  devkit_chain_validate_config "$edited" || return 1
+  if [ "$allow_unknown" = true ]; then
+    registry="$(devkit_model_read)" || return 1
+    edited="$(printf '%s' "$edited" | jq --arg name "$name" --argjson models "$(printf '%s' "$registry" | jq '.models')" ' .chains[$name].steps |= map(. as $step | if any($models[]; .agent == $step.agent and .model == $step.model) then . else . + {unvalidated: true} end)')"
+  fi
+  devkit_chain_validate_config "$edited" true || return 1
   if ! printf '%s' "$edited" | jq -e --arg name "$name" '.chains | has($name)' >/dev/null 2>&1; then
     devkit_error "edited chain not found: $name"
     return 1
@@ -358,6 +387,41 @@ command_chain_delete() {
     jq -n --arg name "$name" '{deleted: true, name: $name}'
   else
     printf 'chain deleted: %s\n' "$name"
+  fi
+}
+
+command_chain_repair() {
+  local name="${1:-}" step_number="" model="" effort="" json=false arg config result step agent
+  [ -n "$name" ] || { devkit_error 'Usage: devkit chain repair <name> --step <number> --model <id> --effort <level> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --step) step_number="${2:-}"; shift 2 ;;
+      --model) model="${2:-}"; shift 2 ;;
+      --effort) effort="${2:-}"; shift 2 ;;
+      --json) json=true; shift ;;
+      -h|--help) printf 'Usage: devkit chain repair <name> --step <number> --model <id> --effort <level> [--json]\n'; return 0 ;;
+      *) devkit_error "unknown chain repair option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+    esac
+  done
+  case "$step_number" in
+    ''|*[!0-9]*|0) devkit_error 'chain repair requires a positive --step number'; return "$DEVKIT_USAGE_ERROR" ;;
+  esac
+  [ -n "$model" ] || { devkit_error '--model is required for chain repair'; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$effort" ] || { devkit_error '--effort is required for chain repair'; return "$DEVKIT_USAGE_ERROR"; }
+  config="$(devkit_chain_read)" || return 1
+  step="$(printf '%s' "$config" | jq -c --arg name "$name" --argjson index "$step_number" '.chains[$name].steps[$index - 1] // empty')"
+  [ -n "$step" ] || { devkit_error "chain step not found: $name step $step_number"; return 1; }
+  agent="$(printf '%s' "$step" | jq -r '.agent')"
+  devkit_model_validate_step "$name" "$step_number" "$agent" "$model" "$effort" || return 1
+  result="$(printf '%s' "$config" | jq --arg name "$name" --argjson index "$step_number" --arg model "$model" --arg effort "$effort" '.chains[$name].steps[$index - 1] |= (.model = $model | .effort = $effort | del(.unvalidated))')"
+  devkit_chain_validate_config "$result" || return 1
+  devkit_chain_write "$result" || return 1
+  if [ "$json" = true ]; then
+    printf '%s' "$result" | jq -c --arg name "$name" --argjson index "$step_number" '{repaired: true, chain: $name, step: $index, value: .chains[$name].steps[$index - 1]}'
+  else
+    printf 'chain repaired: %s step %s\n' "$name" "$step_number"
   fi
 }
 
@@ -1179,8 +1243,9 @@ command_chain() {
     edit) command_chain_edit "$@" ;;
     delete) command_chain_delete "$@" ;;
     run) command_chain_run "$@" ;;
+    repair) command_chain_repair "$@" ;;
     -h|--help|"")
-      printf 'Usage: devkit chain list|limits|add|edit|delete|run ...\n'
+      printf 'Usage: devkit chain list|limits|add|edit|delete|run|repair ...\n'
       ;;
     *) devkit_error "unknown chain command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
   esac

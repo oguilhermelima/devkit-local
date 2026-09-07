@@ -123,6 +123,9 @@ devkit_slug_from_branch() {
 }
 
 devkit_agy_model_known() {
+  if declare -F devkit_model_known >/dev/null 2>&1 && devkit_model_known agy "$1"; then
+    return 0
+  fi
   printf '%s\n' "$DEVKIT_AGY_MODEL_IDS" | grep -Fx -- "$1" >/dev/null 2>&1
 }
 
@@ -139,6 +142,12 @@ devkit_agy_model_id() {
     *-low) base="${model%-low}" ;;
     *) base="$model" ;;
   esac
+  if declare -F devkit_model_known >/dev/null 2>&1 && devkit_model_known agy "$model"; then
+    if devkit_model_validate_reasoning agy "$model" "$effort" >/dev/null 2>&1; then
+      printf '%s\n' "$model"
+      return 0
+    fi
+  fi
   candidate="${base}-${effort}"
   if devkit_agy_model_known "$candidate"; then
     printf '%s\n' "$candidate"
