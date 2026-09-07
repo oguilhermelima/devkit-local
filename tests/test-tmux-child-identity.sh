@@ -126,11 +126,12 @@ assert_equal "$(jq -r '.status' "$state_dir/dispatches/$dispatch_two/deliveries/
 stale_pane="$tmux_pane_one"
 tmux_cmd kill-pane -t "$stale_pane"
 stale_output="$state_dir/stale.out"
-stale_command="DEVKIT_STATE_DIR=$(printf '%q' "$state_dir") SUPERSET_TERMINAL_ID=host-terminal DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_one") TMUX_PANE=$(printf '%q' "$stale_pane") $(printf '%q' "$root/devkit") ask stale-message >$(printf '%q' "$stale_output") 2>&1 || printf 'stale-refused\n' >$(printf '%q' "$stale_output")"
+stale_done="$state_dir/stale.done"
+stale_command="DEVKIT_STATE_DIR=$(printf '%q' "$state_dir") SUPERSET_TERMINAL_ID=host-terminal DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_one") TMUX_PANE=$(printf '%q' "$stale_pane") $(printf '%q' "$root/devkit") ask stale-message >$(printf '%q' "$stale_output") 2>&1; printf 'done\n' >$(printf '%q' "$stale_done")"
 tmux_cmd send-keys -t "$tmux_pane_two" -l "$stale_command"
 tmux_cmd send-keys -t "$tmux_pane_two" Enter
-wait_for_file "$stale_output"
-assert_equal "$(sed -n '1p' "$stale_output")" stale-refused
+wait_for_file "$stale_done"
+assert_contains "$(cat "$stale_output")" "no managed dispatch belongs to tmux session unknown pane $stale_pane"
 assert_equal "$(find "$state_dir/dispatches/$dispatch_one/messages" -name '*.json' | wc -l | tr -d ' ')" 1
 
 tab_dispatch="dispatch-tab"
