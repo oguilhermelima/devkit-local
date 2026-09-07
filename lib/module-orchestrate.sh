@@ -882,7 +882,7 @@ devkit_dispatch_close() {
 }
 
 devkit_dispatch_child_message() {
-  local type="$1" text="$2" dispatch_id
+  local type="$1" text="$2" dispatch_id meta process_state
   case "$type" in
     ask|done) ;;
     *) devkit_error "unsupported child message type: $type"; return "$DEVKIT_USAGE_ERROR" ;;
@@ -890,9 +890,16 @@ devkit_dispatch_child_message() {
   devkit_dispatch_find_child || return 1
   dispatch_id="$DEVKIT_FOUND_DISPATCH"
   devkit_dispatch_message_append "$dispatch_id" child "$type" "$text" "$DEVKIT_SESSION_ID" >/dev/null || return 1
+  meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
+  process_state="$(printf '%s' "$meta" | jq -r '.processState // empty')"
+  case "$process_state" in
+    starting|start-unproven) devkit_dispatch_meta_update_process_state "$dispatch_id" running || return 1 ;;
+  esac
   if [ "$type" = ask ]; then
     devkit_dispatch_meta_update_state "$dispatch_id" waiting_for_reply || return 1
+    devkit_dispatch_meta_update_process_state "$dispatch_id" running || return 1
   else
+    devkit_dispatch_meta_update_process_state "$dispatch_id" succeeded || return 1
     devkit_dispatch_meta_update_state "$dispatch_id" done || return 1
   fi
   printf '%s sent: %s\n' "$type" "$dispatch_id"
