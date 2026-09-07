@@ -422,7 +422,7 @@ devkit_spawn_mark_running_if_spawning() {
 
 devkit_launch_agent() {
   local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
-  local context command_text response session_id final_prompt dispatch_preamble parent_id parent_host child_host branch
+  local context command_text response session_id final_prompt dispatch_preamble parent_id parent_host child_host branch meta
   local parent_tmux_session="" parent_tmux_pane="" parent_workspace_id="${SUPERSET_WORKSPACE_ID:-}"
   local agent_used model_honored=false substitution_report dispatch_id runtime tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false
   local -a passthrough_args=()
@@ -586,20 +586,32 @@ ${prompt}"
     return 0
   fi
   if [ "${#passthrough_args[@]}" -gt 0 ]; then
-    command_text="$(devkit_agent_command "$agent" "$model" "$effort" "${passthrough_args[@]}")" || return 1
+    command_text="$(devkit_agent_command "$agent" "$model" "$effort" "${passthrough_args[@]}")" || {
+      devkit_error "could not build $agent launch command"
+      return 1
+    }
   else
-    command_text="$(devkit_agent_command "$agent" "$model" "$effort")" || return 1
+    command_text="$(devkit_agent_command "$agent" "$model" "$effort")" || {
+      devkit_error "could not build $agent launch command"
+      return 1
+    }
   fi
   case "$context" in
     orca)
       devkit_require_command orca || { devkit_error "orca CLI is not available"; return 1; }
-      response="$(orca terminal create --worktree "path:$worktree_path" --title "$agent $worktree_path" --command "$command_text" --json)" || return 1
+      response="$(orca terminal create --worktree "path:$worktree_path" --title "$agent $worktree_path" --command "$command_text" --json)" || {
+        devkit_error "orca terminal create failed for $worktree_path"
+        return 1
+      }
       session_id="$(printf '%s' "$response" | jq -r '.result.terminal.handle // .terminal.handle // .handle // empty' 2>/dev/null)"
       child_host=orca
       ;;
     superset)
       devkit_superset_available || { devkit_error "superset CLI is not available"; return 1; }
-      response="$(devkit_superset terminals create --workspace "$workspace_id" --command "$command_text" --json)" || return 1
+      response="$(devkit_superset terminals create --workspace "$workspace_id" --command "$command_text" --json)" || {
+        devkit_error "Superset terminals create failed for workspace $workspace_id"
+        return 1
+      }
       session_id="$(printf '%s' "$response" | jq -r '.terminalId // .sessionId // .result.terminalId // .result.sessionId // .terminal.sessionId // .result.terminal.sessionId // .terminal.id // .result.terminal.id // .id // empty' 2>/dev/null)"
       [ -n "$session_id" ] || { devkit_error "Superset terminals create returned no terminal identity"; return 1; }
       child_host=superset
@@ -621,26 +633,37 @@ ${prompt}"
     if ! orca terminal wait --terminal "$session_id" --for tui-idle --timeout-ms "$DEVKIT_AGENT_READY_TIMEOUT_MS" >/dev/null; then
       devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
       devkit_spawn_mark_prompt_failed "$dispatch_id" readiness-timeout
+      devkit_error "orca terminal $session_id did not become ready within ${DEVKIT_AGENT_READY_TIMEOUT_MS}ms"
       return 1
     fi
   elif ! devkit_superset_wait_for_terminal_ready "$workspace_id" "$session_id"; then
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     devkit_spawn_mark_prompt_failed "$dispatch_id" readiness-timeout
+    devkit_error "Superset terminal $session_id did not become ready"
     return 1
   fi
-  if ! devkit_dispatch_native_send "$(devkit_dispatch_meta_read "$dispatch_id")" "$final_prompt"; then
+  meta="$(devkit_dispatch_meta_read "$dispatch_id")" || {
+    devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
+    devkit_spawn_mark_prompt_failed "$dispatch_id" metadata-read-failed
+    devkit_error "could not read dispatch metadata: $dispatch_id"
+    return 1
+  }
+  if ! devkit_dispatch_native_send "$meta" "$final_prompt"; then
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-send-failed
+    devkit_error "could not send prompt to $child_host terminal $session_id"
     return 1
   fi
   if ! devkit_dispatch_wait_for_prompt_receipt "$dispatch_id"; then
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-receipt-timeout
+    devkit_error "dispatch $dispatch_id did not receive a prompt receipt within ${DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS}s"
     return 1
   fi
   if ! devkit_spawn_mark_prompt_delivered "$dispatch_id"; then
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-confirmation-failed
+    devkit_error "could not record prompt delivery for dispatch $dispatch_id"
     return 1
   fi
   devkit_spawn_mark_running_if_spawning "$dispatch_id" || {

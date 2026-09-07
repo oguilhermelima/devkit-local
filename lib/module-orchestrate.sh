@@ -672,8 +672,18 @@ devkit_dispatch_native_send() {
     return $?
   fi
   case "$host" in
-    superset) devkit_superset terminals send --workspace "$workspace_id" --terminal "$terminal_id" --text "$text" --json >/dev/null ;;
-    orca) orca terminal send --terminal "$terminal_id" --text "$text" --enter --json >/dev/null ;;
+    superset)
+      devkit_superset terminals send --workspace "$workspace_id" --terminal "$terminal_id" --text "$text" --json >/dev/null || {
+        devkit_error "Superset terminals send failed for terminal $terminal_id in workspace $workspace_id"
+        return 1
+      }
+      ;;
+    orca)
+      orca terminal send --terminal "$terminal_id" --text "$text" --enter --json >/dev/null || {
+        devkit_error "orca terminal send failed for terminal $terminal_id"
+        return 1
+      }
+      ;;
     *) devkit_error "unsupported child host: $host"; return 1 ;;
   esac
 }
