@@ -45,6 +45,34 @@ assert_failure() {
   fi
 }
 
+fake_security_mode=ok
+fake_curl_mode=claude
+fake_curl_call_file=""
+fake_claude_expiry=""
+
+security() {
+  local service="$3"
+  case "$fake_security_mode:$service" in
+    missing:*) return 1 ;;
+    expired:Claude\ Code-credentials) printf '{"claudeAiOauth":{"accessToken":"synthetic-claude-token","expiresAt":1}}' ;;
+    malformed:Claude\ Code-credentials) printf '{"claudeAiOauth":{"accessToken":"synthetic-claude-token","expiresAt":"bad"}}' ;;
+    ok:Claude\ Code-credentials) printf '{"claudeAiOauth":{"accessToken":"synthetic-claude-token","expiresAt":%s}}' "${fake_claude_expiry:-9999999999}" ;;
+    ok:gemini) printf 'go-keyring-base64:%s' "$(printf '%s' '{"token":"synthetic-agy-token"}' | base64)" ;;
+    *) return 1 ;;
+  esac
+}
+
+curl() {
+  printf '%s\n' "$fake_curl_mode" >>"$fake_curl_call_file"
+  case "$fake_curl_mode" in
+    timeout) return 28 ;;
+    non200) printf '{"error":"synthetic"}\nDEVKIT_HTTP_STATUS:503' ;;
+    garbage) printf 'not-json\nDEVKIT_HTTP_STATUS:200' ;;
+    agy) printf '{"quota":{"gemini-5h":{"remaining_fraction":0.80,"reset_time":"2026-09-07T10:00:00Z"},"gemini-weekly":{"remaining_fraction":0.70,"reset_time":"2026-09-10T10:00:00Z"},"3p-5h":{"remaining_fraction":0.60,"reset_time":"2026-09-07T10:00:00Z"},"3p-weekly":{"remaining_fraction":0.50,"reset_time":"2026-09-10T10:00:00Z"}}}\nDEVKIT_HTTP_STATUS:200' ;;
+    *) printf '{"five_hour":{"utilization":11.0,"resets_at":"2026-09-07T10:00:00Z"},"seven_day":{"utilization":48.0,"resets_at":"2026-09-10T16:00:00Z"}}\nDEVKIT_HTTP_STATUS:200' ;;
+  esac
+}
+
 write_config() {
   printf '%s\n' "$1" >"$DEVKIT_CHAIN_FILE"
 }
@@ -184,5 +212,92 @@ devkit_dispatch_meta_write dispatch-record parent superset superset workspace te
 assert_equal "$(jq -r '.chain.name' "$DEVKIT_STATE_DIR/dispatches/dispatch-record/meta.json")" run
 assert_equal "$(jq -r '.chain.step' "$DEVKIT_STATE_DIR/dispatches/dispatch-record/meta.json")" 2
 printf 'dispatch reporting: chosen chain and step persisted\n'
+
+future_claude_expiry="$(($(date +%s) + 3600))"
+fake_claude_expiry="$future_claude_expiry"
+write_config '{"chains":{"provider":{"when":{"parentAgent":"codex"},"steps":[{"agent":"claude","model":"m","effort":"e"}]}},"defaultSteps":[],"usageLimits":{"liveProviders":["claude","agy"],"cacheTtlSeconds":30,"timeoutSeconds":5,"notice":{"enabled":false,"intervalSeconds":3600}}}'
+fake_security_mode=ok
+fake_curl_mode=claude
+fake_curl_call_file="$state_dir/curl-calls"
+: >"$fake_curl_call_file"
+devkit_chain_limit_read claude 5h
+assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" current
+assert_equal "$DEVKIT_CHAIN_LIMIT_USED" 11.0
+assert_equal "$DEVKIT_CHAIN_LIMIT_SOURCE" live
+assert_equal "$(printf '%s' "$DEVKIT_CHAIN_LIMIT_RESULT" | jq -r '.windows | length')" 2
+assert_equal "$(wc -l <"$fake_curl_call_file" | tr -d ' ')" 1
+devkit_chain_limit_read claude weekly
+assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" current
+assert_equal "$(wc -l <"$fake_curl_call_file" | tr -d ' ')" 1
+printf 'claude dispatch and cache: normalized response, one request\n'
+
+fake_curl_mode=agy
+devkit_chain_limit_read agy 5h
+assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" current
+assert_equal "$DEVKIT_CHAIN_LIMIT_USED" 20
+assert_equal "$(printf '%s' "$DEVKIT_CHAIN_LIMIT_RESULT" | jq -r '.windows | length')" 4
+printf 'agy dispatch: named quota buckets normalized\n'
+
+write_config '{"chains":{"provider":{"when":{"parentAgent":"codex"},"steps":[{"agent":"claude","model":"m","effort":"e"}]}},"defaultSteps":[],"usageLimits":{"liveProviders":[],"cacheTtlSeconds":30,"timeoutSeconds":5,"notice":{"enabled":false,"intervalSeconds":3600}}}'
+ : >"$fake_curl_call_file"
+devkit_chain_limit_read claude 5h
+assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" unknown
+assert_contains "$DEVKIT_CHAIN_LIMIT_REASON" 'not enabled'
+assert_equal "$(wc -l <"$fake_curl_call_file" | tr -d ' ')" 0
+printf 'opt-in gate: disabled provider made no request\n'
+
+write_config '{"chains":{"provider":{"when":{"parentAgent":"codex"},"steps":[{"agent":"claude","model":"m","effort":"e"}]}},"defaultSteps":[],"usageLimits":{"liveProviders":["claude"],"cacheTtlSeconds":30,"timeoutSeconds":5,"notice":{"enabled":false,"intervalSeconds":3600}}}'
+for failure in missing expired timeout non200 garbage; do
+  fake_security_mode=ok
+  fake_curl_mode=claude
+  case "$failure" in
+    missing) fake_security_mode=missing ;;
+    expired) fake_security_mode=expired ;;
+    timeout) fake_curl_mode=timeout ;;
+    non200) fake_curl_mode=non200 ;;
+    garbage) fake_curl_mode=garbage ;;
+  esac
+  rm -f "$DEVKIT_STATE_DIR/usage-limits-claude.json"
+  devkit_chain_limit_read claude 5h
+  assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" unknown
+  case "$failure" in
+    missing) assert_contains "$DEVKIT_CHAIN_LIMIT_REASON" 'Keychain item is missing' ;;
+    expired) assert_contains "$DEVKIT_CHAIN_LIMIT_REASON" 'expired' ;;
+    timeout) assert_contains "$DEVKIT_CHAIN_LIMIT_REASON" 'timed out' ;;
+    non200) assert_contains "$DEVKIT_CHAIN_LIMIT_REASON" 'HTTP 503' ;;
+    garbage) assert_contains "$DEVKIT_CHAIN_LIMIT_REASON" 'unparseable' ;;
+  esac
+  printf 'failure %s: unknown with distinct reason\n' "$failure"
+done
+
+fake_security_mode=ok
+fake_curl_mode=claude
+devkit_chain_limit_read claude 5h
+cache_path="$DEVKIT_STATE_DIR/usage-limits-claude.json"
+old_fetched="$(($(date +%s) - 60))"
+jq --argjson fetchedAt "$old_fetched" '.fetchedAt = $fetchedAt' "$cache_path" >"$cache_path.old"
+mv -f "$cache_path.old" "$cache_path"
+ : >"$fake_curl_call_file"
+devkit_chain_limit_read claude 5h
+assert_equal "$(wc -l <"$fake_curl_call_file" | tr -d ' ')" 1
+printf 'stale cache: expired entry refreshed\n'
+
+limits_output="$(command_chain_limits --json)"
+assert_equal "$(printf '%s' "$limits_output" | jq 'map(select(.provider == "codex")) | length')" 2
+assert_equal "$(printf '%s' "$limits_output" | jq 'map(select(.provider == "claude")) | length')" 2
+printf 'chain limits command: all providers and windows listed\n'
+
+write_config '{"chains":{"provider":{"when":{"parentAgent":"codex"},"steps":[{"agent":"claude","model":"m","effort":"e"}]}},"defaultSteps":[],"usageLimits":{"liveProviders":["claude"],"cacheTtlSeconds":30,"timeoutSeconds":5,"notice":{"enabled":true,"intervalSeconds":3600}}}'
+command_orchestrate() {
+  devkit_dispatch_meta_write notice-dispatch parent-terminal superset superset workspace terminal-child "$root" main codex label running gpt-5 true codex '' '' host >/dev/null
+  printf '{"dispatch":"notice-dispatch"}\n'
+}
+devkit_parent_notify_dispatch() { return 1; }
+command_orchestrate >/dev/null
+devkit_chain_usage_notice_maybe notice-dispatch
+notice_message="$(find "$DEVKIT_STATE_DIR/dispatches/notice-dispatch/messages" -name '*.json' -print -quit)"
+[ -n "$notice_message" ] || fail 'usage notice was not queued'
+assert_contains "$(jq -r '.text' "$notice_message")" 'Usage limits:'
+printf 'chat notice: queued and delivery failure did not break caller\n'
 
 printf 'ok: chain selection, limits, failure advance, exhaustion, and reporting\n'
