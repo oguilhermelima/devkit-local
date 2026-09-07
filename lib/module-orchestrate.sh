@@ -181,7 +181,7 @@ devkit_dispatch_message_append() {
   while ! mkdir "$lock" 2>/dev/null; do sleep 0.02; done
   seq="$(find "$messages_dir" -maxdepth 1 -type f -name '*.json' -print 2>/dev/null | sed 's|.*/||; s|-.*||' | sort -n | tail -n 1)"
   [ -n "$seq" ] || seq=0
-  seq=$((seq + 1))
+  seq=$((10#$seq + 1))
   file_name="$(printf '%04d-%s-%s.json' "$seq" "$from" "$type")"
   path="$messages_dir/$file_name"
   tmp="$(mktemp "$messages_dir/.message.XXXXXX")" || { rmdir "$lock"; return 1; }
