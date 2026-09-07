@@ -7,6 +7,39 @@ DEVKIT_DISPATCH_DELIVERY_BATCH_CAP="${DEVKIT_DISPATCH_DELIVERY_BATCH_CAP:-50}"
 DEVKIT_PROMPT_BUDGET_ARGV_BYTES=262144
 DEVKIT_PROMPT_BUDGET_TMUX_BYTES=12000
 
+devkit_dispatch_transition_allowed() {
+  local axis="$1" from="$2" to="$3"
+  case "$axis:$from:$to" in
+    dispatch:spawning:spawning|dispatch:spawning:running|dispatch:spawning:failed|dispatch:spawning:closed) return 0 ;;
+    dispatch:running:running|dispatch:running:waiting_for_reply|dispatch:running:done|dispatch:running:failed|dispatch:running:orphaned|dispatch:running:stalled|dispatch:running:timeout|dispatch:running:closed) return 0 ;;
+    dispatch:waiting_for_reply:waiting_for_reply|dispatch:waiting_for_reply:running|dispatch:waiting_for_reply:done|dispatch:waiting_for_reply:failed|dispatch:waiting_for_reply:orphaned|dispatch:waiting_for_reply:stalled|dispatch:waiting_for_reply:timeout|dispatch:waiting_for_reply:closed) return 0 ;;
+    dispatch:done:done|dispatch:done:closed) return 0 ;;
+    dispatch:failed:failed|dispatch:failed:circuit_broken|dispatch:failed:closed) return 0 ;;
+    dispatch:orphaned:orphaned|dispatch:orphaned:running|dispatch:orphaned:failed|dispatch:orphaned:circuit_broken|dispatch:orphaned:closed) return 0 ;;
+    dispatch:stalled:stalled|dispatch:stalled:failed|dispatch:stalled:circuit_broken|dispatch:stalled:closed) return 0 ;;
+    dispatch:timeout:timeout|dispatch:timeout:failed|dispatch:timeout:circuit_broken|dispatch:timeout:closed) return 0 ;;
+    dispatch:closed:closed|dispatch:circuit_broken:circuit_broken) return 0 ;;
+    process:starting:starting|process:starting:running|process:starting:start-unproven|process:starting:failed|process:starting:stopping|process:starting:stopped|process:starting:stop-unproven|process:starting:abandoned) return 0 ;;
+    process:start-unproven:start-unproven|process:start-unproven:running|process:start-unproven:failed|process:start-unproven:stopping|process:start-unproven:stopped|process:start-unproven:stop-unproven|process:start-unproven:abandoned) return 0 ;;
+    process:running:running|process:running:succeeded|process:running:failed|process:running:stopping|process:running:stopped|process:running:abandoned) return 0 ;;
+    process:stopping:stopping|process:stopping:stopped|process:stopping:stop-unproven|process:stopping:running|process:stopping:failed|process:stopping:abandoned) return 0 ;;
+    process:stop-unproven:stop-unproven|process:stop-unproven:failed|process:stop-unproven:stopped|process:stop-unproven:abandoned) return 0 ;;
+    process:succeeded:succeeded|process:failed:failed|process:stopped:stopped|process:abandoned:abandoned) return 0 ;;
+    terminal:owned:owned|terminal:owned:retained|terminal:owned:released) return 0 ;;
+    terminal:retained:retained|terminal:retained:released) return 0 ;;
+    terminal:missing:missing|terminal:missing:retained|terminal:missing:released|terminal:released:released) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+devkit_dispatch_validate_transition() {
+  local axis="$1" from="$2" to="$3"
+  if ! devkit_dispatch_transition_allowed "$axis" "$from" "$to"; then
+    devkit_error "illegal $axis state transition: $from -> $to"
+    return 1
+  fi
+}
+
 devkit_prompt_byte_length() {
   LC_ALL=C printf '%s' "$1" | wc -c | tr -d '[:space:]'
 }
@@ -150,8 +183,11 @@ devkit_dispatch_meta_read() {
 }
 
 devkit_dispatch_meta_update_state() {
-  local dispatch_id="$1" state="$2" path tmp
+  local dispatch_id="$1" state="$2" path tmp current_state
   path="$(devkit_dispatch_meta_path "$dispatch_id")" || return 1
+  current_state="$(jq -r '.state // empty' "$path" 2>/dev/null || true)"
+  [ -n "$current_state" ] || { devkit_error "dispatch state is missing: $dispatch_id"; return 1; }
+  devkit_dispatch_validate_transition dispatch "$current_state" "$state" || return 1
   tmp="$(mktemp "$(devkit_dispatch_dir "$dispatch_id")/.meta.XXXXXX")" || return 1
   if ! jq --arg state "$state" --arg now "$(devkit_iso_now)" '.state = $state | .updatedAt = $now' "$path" >"$tmp"; then
     rm -f "$tmp"
