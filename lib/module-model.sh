@@ -60,10 +60,11 @@ command_model_list() {
   if [ "$json" = true ]; then
     printf '%s\n' "$registry"
   else
-    printf '%-10s %-38s %-16s %-11s %s\n' AGENT MODEL REASONING STATUS PROVENANCE
-    printf '%s' "$registry" | jq -r '.models[] | [.agent, .model, (.reasoning.levels | join(",")), (.status // "active"), (.provenance.kind + " (" + (.provenance.fetchedAt // .provenance.obtainedAt) + ")")] | @tsv' |
-      while IFS=$'\t' read -r agent model levels status provenance; do
-        printf '%-10s %-38s %-16s %-11s %s\n' "$agent" "$model" "$levels" "$status" "$provenance"
+    printf '%-10s %-38s %-16s %-11s %-18s %s\n' AGENT MODEL REASONING STATUS MODEL-PROVENANCE EFFORT-PROVENANCE
+    # WHY: Model ids and effort spellings have independent evidence.
+    printf '%s' "$registry" | jq -r '.models[] | [.agent, .model, (.reasoning.levels | join(",")), (.status // "active"), ((.provenance.kind // "unknown") + " (" + (.provenance.fetchedAt // .provenance.obtainedAt // "undated") + ")"), (.reasoning.provenance.kind // "unknown")] | @tsv' |
+      while IFS=$'\t' read -r agent model levels status model_provenance effort_provenance; do
+        printf '%-10s %-38s %-16s %-11s %-18s %s\n' "$agent" "$model" "$levels" "$status" "$model_provenance" "$effort_provenance"
       done
   fi
 }
