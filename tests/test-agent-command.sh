@@ -79,13 +79,18 @@ done
 assert_equal "$(devkit_terminal_command_with_agent_permissions 'pnpm dev')" 'pnpm dev'
 printf 'permissions: pnpm dev\n'
 
-tmux_display_count=0
+tmux_display_count_file="$(mktemp "${TMPDIR:-/tmp}/devkit-agent-command.XXXXXX")"
+printf '0\n' >"$tmux_display_count_file"
+trap 'rm -f "$tmux_display_count_file"' EXIT
 tmux() {
+  local display_count
   case "$1" in
     send-keys) return 0 ;;
     display-message)
-      tmux_display_count=$((tmux_display_count + 1))
-      if [ "$tmux_display_count" -ge 6 ]; then
+      display_count="$(cat "$tmux_display_count_file")"
+      display_count=$((display_count + 1))
+      printf '%s\n' "$display_count" >"$tmux_display_count_file"
+      if [ "$display_count" -ge 6 ]; then
         printf 'agy\n'
       else
         printf 'bash\n'
