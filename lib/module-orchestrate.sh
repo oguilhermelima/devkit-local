@@ -516,36 +516,55 @@ devkit_dispatch_require_parent() {
   printf '%s\n' "$meta"
 }
 
+devkit_dispatch_tmux_caller_session() {
+  [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] || return 1
+  tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null
+}
+
 devkit_dispatch_find_child() {
-  local meta_path meta dispatch_id expected_dispatch
+  local meta_path meta dispatch_id tmux_session="" tmux_pane="" tmux_identity=false matched
   DEVKIT_FOUND_DISPATCH=""
   devkit_dispatch_require_session || return 1
-  expected_dispatch="${DEVKIT_DISPATCH_ID:-}"
-  if [ -n "$expected_dispatch" ]; then
-    meta_path="$(devkit_dispatch_meta_path "$expected_dispatch")" || return 1
-    if [ -f "$meta_path" ]; then
-      meta="$(cat "$meta_path")"
-      if printf '%s' "$meta" | jq -e --arg id "$DEVKIT_SESSION_ID" --arg host "$DEVKIT_SESSION_HOST" \
-        '.childHost == $host and .terminalId == $id' >/dev/null 2>&1; then
-        DEVKIT_FOUND_DISPATCH="$expected_dispatch"
-        return 0
-      fi
-    fi
+  if [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
+    tmux_identity=true
+    tmux_pane="$TMUX_PANE"
+    tmux_session="$(devkit_dispatch_tmux_caller_session || true)"
   fi
   for meta_path in "$DEVKIT_DISPATCH_DIR"/*/meta.json; do
     [ -f "$meta_path" ] || continue
     meta="$(cat "$meta_path")"
-    if printf '%s' "$meta" | jq -e --arg id "$DEVKIT_SESSION_ID" --arg host "$DEVKIT_SESSION_HOST" \
+    matched=false
+    if [ "$tmux_identity" = true ]; then
+      # Pane identity replaces terminal identity because tmux shares the host id across panes.
+      [ -n "$tmux_session" ] && printf '%s' "$meta" | jq -e \
+        --arg host "$DEVKIT_SESSION_HOST" --arg session "$tmux_session" --arg pane "$tmux_pane" \
+        '.childHost == $host and .runtime == "tmux" and .tmuxSession == $session and .tmuxPane == $pane' >/dev/null 2>&1 && matched=true
+    elif printf '%s' "$meta" | jq -e --arg id "$DEVKIT_SESSION_ID" --arg host "$DEVKIT_SESSION_HOST" \
       '.terminalId == $id and .childHost == $host' >/dev/null 2>&1; then
+      matched=true
+    fi
+    if [ "$matched" = true ]; then
       dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId')"
       if [ -n "$DEVKIT_FOUND_DISPATCH" ]; then
-        devkit_error "terminal identity matches multiple dispatches"
+        if [ "$tmux_identity" = true ]; then
+          devkit_error "tmux identity matches multiple dispatches for session ${tmux_session:-unknown} pane $tmux_pane: $DEVKIT_FOUND_DISPATCH, $dispatch_id"
+        else
+          devkit_error "terminal identity matches multiple dispatches for $DEVKIT_SESSION_HOST/$DEVKIT_SESSION_ID: $DEVKIT_FOUND_DISPATCH, $dispatch_id"
+        fi
         return 1
       fi
       DEVKIT_FOUND_DISPATCH="$dispatch_id"
     fi
   done
-  [ -n "$DEVKIT_FOUND_DISPATCH" ] || { devkit_error "no managed dispatch belongs to $DEVKIT_SESSION_HOST/$DEVKIT_SESSION_ID"; return 1; }
+  if [ -n "$DEVKIT_FOUND_DISPATCH" ]; then
+    return 0
+  fi
+  if [ "$tmux_identity" = true ]; then
+    devkit_error "no managed dispatch belongs to tmux session ${tmux_session:-unknown} pane $tmux_pane"
+  else
+    devkit_error "no managed dispatch belongs to $DEVKIT_SESSION_HOST/$DEVKIT_SESSION_ID"
+  fi
+  return 1
 }
 
 devkit_dispatch_native_send() {
@@ -664,7 +683,7 @@ devkit_dispatch_watch() {
   [[ "$poll_interval" =~ ^[0-9]+$ ]] || { devkit_error "--poll-interval must be a non-negative number of seconds"; return "$DEVKIT_USAGE_ERROR"; }
   [[ "$generation" =~ ^[1-9][0-9]*$ ]] || { devkit_error "--generation must be a positive number"; return "$DEVKIT_USAGE_ERROR"; }
   [[ "$DEVKIT_DISPATCH_DELIVERY_BATCH_CAP" =~ ^[1-9][0-9]*$ ]] || { devkit_error "delivery batch cap is invalid"; return 1; }
-  meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
+  meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
   [ -n "$consumer" ] || consumer="$DEVKIT_SESSION_HOST/$DEVKIT_SESSION_ID"
   [ -n "$consumer" ] || { devkit_error "consumer identity is empty"; return 1; }
   messages_dir="$(devkit_dispatch_messages_dir "$dispatch_id")"
