@@ -259,6 +259,14 @@ devkit_tmux_capture_pane() {
   tmux capture-pane -p -t "$pane" -S "$start"
 }
 
+devkit_tmux_model_substitution_report() {
+  local pane="$1" output report
+  output="$(devkit_tmux_capture_pane "$pane" -200 2>/dev/null || true)"
+  report="$(printf '%s\n' "$output" | grep -iE 'not supported.*model|substitut|using .* instead' | tail -n 1 || true)"
+  [ -n "$report" ] || return 1
+  printf '%s\n' "$report"
+}
+
 devkit_tmux_agent_output_clean() {
   local pane="$1" output
   output="$(devkit_tmux_capture_pane "$pane" -200 2>/dev/null || true)"

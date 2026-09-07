@@ -69,7 +69,7 @@ List and manage chains with JSON definitions:
 ```sh
 devkit chain list [--json]
 devkit chain add <name> --when '{"parentAgent":"codex"}' \
-  --steps '[{"agent":"agy","model":"gemini-2.5-pro","effort":"high"}]' [--json]
+  --steps '[{"agent":"agy","model":"gemini-3.1-pro-high","effort":"high"}]' [--json]
 devkit chain edit <name> [--json]
 devkit chain delete <name> [--json]
 ```

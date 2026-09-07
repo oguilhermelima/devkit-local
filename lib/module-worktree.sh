@@ -415,7 +415,7 @@ devkit_launch_agent() {
   local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
   local context command_text response session_id final_prompt dispatch_preamble parent_id parent_host child_host branch
   local parent_tmux_session="" parent_tmux_pane="" parent_workspace_id="${SUPERSET_WORKSPACE_ID:-}"
-  local agent_used model_honored=false dispatch_id runtime tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false
+  local agent_used model_honored=false substitution_report dispatch_id runtime tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false
   local -a passthrough_args=()
   shift 7
   [ "$#" -eq 0 ] || passthrough_args=("$@")
@@ -529,6 +529,15 @@ ${prompt}"
       devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
       devkit_spawn_mark_prompt_failed "$dispatch_id" readiness-timeout
       return 1
+    fi
+    substitution_report="$(devkit_tmux_model_substitution_report "$tmux_pane" 2>/dev/null || true)"
+    if [ -n "$substitution_report" ]; then
+      devkit_dispatch_meta_update_model_substitution "$dispatch_id" "$substitution_report" || {
+        devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+        devkit_spawn_mark_prompt_failed "$dispatch_id" model-substitution-record-failed
+        return 1
+      }
+      devkit_error "agent reported model substitution: $substitution_report"
     fi
     if ! devkit_tmux_agent_output_clean "$tmux_pane"; then
       devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
