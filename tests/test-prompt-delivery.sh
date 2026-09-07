@@ -3,9 +3,18 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-receipt.XXXXXX")"
+
+cleanup() {
+  rm -rf "$state_dir"
+}
+trap cleanup EXIT
+
+export DEVKIT_STATE_DIR="$state_dir"
+export ORCA_TERMINAL_HANDLE=parent-terminal
 source "$root/lib/common.sh"
-source "$root/lib/module-tmux-runtime.sh"
 source "$root/lib/module-parent-notify.sh"
+source "$root/lib/module-orchestrate.sh"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -22,68 +31,30 @@ assert_failure() {
   fi
 }
 
-capture_mode=consumed
-capture_index_file="$(mktemp "${TMPDIR:-/tmp}/devkit-delivery.XXXXXX")"
-enter_count=0
-
-cleanup() {
-  rm -f "$capture_index_file"
-}
-trap cleanup EXIT
-
-tmux() {
-  if [ "${1:-}" = send-keys ]; then
-    if [ "${*: -1}" = Enter ]; then
-      enter_count=$((enter_count + 1))
-    fi
-    return 0
-  fi
-  return 1
+create_dispatch() {
+  local dispatch_id="$1" state="$2"
+  devkit_dispatch_meta_write "$dispatch_id" parent-terminal orca orca "" child-terminal "$root" fix/prompt-delivery-proof codex label "$state" gpt-5 true codex "" "" host ide >/dev/null
 }
 
-devkit_tmux_capture_pane() {
-  local capture_count
-  capture_count="$(cat "$capture_index_file")"
-  capture_count=$((capture_count + 1))
-  printf '%s\n' "$capture_count" >"$capture_index_file"
-  case "$capture_mode:$capture_count" in
-    consumed:1|retry:1|tick:1) printf 'status 1\n› PING\n' ;;
-    consumed:2|retry:3) printf 'status 2\n› \nWorking\n' ;;
-    retry:2) printf 'status 2\n› PING\n' ;;
-    tick:*) printf 'status %s\n› PING\n' "$capture_count" ;;
-    *) printf 'status %s\n› \nWorking\n' "$capture_count" ;;
-  esac
-}
+create_dispatch receipt-test spawning
+devkit_dispatch_message_append receipt-test child received 'prompt received' child-terminal >/dev/null
+devkit_dispatch_wait_for_prompt_receipt receipt-test
+delivery_path="$(find "$state_dir/dispatches/receipt-test/deliveries" -name '*.json' -print -quit)"
+[ -n "$delivery_path" ] || fail 'receipt did not create a delivery'
+assert_equal "$(jq -r '.status' "$delivery_path")" acknowledged
+printf 'received receipt is durable and acknowledged\n'
 
-capture_mode=consumed
-printf '0\n' >"$capture_index_file"
-enter_count=0
-devkit_tmux_send_text pane PING
-assert_equal "$enter_count" 1
-printf 'consumed input confirms delivery\n'
+create_dispatch timeout-test spawning
+assert_failure devkit_dispatch_wait_for_prompt_receipt timeout-test
+assert_equal "$(find "$state_dir/dispatches/timeout-test/deliveries" -name '*.json' | wc -l | tr -d ' ')" 0
+printf 'missing receipt cannot confirm delivery\n'
 
-capture_mode=retry
-printf '0\n' >"$capture_index_file"
-enter_count=0
-devkit_tmux_send_text pane PING
-assert_equal "$enter_count" 2
-printf 'Enter retries until consumed input is visible\n'
+create_dispatch running-reply running
+reply_result="$(devkit_dispatch_reply running-reply --text 'Continue work' --json)"
+assert_equal "$(jq -r '.status' <<<"$reply_result")" queued
+reply_message="$(find "$state_dir/dispatches/running-reply/messages" -name '*.json' -print -quit)"
+assert_equal "$(jq -r '.type' "$reply_message")" reply
+assert_equal "$(jq -r '.text' "$reply_message")" 'Continue work'
+printf 'running child accepts queued parent reply\n'
 
-capture_mode=tick
-printf '0\n' >"$capture_index_file"
-enter_count=0
-assert_failure devkit_tmux_send_text pane PING
-assert_equal "$enter_count" "$DEVKIT_TMUX_ENTER_RETRIES"
-printf 'status ticks cannot confirm delivery while input remains\n'
-
-notify_used=false
-devkit_tmux_send_text() {
-  notify_used=true
-  return 0
-}
-notify_meta="$(jq -cn '{parentTmuxPane:"%1"}')"
-devkit_parent_notify_tmux "$notify_meta" pointer
-assert_equal "$notify_used" true
-printf 'parent notices use the shared delivery confirmation\n'
-
-printf 'ok: prompt delivery confirmation scenarios\n'
+printf 'ok: receipt delivery and running reply scenarios\n'
