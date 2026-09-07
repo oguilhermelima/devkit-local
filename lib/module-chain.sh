@@ -272,7 +272,7 @@ command_chain_edit() {
     return 1
   fi
   tmp="$(mktemp "$DEVKIT_STATE_DIR/chains-edit.XXXXXX")" || return 1
-  printf '%s\n' "$config" >"$tmp"
+  cp "$DEVKIT_CHAIN_FILE" "$tmp" || { rm -f "$tmp"; return 1; }
   editor="${EDITOR:-vi}"
   if ! "$editor" "$tmp"; then
     rm -f "$tmp"
