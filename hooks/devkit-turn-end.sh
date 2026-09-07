@@ -41,7 +41,5 @@ fi
 
 devkit_dispatch_message_append "$DEVKIT_HOOK_DISPATCH" child stalled "$DEVKIT_HOOK_TEXT" "$DEVKIT_SESSION_ID" >/dev/null 2>&1 || devkit_hook_finish
 devkit_dispatch_meta_update_state "$DEVKIT_HOOK_DISPATCH" stalled >/dev/null 2>&1 || true
-if [ "$(printf '%s' "$DEVKIT_HOOK_META" | jq -r '.runtime // "host"')" = tmux ]; then
-  devkit_parent_notify_dispatch "$DEVKIT_HOOK_META" >/dev/null 2>&1 || true
-fi
+devkit_parent_notify_dispatch "$DEVKIT_HOOK_META" >/dev/null 2>&1 || true
 devkit_hook_finish

@@ -942,9 +942,7 @@ devkit_dispatch_child_message() {
     devkit_dispatch_meta_update_process_state "$dispatch_id" succeeded || return 1
     devkit_dispatch_meta_update_state "$dispatch_id" done || return 1
   fi
-  if [ "$(printf '%s' "$meta" | jq -r '.runtime // "host"')" = tmux ]; then
-    devkit_parent_notify_dispatch "$meta" >/dev/null 2>&1 || true
-  fi
+  devkit_parent_notify_dispatch "$meta" >/dev/null 2>&1 || true
   printf '%s sent: %s\n' "$type" "$dispatch_id"
 }
 
