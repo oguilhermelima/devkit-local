@@ -3,6 +3,17 @@
 DEVKIT_SUPERSET_PROTOCOL="This is a managed devkit dispatch. If you need coordinator input, run devkit ask \"your question\" and stop until the coordinator replies. When the requested work is complete, run devkit done \"short outcome summary\". Do not print protocol markers and do not continue past an unanswered question."
 DEVKIT_LAST_DISPATCH=""
 
+devkit_dispatch_new_id() {
+  local candidate suffix counter=0
+  suffix="$(date -u '+%Y%m%d%H%M%S')-$$-${RANDOM:-0}"
+  candidate="dispatch-$suffix"
+  while [ -e "$DEVKIT_DISPATCH_DIR/$candidate" ]; do
+    counter=$((counter + 1))
+    candidate="dispatch-$suffix-$counter"
+  done
+  printf '%s\n' "$candidate"
+}
+
 devkit_dispatch_default_label() {
   local user_name host_name timestamp
   user_name="${USER:-$(id -un 2>/dev/null || true)}"
@@ -36,7 +47,7 @@ devkit_dispatch_meta_write() {
   local dispatch_id="$1" parent_session="$2" parent_host="$3" child_host="$4"
   local workspace_id="$5" terminal_id="$6" worktree_path="$7" branch="$8"
   local agent="$9" label="${10}" state="${11}" model="${12:-}" model_honored="${13:-false}"
-  local agent_id="${14:-$agent}" dispatch_dir tmp
+  local agent_id="${14:-$agent}" tmux_session="${15:-}" tmux_pane="${16:-}" runtime="${17:-host}" dispatch_dir tmp
   dispatch_dir="$(devkit_dispatch_dir "$dispatch_id")" || return 1
   mkdir -p "$dispatch_dir/messages" || return 1
   devkit_dispatch_cursor_write "$dispatch_id" 0 || return 1
@@ -47,10 +58,11 @@ devkit_dispatch_meta_write() {
     --arg workspaceId "$workspace_id" --arg terminalId "$terminal_id" \
     --arg worktreePath "$worktree_path" --arg branch "$branch" \
     --arg agent "$agent" --arg label "$label" --arg state "$state" \
-    --arg model "$model" --arg agentId "$agent_id" \
+    --arg model "$model" --arg agentId "$agent_id" --arg runtime "$runtime" \
+    --arg tmuxSession "$tmux_session" --arg tmuxPane "$tmux_pane" \
     --argjson modelHonored "$(devkit_bool_json "$model_honored")" \
     --arg now "$(devkit_iso_now)" \
-    '{dispatchId: $dispatchId, parentSessionId: $parentSessionId, parentHost: $parentHost, childHost: $childHost, workspaceId: $workspaceId, terminalId: $terminalId, worktreePath: $worktreePath, branch: $branch, agent: $agent, agentId: $agentId, model: $model, modelHonored: $modelHonored, label: $label, state: $state, createdAt: $now, updatedAt: $now}' \
+    '{dispatchId: $dispatchId, parentSessionId: $parentSessionId, parentHost: $parentHost, childHost: $childHost, workspaceId: $workspaceId, terminalId: $terminalId, worktreePath: $worktreePath, branch: $branch, agent: $agent, agentId: $agentId, model: $model, modelHonored: $modelHonored, runtime: $runtime, tmuxSession: (if $tmuxSession == "" then null else $tmuxSession end), tmuxPane: (if $tmuxPane == "" then null else $tmuxPane end), label: $label, state: $state, createdAt: $now, updatedAt: $now}' \
     >"$tmp"; then
     rm -f "$tmp"
     return 1
@@ -147,9 +159,21 @@ devkit_dispatch_require_parent() {
 }
 
 devkit_dispatch_find_child() {
-  local meta_path meta dispatch_id
+  local meta_path meta dispatch_id expected_dispatch
   DEVKIT_FOUND_DISPATCH=""
   devkit_dispatch_require_session || return 1
+  expected_dispatch="${DEVKIT_DISPATCH_ID:-}"
+  if [ -n "$expected_dispatch" ]; then
+    meta_path="$(devkit_dispatch_meta_path "$expected_dispatch")" || return 1
+    if [ -f "$meta_path" ]; then
+      meta="$(cat "$meta_path")"
+      if printf '%s' "$meta" | jq -e --arg id "$DEVKIT_SESSION_ID" --arg host "$DEVKIT_SESSION_HOST" \
+        '.childHost == $host and .terminalId == $id' >/dev/null 2>&1; then
+        DEVKIT_FOUND_DISPATCH="$expected_dispatch"
+        return 0
+      fi
+    fi
+  fi
   for meta_path in "$DEVKIT_DISPATCH_DIR"/*/meta.json; do
     [ -f "$meta_path" ] || continue
     meta="$(cat "$meta_path")"
