@@ -61,7 +61,7 @@ command_model_list() {
     printf '%s\n' "$registry"
   else
     printf '%-10s %-38s %-16s %s\n' AGENT MODEL REASONING PROVENANCE
-    printf '%s' "$registry" | jq -r '.models[] | [.agent, .model, (.reasoning.levels | join(",")), (.provenance.kind + " (" + .provenance.obtainedAt + ")")] | @tsv' |
+    printf '%s' "$registry" | jq -r '.models[] | [.agent, .model, (.reasoning.levels | join(",")), (.provenance.kind + " (" + (.provenance.fetchedAt // .provenance.obtainedAt) + ")")] | @tsv' |
       while IFS=$'\t' read -r agent model levels provenance; do
         printf '%-10s %-38s %-16s %s\n' "$agent" "$model" "$levels" "$provenance"
       done
