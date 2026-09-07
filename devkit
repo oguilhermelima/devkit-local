@@ -44,6 +44,7 @@ Commands:
   orchestrate reply <dispatch-id> ...  Queue a reply for a child dispatch
   orchestrate close <dispatch-id> ...  Close a Superset dispatch terminal
   chain list|limits|add|edit|delete|run ...  Manage ordered child-agent chains
+  fact list|add|edit|remove ...             Manage versioned environment facts
   ask "question"                       Ask the direct coordinator from a child dispatch
   done "summary"                        Mark a child dispatch done
   check [options]                       Check for replies from the direct coordinator
@@ -69,6 +70,7 @@ devkit_main() {
     terminal) command_terminal "$@" ;;
   orchestrate) command_orchestrate "$@" ;;
     chain) command_chain "$@" ;;
+    fact) command_fact "$@" ;;
     ask) command_ask "$@" ;;
     received) command_received "$@" ;;
     done) command_done "$@" ;;

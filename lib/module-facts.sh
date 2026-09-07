@@ -158,3 +158,164 @@ Treat each fact as a starting point with provenance, not as truth. If your own m
     printf '%s' "$protocol"
   fi
 }
+
+devkit_fact_id_valid() {
+  case "$1" in
+    ""|*[!A-Za-z0-9._-]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+devkit_fact_command_add() {
+  local id="${1:-}" measurement="" who="" when="" command="" scope_type=global repository="" json=false arg value store path fact updated
+  [ -n "$id" ] || { devkit_error 'Usage: devkit fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --measurement|--measured) value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$DEVKIT_USAGE_ERROR"; }; measurement="$value"; shift 2 ;;
+      --who|--measured-by) value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$DEVKIT_USAGE_ERROR"; }; who="$value"; shift 2 ;;
+      --when|--measured-at) value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$DEVKIT_USAGE_ERROR"; }; when="$value"; shift 2 ;;
+      --command) value="${2:-}"; [ -n "$value" ] || { devkit_error '--command requires a value'; return "$DEVKIT_USAGE_ERROR"; }; command="$value"; shift 2 ;;
+      --scope) value="${2:-}"; [ -n "$value" ] || { devkit_error '--scope requires a value'; return "$DEVKIT_USAGE_ERROR"; }; scope_type="$value"; shift 2 ;;
+      --repository|--repo) value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$DEVKIT_USAGE_ERROR"; }; repository="$value"; scope_type=repository; shift 2 ;;
+      --json) json=true; shift ;;
+      -h|--help) printf 'Usage: devkit fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]\n'; return 0 ;;
+      *) devkit_error "unknown fact add option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+    esac
+  done
+  devkit_fact_id_valid "$id" || { devkit_error "invalid fact id: $id"; return 1; }
+  case "$scope_type" in
+    global) [ -z "$repository" ] || { devkit_error 'global facts cannot specify a repository'; return 1; } ;;
+    repository)
+      if [ -z "$repository" ]; then
+        repository="$(devkit_fact_repository_id . 2>/dev/null || true)"
+        [ -n "$repository" ] || { devkit_error 'could not determine repository identity for repository-scoped fact'; return 1; }
+      fi
+      ;;
+    *) devkit_error 'fact scope must be global or repository'; return 1 ;;
+  esac
+  path="$DEVKIT_FACTS_FILE"
+  store="$(devkit_fact_store_read "$path")" || return 1
+  devkit_fact_validate "$store" || return 1
+  if printf '%s' "$store" | jq -e --arg id "$id" '.facts | any(.[]; .id == $id)' >/dev/null 2>&1; then
+    devkit_error "fact already exists: $id"
+    return 1
+  fi
+  fact="$(jq -n --arg id "$id" --arg measurement "$measurement" --arg scopeType "$scope_type" --arg repository "$repository" --arg who "$who" --arg when "$when" --arg command "$command" '{id: $id, measurement: $measurement, scope: (if $scopeType == "global" then {type: "global"} else {type: "repository", repository: $repository} end), provenance: {who: $who, when: $when, command: $command}}')" || return 1
+  updated="$(printf '%s' "$store" | jq --argjson fact "$fact" '.facts += [$fact]')" || return 1
+  devkit_fact_store_write "$updated" "$path" || return 1
+  if [ "$json" = true ]; then
+    printf '%s\n' "$fact"
+  else
+    printf 'fact added: %s\n' "$id"
+  fi
+}
+
+devkit_fact_command_list() {
+  local json=false arg store id scope who measurement
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=true; shift ;;
+      -h|--help) printf 'Usage: devkit fact list [--json]\n'; return 0 ;;
+      *) devkit_error "unknown fact list option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+    esac
+  done
+  store="$(devkit_fact_store_read)" || return 1
+  devkit_fact_validate "$store" || return 1
+  if [ "$json" = true ]; then
+    printf '%s\n' "$store" | jq -c '.facts'
+  else
+    printf '%-24s %-12s %-32s %s\n' ID SCOPE MEASURED_BY MEASUREMENT
+    printf '%s' "$store" | jq -r '.facts[] | [.id, .scope.type, .provenance.who, .measurement] | @tsv' |
+      while IFS=$'\t' read -r id scope who measurement; do
+        printf '%-24s %-12s %-32s %s\n' "$id" "$scope" "$who" "$measurement"
+      done
+  fi
+}
+
+devkit_fact_command_edit() {
+  local id="${1:-}" json=false arg path store tmp editor edited
+  [ -n "$id" ] || { devkit_error 'Usage: devkit fact edit <id> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=true; shift ;;
+      -h|--help) printf 'Usage: devkit fact edit <id> [--json]\n'; return 0 ;;
+      *) devkit_error "unknown fact edit option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+    esac
+  done
+  path="$DEVKIT_FACTS_FILE"
+  store="$(devkit_fact_store_read "$path")" || return 1
+  devkit_fact_validate "$store" || return 1
+  if ! printf '%s' "$store" | jq -e --arg id "$id" '.facts | any(.[]; .id == $id)' >/dev/null 2>&1; then
+    devkit_error "fact not found: $id"
+    return 1
+  fi
+  tmp="$(mktemp "$(dirname "$path")/.facts-edit.XXXXXX")" || return 1
+  printf '%s\n' "$store" | jq . >"$tmp" || { rm -f "$tmp"; return 1; }
+  editor="${EDITOR:-vi}"
+  if ! "$editor" "$tmp"; then
+    rm -f "$tmp"
+    devkit_error "editor failed while editing fact $id"
+    return 1
+  fi
+  edited="$(cat "$tmp")"
+  rm -f "$tmp"
+  devkit_fact_validate "$edited" || return 1
+  if ! printf '%s' "$edited" | jq -e --arg id "$id" '.facts | any(.[]; .id == $id)' >/dev/null 2>&1; then
+    devkit_error "edited fact not found: $id"
+    return 1
+  fi
+  devkit_fact_store_write "$edited" "$path" || return 1
+  if [ "$json" = true ]; then
+    printf '%s\n' "$edited" | jq -c --arg id "$id" '.facts[] | select(.id == $id)'
+  else
+    printf 'fact edited: %s\n' "$id"
+  fi
+}
+
+devkit_fact_command_remove() {
+  local id="${1:-}" json=false arg path store updated
+  [ -n "$id" ] || { devkit_error 'Usage: devkit fact remove <id> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=true; shift ;;
+      -h|--help) printf 'Usage: devkit fact remove <id> [--json]\n'; return 0 ;;
+      *) devkit_error "unknown fact remove option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+    esac
+  done
+  path="$DEVKIT_FACTS_FILE"
+  store="$(devkit_fact_store_read "$path")" || return 1
+  devkit_fact_validate "$store" || return 1
+  if ! printf '%s' "$store" | jq -e --arg id "$id" '.facts | any(.[]; .id == $id)' >/dev/null 2>&1; then
+    devkit_error "fact not found: $id"
+    return 1
+  fi
+  updated="$(printf '%s' "$store" | jq --arg id "$id" '.facts |= map(select(.id != $id))')" || return 1
+  devkit_fact_store_write "$updated" "$path" || return 1
+  if [ "$json" = true ]; then
+    printf '{"removed":true,"id":%s}\n' "$(printf '%s' "$id" | jq -Rsa .)"
+  else
+    printf 'fact removed: %s\n' "$id"
+  fi
+}
+
+command_fact() {
+  local subcommand="${1:-}"
+  shift || true
+  case "$subcommand" in
+    list) devkit_fact_command_list "$@" ;;
+    add) devkit_fact_command_add "$@" ;;
+    edit) devkit_fact_command_edit "$@" ;;
+    remove|delete) devkit_fact_command_remove "$@" ;;
+    -h|--help|"")
+      printf 'Usage: devkit fact list|add|edit|remove ...\n'
+      ;;
+    *) devkit_error "unknown fact command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
+  esac
+}
