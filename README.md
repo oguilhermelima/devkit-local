@@ -32,12 +32,23 @@ outlives the terminal it was typed in.
 ## Install
 
 ```sh
-git clone https://github.com/oguilhermelima/megabrain && cd megabrain
-./install.sh --agents claude,codex,agy --skill global --agents-md global --yes
+curl -fsSL https://raw.githubusercontent.com/oguilhermelima/megabrain/main/install.sh | bash
+```
+
+It downloads the rest itself, asks what to configure, and links `megabrain` into
+`~/.local/bin`. Pass the answers to skip the questions:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/oguilhermelima/megabrain/main/install.sh \
+  | bash -s -- --agents claude,codex,agy --skill global --agents-md global --yes
 ```
 
 Absent `--modules`, the installer takes the core set: orchestration, orchestration-hooks,
 worktree, and tmux-runtime when tmux is already on PATH.
+
+> [!NOTE]
+> Clone only to work on megabrain itself: `git clone … && ./install.sh` installs from the
+> checkout instead of downloading, so your edits are what gets linked.
 
 ```sh
 megabrain doctor          # what is installed and what is missing
