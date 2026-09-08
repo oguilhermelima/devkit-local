@@ -1,40 +1,40 @@
 #!/usr/bin/env bash
 
-DEVKIT_MODEL_TEMPLATE_FILE="${DEVKIT_ROOT:-$(cd "$(dirname "$(dirname "${BASH_SOURCE[0]}")")" && pwd -P)}/.megabrain/models.json"
-if [ "${DEVKIT_MODEL_FILE+x}" = x ]; then
-  DEVKIT_MODEL_FILE_EXPLICIT=true
+MEGABRAIN_MODEL_TEMPLATE_FILE="${MEGABRAIN_ROOT:-$(cd "$(dirname "$(dirname "${BASH_SOURCE[0]}")")" && pwd -P)}/.megabrain/models.json"
+if [ "${MEGABRAIN_MODEL_FILE+x}" = x ]; then
+  MEGABRAIN_MODEL_FILE_EXPLICIT=true
 else
-  DEVKIT_MODEL_FILE_EXPLICIT=false
-  DEVKIT_MODEL_FILE="$DEVKIT_STATE_DIR/models.json"
+  MEGABRAIN_MODEL_FILE_EXPLICIT=false
+  MEGABRAIN_MODEL_FILE="$MEGABRAIN_STATE_DIR/models.json"
 fi
 
 devkit_model_init() {
   local tmp
-  if [ "$DEVKIT_MODEL_FILE_EXPLICIT" = false ]; then
-    DEVKIT_MODEL_FILE="$DEVKIT_STATE_DIR/models.json"
+  if [ "$MEGABRAIN_MODEL_FILE_EXPLICIT" = false ]; then
+    MEGABRAIN_MODEL_FILE="$MEGABRAIN_STATE_DIR/models.json"
   fi
-  mkdir -p "$DEVKIT_STATE_DIR" || return 1
-  if [ ! -f "$DEVKIT_MODEL_FILE" ]; then
-    [ -f "$DEVKIT_MODEL_TEMPLATE_FILE" ] || {
-      devkit_error "model registry template is missing: $DEVKIT_MODEL_TEMPLATE_FILE"
+  mkdir -p "$MEGABRAIN_STATE_DIR" || return 1
+  if [ ! -f "$MEGABRAIN_MODEL_FILE" ]; then
+    [ -f "$MEGABRAIN_MODEL_TEMPLATE_FILE" ] || {
+      devkit_error "model registry template is missing: $MEGABRAIN_MODEL_TEMPLATE_FILE"
       return 1
     }
-    tmp="$(mktemp "$DEVKIT_STATE_DIR/models.XXXXXX")" || return 1
-    if ! cp "$DEVKIT_MODEL_TEMPLATE_FILE" "$tmp"; then
+    tmp="$(mktemp "$MEGABRAIN_STATE_DIR/models.XXXXXX")" || return 1
+    if ! cp "$MEGABRAIN_MODEL_TEMPLATE_FILE" "$tmp"; then
       rm -f "$tmp"
       return 1
     fi
-    mv -f "$tmp" "$DEVKIT_MODEL_FILE"
+    mv -f "$tmp" "$MEGABRAIN_MODEL_FILE"
   fi
-  if ! jq -e '.version == 1 and (.models | type == "array")' "$DEVKIT_MODEL_FILE" >/dev/null 2>&1; then
-    devkit_error "model registry is not valid JSON: $DEVKIT_MODEL_FILE"
+  if ! jq -e '.version == 1 and (.models | type == "array")' "$MEGABRAIN_MODEL_FILE" >/dev/null 2>&1; then
+    devkit_error "model registry is not valid JSON: $MEGABRAIN_MODEL_FILE"
     return 1
   fi
 }
 
 devkit_model_read() {
   devkit_model_init || return 1
-  cat "$DEVKIT_MODEL_FILE"
+  cat "$MEGABRAIN_MODEL_FILE"
 }
 
 devkit_model_list_ids() {
@@ -61,7 +61,7 @@ command_model_list() {
     case "$arg" in
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: megabrain model list [--json]\n'; return 0 ;;
-      *) devkit_error "unknown model list option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown model list option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
   registry="$(devkit_model_read)" || return 1
@@ -86,6 +86,6 @@ command_model() {
     add) command_model_add "$@" ;;
     refresh) command_model_refresh "$@" ;;
     -h|--help|"") printf 'Usage: megabrain model list|add|refresh ...\n' ;;
-    *) devkit_error "unknown model command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
+    *) devkit_error "unknown model command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }

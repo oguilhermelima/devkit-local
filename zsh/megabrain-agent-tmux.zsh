@@ -1,7 +1,7 @@
 _devkit_tmux_wrap() {
   local agent=$1; shift
   # Orca types the prompt after launch, so tmux startup would race it.
-  if [[ -n $TMUX || -n $DEVKIT_NO_TMUX || -n $ORCA_AGENT_LAUNCH_TOKEN || ! -t 0 ]]; then
+  if [[ -n $TMUX || -n $MEGABRAIN_NO_TMUX || -n $ORCA_AGENT_LAUNCH_TOKEN || ! -t 0 ]]; then
     command $agent "$@"
     return
   fi
@@ -25,7 +25,14 @@ _devkit_tmux_wrap() {
   fi
   pane="$(tmux list-panes -t "$session" -F '#{pane_id}' 2>/dev/null | head -n 1)"
   cwd="$(pwd -P 2>/dev/null || true)"
-  state_dir="${MEGABRAIN_STATE_DIR:-${DEVKIT_STATE_DIR:-$HOME/.megabrain}}"
+  if [[ -n ${MEGABRAIN_STATE_DIR+x} ]]; then
+    state_dir="$MEGABRAIN_STATE_DIR"
+  elif [[ -n ${DEVKIT_STATE_DIR+x} ]]; then
+    state_dir="$DEVKIT_STATE_DIR"
+    print -u2 'DEVKIT_STATE_DIR is deprecated; use MEGABRAIN_STATE_DIR instead.'
+  else
+    state_dir="$HOME/.megabrain"
+  fi
   sessions_dir="$state_dir/sessions"
   record_path="$sessions_dir/$session.json"
   host="$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)"

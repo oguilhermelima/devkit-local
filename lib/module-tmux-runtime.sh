@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
 
-DEVKIT_TMUX_SETTLE_ATTEMPTS="${DEVKIT_TMUX_SETTLE_ATTEMPTS:-20}"
-DEVKIT_TMUX_SETTLE_SECONDS="${DEVKIT_TMUX_SETTLE_SECONDS:-0.1}"
-DEVKIT_TMUX_ENTER_RETRIES="${DEVKIT_TMUX_ENTER_RETRIES:-3}"
-DEVKIT_TMUX_ENTER_WAIT="${DEVKIT_TMUX_ENTER_WAIT:-0.5}"
-DEVKIT_TMUX_ENTER_TIMEOUT_SECONDS="${DEVKIT_TMUX_ENTER_TIMEOUT_SECONDS:-30}"
-DEVKIT_TMUX_MAIN_PANE_PERCENT=50
-DEVKIT_TMUX_MAIN_SPLIT_FLAG='-h'
-DEVKIT_TMUX_CHILD_SPLIT_FLAG='-v'
-DEVKIT_TMUX_TUNE_START='# >>> megabrain tmux tuning >>>'
-DEVKIT_TMUX_TUNE_END='# <<< megabrain tmux tuning <<<'
-DEVKIT_TMUX_TUNE_SOURCE='source-file ~/.megabrain/tmux/megabrain.tmux.conf'
-DEVKIT_TMUX_TUNE_LEGACY_START='# >>> devkit tmux tuning >>>'
-DEVKIT_TMUX_TUNE_LEGACY_END='# <<< devkit tmux tuning <<<'
-DEVKIT_TMUX_WRAPPER_START='# >>> megabrain tmux wrapper >>>'
-DEVKIT_TMUX_WRAPPER_END='# <<< megabrain tmux wrapper <<<'
-DEVKIT_TMUX_WRAPPER_SOURCE='source ~/.megabrain/zsh/megabrain-agent-tmux.zsh'
-DEVKIT_TMUX_WRAPPER_LEGACY_START='# >>> devkit tmux wrapper >>>'
-DEVKIT_TMUX_WRAPPER_LEGACY_END='# <<< devkit tmux wrapper <<<'
+MEGABRAIN_TMUX_SETTLE_ATTEMPTS="${MEGABRAIN_TMUX_SETTLE_ATTEMPTS:-20}"
+MEGABRAIN_TMUX_SETTLE_SECONDS="${MEGABRAIN_TMUX_SETTLE_SECONDS:-0.1}"
+MEGABRAIN_TMUX_ENTER_RETRIES="${MEGABRAIN_TMUX_ENTER_RETRIES:-3}"
+MEGABRAIN_TMUX_ENTER_WAIT="${MEGABRAIN_TMUX_ENTER_WAIT:-0.5}"
+MEGABRAIN_TMUX_ENTER_TIMEOUT_SECONDS="${MEGABRAIN_TMUX_ENTER_TIMEOUT_SECONDS:-30}"
+MEGABRAIN_TMUX_MAIN_PANE_PERCENT=50
+MEGABRAIN_TMUX_MAIN_SPLIT_FLAG='-h'
+MEGABRAIN_TMUX_CHILD_SPLIT_FLAG='-v'
+MEGABRAIN_TMUX_TUNE_START='# >>> megabrain tmux tuning >>>'
+MEGABRAIN_TMUX_TUNE_END='# <<< megabrain tmux tuning <<<'
+MEGABRAIN_TMUX_TUNE_SOURCE='source-file ~/.megabrain/tmux/megabrain.tmux.conf'
+MEGABRAIN_TMUX_TUNE_LEGACY_START='# >>> devkit tmux tuning >>>'
+MEGABRAIN_TMUX_TUNE_LEGACY_END='# <<< devkit tmux tuning <<<'
+MEGABRAIN_TMUX_WRAPPER_START='# >>> megabrain tmux wrapper >>>'
+MEGABRAIN_TMUX_WRAPPER_END='# <<< megabrain tmux wrapper <<<'
+MEGABRAIN_TMUX_WRAPPER_SOURCE='source ~/.megabrain/zsh/megabrain-agent-tmux.zsh'
+MEGABRAIN_TMUX_WRAPPER_LEGACY_START='# >>> devkit tmux wrapper >>>'
+MEGABRAIN_TMUX_WRAPPER_LEGACY_END='# <<< devkit tmux wrapper <<<'
 
 devkit_tmux_available() {
   devkit_require_command tmux
@@ -35,14 +35,14 @@ devkit_tmux_session_exists() {
 devkit_tmux_set_state_dir() {
   local session="$1"
   [ -n "$session" ] || return 1
-  tmux set-environment -t "$session" DEVKIT_STATE_DIR "$DEVKIT_STATE_DIR"
+  tmux set-environment -t "$session" MEGABRAIN_STATE_DIR "$MEGABRAIN_STATE_DIR"
 }
 
 devkit_tmux_wait_for_session() {
   local session="$1" attempt
-  for ((attempt = 1; attempt <= DEVKIT_TMUX_SETTLE_ATTEMPTS; attempt++)); do
+  for ((attempt = 1; attempt <= MEGABRAIN_TMUX_SETTLE_ATTEMPTS; attempt++)); do
     devkit_tmux_session_exists "$session" && return 0
-    sleep "$DEVKIT_TMUX_SETTLE_SECONDS"
+    sleep "$MEGABRAIN_TMUX_SETTLE_SECONDS"
   done
   return 1
 }
@@ -54,27 +54,27 @@ devkit_tmux_first_pane() {
 
 devkit_tmux_settle_pane() {
   local pane="$1" attempt current
-  for ((attempt = 1; attempt <= DEVKIT_TMUX_SETTLE_ATTEMPTS; attempt++)); do
+  for ((attempt = 1; attempt <= MEGABRAIN_TMUX_SETTLE_ATTEMPTS; attempt++)); do
     current="$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null || true)"
     case "$current" in
       bash|zsh|sh|dash|fish|ksh|tcsh|login|-zsh|-bash|"") ;;
       *) return 0 ;;
     esac
-    sleep "$DEVKIT_TMUX_SETTLE_SECONDS"
+    sleep "$MEGABRAIN_TMUX_SETTLE_SECONDS"
   done
-  devkit_error "tmux pane $pane did not start an agent within ${DEVKIT_TMUX_SETTLE_ATTEMPTS} checks"
+  devkit_error "tmux pane $pane did not start an agent within ${MEGABRAIN_TMUX_SETTLE_ATTEMPTS} checks"
   return 1
 }
 
 devkit_tmux_session_registry_remove() {
   local session="$1"
   [ -n "$session" ] || return 1
-  rm -f "$DEVKIT_TMUX_SESSION_DIR/$session.json"
+  rm -f "$MEGABRAIN_TMUX_SESSION_DIR/$session.json"
 }
 
 devkit_tmux_session_registry_prune() {
   local record_path record session
-  for record_path in "$DEVKIT_TMUX_SESSION_DIR"/*.json; do
+  for record_path in "$MEGABRAIN_TMUX_SESSION_DIR"/*.json; do
     [ -f "$record_path" ] || continue
     record="$(cat "$record_path" 2>/dev/null || true)"
     session="$(printf '%s' "$record" | jq -r '.tmuxSession // empty' 2>/dev/null || true)"
@@ -88,7 +88,7 @@ devkit_tmux_registry_session_for_worktree() {
   local worktree_path="$1" target record_path record session directory role
   target="$(cd "$worktree_path" 2>/dev/null && pwd -P || printf '%s' "$worktree_path")"
   devkit_tmux_session_registry_prune
-  for record_path in "$DEVKIT_TMUX_SESSION_DIR"/*.json; do
+  for record_path in "$MEGABRAIN_TMUX_SESSION_DIR"/*.json; do
     [ -f "$record_path" ] || continue
     record="$(cat "$record_path" 2>/dev/null || true)"
     session="$(printf '%s' "$record" | jq -r '.tmuxSession // empty' 2>/dev/null || true)"
@@ -109,7 +109,7 @@ devkit_tmux_registry_main_pane_for_session() {
   local session="$1" record_path record pane role
   devkit_tmux_session_exists "$session" || return 1
   devkit_tmux_session_registry_prune
-  for record_path in "$DEVKIT_TMUX_SESSION_DIR"/*.json; do
+  for record_path in "$MEGABRAIN_TMUX_SESSION_DIR"/*.json; do
     [ -f "$record_path" ] || continue
     record="$(cat "$record_path" 2>/dev/null || true)"
     role="$(printf '%s' "$record" | jq -r '.role // empty' 2>/dev/null || true)"
@@ -128,7 +128,7 @@ devkit_tmux_registry_agent_for_session() {
   local session="$1" record_path record agent role
   devkit_tmux_session_exists "$session" || return 1
   devkit_tmux_session_registry_prune
-  for record_path in "$DEVKIT_TMUX_SESSION_DIR"/*.json; do
+  for record_path in "$MEGABRAIN_TMUX_SESSION_DIR"/*.json; do
     [ -f "$record_path" ] || continue
     record="$(cat "$record_path" 2>/dev/null || true)"
     role="$(printf '%s' "$record" | jq -r '.role // empty' 2>/dev/null || true)"
@@ -143,8 +143,8 @@ devkit_tmux_registry_agent_for_session() {
 
 devkit_tmux_existing_session_for_worktree() {
   local worktree_path="$1" meta_path meta session state
-  DEVKIT_TMUX_EXISTING_SESSION=""
-  for meta_path in "$DEVKIT_DISPATCH_DIR"/*/meta.json; do
+  MEGABRAIN_TMUX_EXISTING_SESSION=""
+  for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
     [ -f "$meta_path" ] || continue
     meta="$(cat "$meta_path")"
     session="$(printf '%s' "$meta" | jq -r --arg path "$worktree_path" '
@@ -153,13 +153,13 @@ devkit_tmux_existing_session_for_worktree() {
     state="$(printf '%s' "$meta" | jq -r '.state // empty')"
     case "$state" in failed|orphaned) continue ;; esac
     if devkit_tmux_session_exists "$session"; then
-      DEVKIT_TMUX_EXISTING_SESSION="$session"
+      MEGABRAIN_TMUX_EXISTING_SESSION="$session"
       return 0
     fi
   done
   session="$(devkit_tmux_registry_session_for_worktree "$worktree_path" 2>/dev/null || true)"
   if [ -n "$session" ]; then
-    DEVKIT_TMUX_EXISTING_SESSION="$session"
+    MEGABRAIN_TMUX_EXISTING_SESSION="$session"
     return 0
   fi
   return 1
@@ -167,7 +167,7 @@ devkit_tmux_existing_session_for_worktree() {
 
 devkit_tmux_host_terminal_for_session() {
   local session="$1" meta_path meta
-  for meta_path in "$DEVKIT_DISPATCH_DIR"/*/meta.json; do
+  for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
     [ -f "$meta_path" ] || continue
     meta="$(cat "$meta_path")"
     if printf '%s' "$meta" | jq -e --arg session "$session" '.runtime == "tmux" and .tmuxSession == $session' >/dev/null 2>&1; then
@@ -182,7 +182,7 @@ devkit_tmux_main_pane_width() {
   local session="$1" window_width
   window_width="$(tmux display-message -p -t "$session" '#{window_width}' 2>/dev/null)" || return 1
   [[ "$window_width" =~ ^[0-9]+$ ]] || return 1
-  printf '%s\n' "$((window_width * DEVKIT_TMUX_MAIN_PANE_PERCENT / 100))"
+  printf '%s\n' "$((window_width * MEGABRAIN_TMUX_MAIN_PANE_PERCENT / 100))"
 }
 
 devkit_tmux_resize_main_pane() {
@@ -223,12 +223,12 @@ devkit_tmux_split_pane() {
   right_pane="$(devkit_tmux_last_right_pane "$session" 2>/dev/null || true)"
   if [ -n "$right_pane" ]; then
     target="$right_pane"
-    split_flag="$DEVKIT_TMUX_CHILD_SPLIT_FLAG"
+    split_flag="$MEGABRAIN_TMUX_CHILD_SPLIT_FLAG"
     pane="$(tmux split-window "$split_flag" -t "$target" -c "$worktree_path" -P -F '#{pane_id}' 2>/dev/null)" || return 1
   else
     target="$main_pane"
-    split_flag="$DEVKIT_TMUX_MAIN_SPLIT_FLAG"
-    pane="$(tmux split-window "$split_flag" -p "$DEVKIT_TMUX_MAIN_PANE_PERCENT" -t "$target" -c "$worktree_path" -P -F '#{pane_id}' 2>/dev/null)" || return 1
+    split_flag="$MEGABRAIN_TMUX_MAIN_SPLIT_FLAG"
+    pane="$(tmux split-window "$split_flag" -p "$MEGABRAIN_TMUX_MAIN_PANE_PERCENT" -t "$target" -c "$worktree_path" -P -F '#{pane_id}' 2>/dev/null)" || return 1
   fi
   devkit_tmux_resize_main_pane "$session" || return 1
   printf '%s\n' "$pane"
@@ -242,14 +242,14 @@ devkit_tmux_send_agent() {
   fi
   tmux send-keys -t "$pane" -l "$command_text" || return 1
   # Enter is deliberately a separate call; some host terminal layers lose it when combined with text.
-  case "$DEVKIT_TMUX_ENTER_TIMEOUT_SECONDS" in
+  case "$MEGABRAIN_TMUX_ENTER_TIMEOUT_SECONDS" in
     ''|*[!0-9]*) devkit_error "tmux agent launch timeout must be a non-negative number of seconds"; return 1 ;;
   esac
   started="$(date +%s)"
   while :; do
     tmux send-keys -t "$pane" Enter || return 1
     attempt=$((attempt + 1))
-    sleep "$DEVKIT_TMUX_ENTER_WAIT"
+    sleep "$MEGABRAIN_TMUX_ENTER_WAIT"
     current="$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null || true)"
     case "$current" in
       bash|zsh|sh|dash|fish|ksh|tcsh|login|-zsh|-bash) : ;;
@@ -257,8 +257,8 @@ devkit_tmux_send_agent() {
     esac
     now="$(date +%s)"
     elapsed=$((now - started))
-    if [ "$elapsed" -ge "$DEVKIT_TMUX_ENTER_TIMEOUT_SECONDS" ]; then
-      devkit_error "tmux did not submit the agent command in pane $pane after $attempt Enter attempts and ${DEVKIT_TMUX_ENTER_TIMEOUT_SECONDS}s"
+    if [ "$elapsed" -ge "$MEGABRAIN_TMUX_ENTER_TIMEOUT_SECONDS" ]; then
+      devkit_error "tmux did not submit the agent command in pane $pane after $attempt Enter attempts and ${MEGABRAIN_TMUX_ENTER_TIMEOUT_SECONDS}s"
       return 1
     fi
   done
@@ -318,7 +318,7 @@ devkit_tmux_config_applied() {
 }
 
 devkit_tmux_tuning_repo_path() {
-  printf '%s/tmux/megabrain.tmux.conf\n' "$DEVKIT_ROOT"
+  printf '%s/tmux/megabrain.tmux.conf\n' "$MEGABRAIN_ROOT"
 }
 
 devkit_tmux_tuning_install_path() {
@@ -336,8 +336,8 @@ devkit_tmux_tuning_validate_config() {
     devkit_error "tmux config exists but is not a regular file: $config"
     return 1
   }
-  starts=$(( $(grep -Fxc "$DEVKIT_TMUX_TUNE_START" "$config" 2>/dev/null || true) + $(grep -Fxc "$DEVKIT_TMUX_TUNE_LEGACY_START" "$config" 2>/dev/null || true) ))
-  ends=$(( $(grep -Fxc "$DEVKIT_TMUX_TUNE_END" "$config" 2>/dev/null || true) + $(grep -Fxc "$DEVKIT_TMUX_TUNE_LEGACY_END" "$config" 2>/dev/null || true) ))
+  starts=$(( $(grep -Fxc "$MEGABRAIN_TMUX_TUNE_START" "$config" 2>/dev/null || true) + $(grep -Fxc "$MEGABRAIN_TMUX_TUNE_LEGACY_START" "$config" 2>/dev/null || true) ))
+  ends=$(( $(grep -Fxc "$MEGABRAIN_TMUX_TUNE_END" "$config" 2>/dev/null || true) + $(grep -Fxc "$MEGABRAIN_TMUX_TUNE_LEGACY_END" "$config" 2>/dev/null || true) ))
   if [ "$starts" -ne "$ends" ]; then
     devkit_error "tmux config has an incomplete devkit tuning block: $config"
     return 1
@@ -347,11 +347,11 @@ devkit_tmux_tuning_validate_config() {
 devkit_tmux_tuning_block_present() {
   local config="$1" starts legacy_starts ends legacy_ends source_lines
   [ -f "$config" ] || return 1
-  starts="$(grep -Fxc "$DEVKIT_TMUX_TUNE_START" "$config" 2>/dev/null || true)"
-  legacy_starts="$(grep -Fxc "$DEVKIT_TMUX_TUNE_LEGACY_START" "$config" 2>/dev/null || true)"
-  ends="$(grep -Fxc "$DEVKIT_TMUX_TUNE_END" "$config" 2>/dev/null || true)"
-  legacy_ends="$(grep -Fxc "$DEVKIT_TMUX_TUNE_LEGACY_END" "$config" 2>/dev/null || true)"
-  source_lines="$(grep -Fxc "$DEVKIT_TMUX_TUNE_SOURCE" "$config" 2>/dev/null || true)"
+  starts="$(grep -Fxc "$MEGABRAIN_TMUX_TUNE_START" "$config" 2>/dev/null || true)"
+  legacy_starts="$(grep -Fxc "$MEGABRAIN_TMUX_TUNE_LEGACY_START" "$config" 2>/dev/null || true)"
+  ends="$(grep -Fxc "$MEGABRAIN_TMUX_TUNE_END" "$config" 2>/dev/null || true)"
+  legacy_ends="$(grep -Fxc "$MEGABRAIN_TMUX_TUNE_LEGACY_END" "$config" 2>/dev/null || true)"
+  source_lines="$(grep -Fxc "$MEGABRAIN_TMUX_TUNE_SOURCE" "$config" 2>/dev/null || true)"
   [ $((starts + legacy_starts)) -eq 1 ] && [ $((ends + legacy_ends)) -eq 1 ] && [ "$source_lines" -eq 1 ]
 }
 
@@ -414,11 +414,11 @@ devkit_tmux_tuning_write_config() {
   else
     set -- /dev/null
   fi
-  if ! awk -v start="$DEVKIT_TMUX_TUNE_START" \
-    -v end="$DEVKIT_TMUX_TUNE_END" \
-    -v legacy_start="$DEVKIT_TMUX_TUNE_LEGACY_START" \
-    -v legacy_end="$DEVKIT_TMUX_TUNE_LEGACY_END" \
-    -v source="$DEVKIT_TMUX_TUNE_SOURCE" '
+  if ! awk -v start="$MEGABRAIN_TMUX_TUNE_START" \
+    -v end="$MEGABRAIN_TMUX_TUNE_END" \
+    -v legacy_start="$MEGABRAIN_TMUX_TUNE_LEGACY_START" \
+    -v legacy_end="$MEGABRAIN_TMUX_TUNE_LEGACY_END" \
+    -v source="$MEGABRAIN_TMUX_TUNE_SOURCE" '
     $0 == start || $0 == legacy_start {
       if (!replaced) {
         print start
@@ -451,8 +451,8 @@ devkit_tmux_tuning_write_config() {
 devkit_tmux_tuning_remove_block() {
   local config="$1" temp
   temp="$(mktemp "${config}.XXXXXX")" || return 1
-  if ! awk -v start="$DEVKIT_TMUX_TUNE_START" -v end="$DEVKIT_TMUX_TUNE_END" \
-    -v legacy_start="$DEVKIT_TMUX_TUNE_LEGACY_START" -v legacy_end="$DEVKIT_TMUX_TUNE_LEGACY_END" '
+  if ! awk -v start="$MEGABRAIN_TMUX_TUNE_START" -v end="$MEGABRAIN_TMUX_TUNE_END" \
+    -v legacy_start="$MEGABRAIN_TMUX_TUNE_LEGACY_START" -v legacy_end="$MEGABRAIN_TMUX_TUNE_LEGACY_END" '
     $0 == start || $0 == legacy_start { in_block = 1; next }
     in_block && ($0 == end || $0 == legacy_end) { in_block = 0; next }
     !in_block { print }
@@ -499,8 +499,8 @@ devkit_tmux_tuning_apply() {
       return 1
     fi
   fi
-  DEVKIT_TMUX_TUNE_BACKUP_PATH="$backup_path"
-  DEVKIT_TMUX_TUNE_SERVER_APPLIED="$server_applied"
+  MEGABRAIN_TMUX_TUNE_BACKUP_PATH="$backup_path"
+  MEGABRAIN_TMUX_TUNE_SERVER_APPLIED="$server_applied"
 }
 
 devkit_tmux_tuning_revert() {
@@ -513,7 +513,7 @@ devkit_tmux_tuning_revert() {
     devkit_error "could not remove the devkit tuning block from $config"
     return 1
   }
-  DEVKIT_TMUX_TUNE_REVERTED=true
+  MEGABRAIN_TMUX_TUNE_REVERTED=true
 }
 
 devkit_tmux_tuning_print_plan() {
@@ -546,13 +546,13 @@ devkit_tmux_tune() {
         ;;
       *)
         devkit_error "unknown tmux tune option: $arg"
-        return "$DEVKIT_USAGE_ERROR"
+        return "$MEGABRAIN_USAGE_ERROR"
         ;;
     esac
   done
   if [ "$dry_run" = true ] && [ "$revert" = true ]; then
     devkit_error '--dry-run and --revert cannot be combined'
-    return "$DEVKIT_USAGE_ERROR"
+    return "$MEGABRAIN_USAGE_ERROR"
   fi
   config="$(devkit_tmux_tuning_config_path)"
   devkit_tmux_tuning_block_present "$config" && block_present=true
@@ -580,7 +580,7 @@ devkit_tmux_tune() {
     fi
     if [ "$json" = true ]; then
       jq -n --arg config "$config" --argjson backups "$(devkit_tmux_tuning_backup_paths_json)" \
-        --argjson changed "${DEVKIT_TMUX_TUNE_REVERTED:-false}" \
+        --argjson changed "${MEGABRAIN_TMUX_TUNE_REVERTED:-false}" \
         '{ok: true, action: "revert", changed: $changed, configPath: $config, backupPaths: $backups}'
     else
       printf 'tmux tuning reverted from %s\n' "$config"
@@ -617,17 +617,17 @@ devkit_tmux_tune() {
   fi
   if [ "$json" = true ]; then
     jq -n --arg config "$config" --arg installed "$(devkit_tmux_tuning_install_path)" \
-      --arg backup "${DEVKIT_TMUX_TUNE_BACKUP_PATH:-}" \
-      --argjson serverApplied "${DEVKIT_TMUX_TUNE_SERVER_APPLIED:-false}" \
+      --arg backup "${MEGABRAIN_TMUX_TUNE_BACKUP_PATH:-}" \
+      --argjson serverApplied "${MEGABRAIN_TMUX_TUNE_SERVER_APPLIED:-false}" \
       '{ok: true, action: "apply", changed: true, configPath: $config, installedPath: $installed, backupPath: (if $backup == "" then null else $backup end), serverApplied: $serverApplied}'
   else
     printf 'tmux tuning applied\n'
-    if [ -n "${DEVKIT_TMUX_TUNE_BACKUP_PATH:-}" ]; then
-      printf 'backup: %s\n' "$DEVKIT_TMUX_TUNE_BACKUP_PATH"
+    if [ -n "${MEGABRAIN_TMUX_TUNE_BACKUP_PATH:-}" ]; then
+      printf 'backup: %s\n' "$MEGABRAIN_TMUX_TUNE_BACKUP_PATH"
     else
       printf 'backup: none (%s did not exist)\n' "$config"
     fi
-    if [ "${DEVKIT_TMUX_TUNE_SERVER_APPLIED:-false}" = true ]; then
+    if [ "${MEGABRAIN_TMUX_TUNE_SERVER_APPLIED:-false}" = true ]; then
       printf 'running tmux server: updated\n'
     else
       printf 'running tmux server: none\n'
@@ -636,7 +636,7 @@ devkit_tmux_tune() {
 }
 
 devkit_tmux_wrapper_repo_path() {
-  printf '%s/zsh/megabrain-agent-tmux.zsh\n' "$DEVKIT_ROOT"
+  printf '%s/zsh/megabrain-agent-tmux.zsh\n' "$MEGABRAIN_ROOT"
 }
 
 devkit_tmux_wrapper_install_path() {
@@ -654,8 +654,8 @@ devkit_tmux_wrapper_validate_config() {
     devkit_error "zsh config exists but is not a regular file: $config"
     return 1
   }
-  starts=$(( $(grep -Fxc "$DEVKIT_TMUX_WRAPPER_START" "$config" 2>/dev/null || true) + $(grep -Fxc "$DEVKIT_TMUX_WRAPPER_LEGACY_START" "$config" 2>/dev/null || true) ))
-  ends=$(( $(grep -Fxc "$DEVKIT_TMUX_WRAPPER_END" "$config" 2>/dev/null || true) + $(grep -Fxc "$DEVKIT_TMUX_WRAPPER_LEGACY_END" "$config" 2>/dev/null || true) ))
+  starts=$(( $(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_START" "$config" 2>/dev/null || true) + $(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_LEGACY_START" "$config" 2>/dev/null || true) ))
+  ends=$(( $(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_END" "$config" 2>/dev/null || true) + $(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_LEGACY_END" "$config" 2>/dev/null || true) ))
   if [ "$starts" -ne "$ends" ]; then
     devkit_error "zsh config has an incomplete megabrain tmux wrapper block: $config"
     return 1
@@ -665,11 +665,11 @@ devkit_tmux_wrapper_validate_config() {
 devkit_tmux_wrapper_block_present() {
   local config="$1" starts legacy_starts ends legacy_ends source_lines
   [ -f "$config" ] || return 1
-  starts="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_START" "$config" 2>/dev/null || true)"
-  legacy_starts="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_LEGACY_START" "$config" 2>/dev/null || true)"
-  ends="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_END" "$config" 2>/dev/null || true)"
-  legacy_ends="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_LEGACY_END" "$config" 2>/dev/null || true)"
-  source_lines="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_SOURCE" "$config" 2>/dev/null || true)"
+  starts="$(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_START" "$config" 2>/dev/null || true)"
+  legacy_starts="$(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_LEGACY_START" "$config" 2>/dev/null || true)"
+  ends="$(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_END" "$config" 2>/dev/null || true)"
+  legacy_ends="$(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_LEGACY_END" "$config" 2>/dev/null || true)"
+  source_lines="$(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_SOURCE" "$config" 2>/dev/null || true)"
   [ $((starts + legacy_starts)) -eq 1 ] && [ $((ends + legacy_ends)) -eq 1 ] && [ "$source_lines" -eq 1 ]
 }
 
@@ -720,11 +720,11 @@ devkit_tmux_wrapper_write_config() {
   else
     set -- /dev/null
   fi
-  if ! awk -v start="$DEVKIT_TMUX_WRAPPER_START" \
-    -v end="$DEVKIT_TMUX_WRAPPER_END" \
-    -v legacy_start="$DEVKIT_TMUX_WRAPPER_LEGACY_START" \
-    -v legacy_end="$DEVKIT_TMUX_WRAPPER_LEGACY_END" \
-    -v source="$DEVKIT_TMUX_WRAPPER_SOURCE" '
+  if ! awk -v start="$MEGABRAIN_TMUX_WRAPPER_START" \
+    -v end="$MEGABRAIN_TMUX_WRAPPER_END" \
+    -v legacy_start="$MEGABRAIN_TMUX_WRAPPER_LEGACY_START" \
+    -v legacy_end="$MEGABRAIN_TMUX_WRAPPER_LEGACY_END" \
+    -v source="$MEGABRAIN_TMUX_WRAPPER_SOURCE" '
     $0 == start || $0 == legacy_start {
       if (!replaced) {
         print start
@@ -757,8 +757,8 @@ devkit_tmux_wrapper_write_config() {
 devkit_tmux_wrapper_remove_block() {
   local config="$1" temp
   temp="$(mktemp "${config}.XXXXXX")" || return 1
-  if ! awk -v start="$DEVKIT_TMUX_WRAPPER_START" -v end="$DEVKIT_TMUX_WRAPPER_END" \
-    -v legacy_start="$DEVKIT_TMUX_WRAPPER_LEGACY_START" -v legacy_end="$DEVKIT_TMUX_WRAPPER_LEGACY_END" '
+  if ! awk -v start="$MEGABRAIN_TMUX_WRAPPER_START" -v end="$MEGABRAIN_TMUX_WRAPPER_END" \
+    -v legacy_start="$MEGABRAIN_TMUX_WRAPPER_LEGACY_START" -v legacy_end="$MEGABRAIN_TMUX_WRAPPER_LEGACY_END" '
     $0 == start || $0 == legacy_start { in_block = 1; next }
     in_block && ($0 == end || $0 == legacy_end) { in_block = 0; next }
     !in_block { print }
@@ -797,7 +797,7 @@ devkit_tmux_wrapper_apply() {
     devkit_error "could not update $config"
     return 1
   fi
-  DEVKIT_TMUX_WRAPPER_BACKUP_PATH="$backup_path"
+  MEGABRAIN_TMUX_WRAPPER_BACKUP_PATH="$backup_path"
 }
 
 devkit_tmux_wrapper_revert() {
@@ -810,7 +810,7 @@ devkit_tmux_wrapper_revert() {
     devkit_error "could not remove the megabrain tmux wrapper block from $config"
     return 1
   }
-  DEVKIT_TMUX_WRAPPER_REVERTED=true
+  MEGABRAIN_TMUX_WRAPPER_REVERTED=true
 }
 
 devkit_tmux_wrapper_print_plan() {
@@ -818,7 +818,7 @@ devkit_tmux_wrapper_print_plan() {
   printf 'Recommended tmux agent wrapper:\n'
   printf '  - install the wrapper file at %s\n' "$(devkit_tmux_wrapper_install_path)"
   printf '  - add a source block to %s\n' "$config"
-  printf 'Warning: this defines shell functions named claude, codex and agy that take over those commands in every new interactive zsh. DEVKIT_NO_TMUX=1 or "command claude" bypasses them.\n'
+  printf 'Warning: this defines shell functions named claude, codex and agy that take over those commands in every new interactive zsh. MEGABRAIN_NO_TMUX=1 or "command claude" bypasses them.\n'
   if [ -n "$backup_path" ]; then
     printf '  - back up %s to %s\n' "$config" "$backup_path"
   else
@@ -842,13 +842,13 @@ devkit_tmux_wrapper() {
         ;;
       *)
         devkit_error "unknown tmux wrapper option: $arg"
-        return "$DEVKIT_USAGE_ERROR"
+        return "$MEGABRAIN_USAGE_ERROR"
         ;;
     esac
   done
   if [ "$dry_run" = true ] && [ "$revert" = true ]; then
     devkit_error '--dry-run and --revert cannot be combined'
-    return "$DEVKIT_USAGE_ERROR"
+    return "$MEGABRAIN_USAGE_ERROR"
   fi
   config="$(devkit_tmux_wrapper_config_path)"
   devkit_tmux_wrapper_block_present "$config" && block_present=true
@@ -871,7 +871,7 @@ devkit_tmux_wrapper() {
     fi
     if [ "$json" = true ]; then
       jq -n --arg config "$config" --argjson backups "$(devkit_tmux_wrapper_backup_paths_json)" \
-        --argjson changed "${DEVKIT_TMUX_WRAPPER_REVERTED:-false}" \
+        --argjson changed "${MEGABRAIN_TMUX_WRAPPER_REVERTED:-false}" \
         '{ok: true, action: "revert", changed: $changed, configPath: $config, backupPaths: $backups}'
     else
       printf 'tmux agent wrapper reverted from %s\n' "$config"
@@ -909,12 +909,12 @@ devkit_tmux_wrapper() {
   fi
   if [ "$json" = true ]; then
     jq -n --arg config "$config" --arg installed "$(devkit_tmux_wrapper_install_path)" \
-      --arg backup "${DEVKIT_TMUX_WRAPPER_BACKUP_PATH:-}" \
+      --arg backup "${MEGABRAIN_TMUX_WRAPPER_BACKUP_PATH:-}" \
       '{ok: true, action: "apply", changed: true, configPath: $config, installedPath: $installed, backupPath: (if $backup == "" then null else $backup end)}'
   else
     printf 'tmux agent wrapper applied\n'
-    if [ -n "${DEVKIT_TMUX_WRAPPER_BACKUP_PATH:-}" ]; then
-      printf 'backup: %s\n' "$DEVKIT_TMUX_WRAPPER_BACKUP_PATH"
+    if [ -n "${MEGABRAIN_TMUX_WRAPPER_BACKUP_PATH:-}" ]; then
+      printf 'backup: %s\n' "$MEGABRAIN_TMUX_WRAPPER_BACKUP_PATH"
     else
       printf 'backup: none (%s did not exist)\n' "$config"
     fi
@@ -931,7 +931,7 @@ command_tmux() {
       printf 'Usage: megabrain tmux tune [--yes] [--dry-run] [--revert] [--json]\n'
       printf '       megabrain tmux wrapper [--yes] [--dry-run] [--revert] [--json]\n'
       ;;
-    *) devkit_error "unknown tmux command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
+    *) devkit_error "unknown tmux command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }
 

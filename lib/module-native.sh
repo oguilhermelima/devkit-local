@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-DEVKIT_APPIUM_PORT="${DEVKIT_APPIUM_PORT:-4723}"
-DEVKIT_APPIUM_PIDFILE="$DEVKIT_STATE_DIR/appium.pid"
-DEVKIT_APPIUM_LOG="$DEVKIT_STATE_DIR/appium.log"
+MEGABRAIN_APPIUM_PORT="${MEGABRAIN_APPIUM_PORT:-4723}"
+MEGABRAIN_APPIUM_PIDFILE="$MEGABRAIN_STATE_DIR/appium.pid"
+MEGABRAIN_APPIUM_LOG="$MEGABRAIN_STATE_DIR/appium.log"
 
 devkit_appium_driver_ready() {
   devkit_require_command appium || return 1
@@ -41,29 +41,29 @@ module_simulator_native_install() {
 
 devkit_appium_pid() {
   local pid=""
-  if [ -f "$DEVKIT_APPIUM_PIDFILE" ]; then
-    pid="$(sed -n '1p' "$DEVKIT_APPIUM_PIDFILE")"
+  if [ -f "$MEGABRAIN_APPIUM_PIDFILE" ]; then
+    pid="$(sed -n '1p' "$MEGABRAIN_APPIUM_PIDFILE")"
     if [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
       printf '%s\n' "$pid"
       return 0
     fi
   fi
-  lsof -tiTCP:"$DEVKIT_APPIUM_PORT" -sTCP:LISTEN 2>/dev/null | head -n 1
+  lsof -tiTCP:"$MEGABRAIN_APPIUM_PORT" -sTCP:LISTEN 2>/dev/null | head -n 1
 }
 
 devkit_appium_status() {
   local pid command_line
   pid="$(devkit_appium_pid)"
   if [ -z "$pid" ]; then
-    printf 'appium: down (port %s)\n' "$DEVKIT_APPIUM_PORT"
+    printf 'appium: down (port %s)\n' "$MEGABRAIN_APPIUM_PORT"
     return 1
   fi
   command_line="$(ps -p "$pid" -o command= 2>/dev/null || true)"
   if [ -n "$command_line" ] && [[ "$command_line" != *appium* ]]; then
-    printf 'appium: occupied (port %s, pid %s)\n' "$DEVKIT_APPIUM_PORT" "$pid"
+    printf 'appium: occupied (port %s, pid %s)\n' "$MEGABRAIN_APPIUM_PORT" "$pid"
     return 1
   fi
-  printf 'appium: up (port %s, pid %s)\n' "$DEVKIT_APPIUM_PORT" "$pid"
+  printf 'appium: up (port %s, pid %s)\n' "$MEGABRAIN_APPIUM_PORT" "$pid"
   return 0
 }
 
@@ -77,10 +77,10 @@ devkit_appium_start() {
     devkit_error "appium is not ready; run megabrain install simulator-native"
     return 1
   }
-  mkdir -p "$DEVKIT_STATE_DIR" || return 1
-  nohup appium --port "$DEVKIT_APPIUM_PORT" >"$DEVKIT_APPIUM_LOG" 2>&1 &
+  mkdir -p "$MEGABRAIN_STATE_DIR" || return 1
+  nohup appium --port "$MEGABRAIN_APPIUM_PORT" >"$MEGABRAIN_APPIUM_LOG" 2>&1 &
   pid=$!
-  printf '%s\n' "$pid" >"$DEVKIT_APPIUM_PIDFILE"
+  printf '%s\n' "$pid" >"$MEGABRAIN_APPIUM_PIDFILE"
   local attempt
   for attempt in 1 2 3 4 5 6 7 8 9 10; do
     sleep 0.2
@@ -89,7 +89,7 @@ devkit_appium_start() {
       return 0
     fi
   done
-  devkit_error "appium did not start on port $DEVKIT_APPIUM_PORT; see $DEVKIT_APPIUM_LOG"
+  devkit_error "appium did not start on port $MEGABRAIN_APPIUM_PORT; see $MEGABRAIN_APPIUM_LOG"
   return 1
 }
 
@@ -97,13 +97,13 @@ devkit_appium_stop() {
   local pid command_line
   pid="$(devkit_appium_pid)"
   if [ -z "$pid" ]; then
-    rm -f "$DEVKIT_APPIUM_PIDFILE"
+    rm -f "$MEGABRAIN_APPIUM_PIDFILE"
     printf 'appium: already stopped\n'
     return 0
   fi
   command_line="$(ps -p "$pid" -o command= 2>/dev/null || true)"
   if [ -n "$command_line" ] && [[ "$command_line" != *appium* ]]; then
-    devkit_error "refusing to stop non-Appium process $pid on port $DEVKIT_APPIUM_PORT"
+    devkit_error "refusing to stop non-Appium process $pid on port $MEGABRAIN_APPIUM_PORT"
     return 1
   fi
   kill "$pid" >/dev/null 2>&1 || true
@@ -112,7 +112,7 @@ devkit_appium_stop() {
     kill -0 "$pid" >/dev/null 2>&1 || break
     sleep 0.2
   done
-  rm -f "$DEVKIT_APPIUM_PIDFILE"
+  rm -f "$MEGABRAIN_APPIUM_PIDFILE"
   printf 'appium: stopped (pid %s)\n' "$pid"
 }
 
@@ -122,17 +122,17 @@ command_native() {
   shift || true
   case "$family" in
     appium)
-      [ "$#" -eq 0 ] || { devkit_error "unknown native appium option: $1"; return "$DEVKIT_USAGE_ERROR"; }
+      [ "$#" -eq 0 ] || { devkit_error "unknown native appium option: $1"; return "$MEGABRAIN_USAGE_ERROR"; }
       case "$operation" in
         start) devkit_appium_start ;;
         stop) devkit_appium_stop ;;
         status) devkit_appium_status ;;
         -h|--help|"") printf 'Usage: megabrain native appium start|stop|status\n' ;;
-        *) devkit_error "unknown appium operation: $operation"; return "$DEVKIT_USAGE_ERROR" ;;
+        *) devkit_error "unknown appium operation: $operation"; return "$MEGABRAIN_USAGE_ERROR" ;;
       esac
       ;;
     -h|--help|"") printf 'Usage: megabrain native appium start|stop|status\n' ;;
-    *) devkit_error "unknown native command: $family"; return "$DEVKIT_USAGE_ERROR" ;;
+    *) devkit_error "unknown native command: $family"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }
 

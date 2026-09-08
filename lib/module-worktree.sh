@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-DEVKIT_AGENT_OPTION_TEMPLATES='codex|-c|model="%s"|-c|model_reasoning_effort="%s"
+MEGABRAIN_AGENT_OPTION_TEMPLATES='codex|-c|model="%s"|-c|model_reasoning_effort="%s"
 claude|--model|%s|--effort|%s
 agy|--model|%s||'
 # Codex has no --model or --effort flags, so its overrides use -c.
-DEVKIT_AGY_MODEL_IDS='gemini-3.8-flash-high
+MEGABRAIN_AGY_MODEL_IDS='gemini-3.8-flash-high
 gemini-3.8-flash-medium
 gemini-3.8-flash-low
 gemini-3.7-flash-high
@@ -18,11 +18,11 @@ gemini-3.1-pro-low
 claude-sonnet-4-6
 claude-opus-4-6-thinking
 gpt-oss-120b-medium'
-DEVKIT_AGENT_LAUNCH_ARGS='codex|--dangerously-bypass-hook-trust
+MEGABRAIN_AGENT_LAUNCH_ARGS='codex|--dangerously-bypass-hook-trust
 codex|--dangerously-bypass-approvals-and-sandbox
 claude|--dangerously-skip-permissions
 agy|--dangerously-skip-permissions'
-DEVKIT_AGENT_READY_TIMEOUT_MS="${DEVKIT_AGENT_READY_TIMEOUT_MS:-10000}"
+MEGABRAIN_AGENT_READY_TIMEOUT_MS="${MEGABRAIN_AGENT_READY_TIMEOUT_MS:-10000}"
 
 devkit_worktree_root() {
   local raw read_only=false
@@ -52,11 +52,11 @@ devkit_worktree_root() {
   if [ "${raw#/}" = "$raw" ]; then
     raw="$PWD/$raw"
   fi
-  DEVKIT_SHARED_ROOT="$(cd "$raw" 2>/dev/null && pwd -P || true)"
-  if [ -z "$DEVKIT_SHARED_ROOT" ]; then
-    DEVKIT_SHARED_ROOT="$raw"
+  MEGABRAIN_SHARED_ROOT="$(cd "$raw" 2>/dev/null && pwd -P || true)"
+  if [ -z "$MEGABRAIN_SHARED_ROOT" ]; then
+    MEGABRAIN_SHARED_ROOT="$raw"
   fi
-  printf '%s\n' "$DEVKIT_SHARED_ROOT"
+  printf '%s\n' "$MEGABRAIN_SHARED_ROOT"
 }
 
 devkit_repo_from_orca() {
@@ -126,12 +126,12 @@ devkit_agy_model_known() {
   if declare -F devkit_model_known >/dev/null 2>&1 && devkit_model_known agy "$1"; then
     return 0
   fi
-  printf '%s\n' "$DEVKIT_AGY_MODEL_IDS" | grep -Fx -- "$1" >/dev/null 2>&1
+  printf '%s\n' "$MEGABRAIN_AGY_MODEL_IDS" | grep -Fx -- "$1" >/dev/null 2>&1
 }
 
 devkit_agy_model_error() {
   devkit_error "$1"
-  printf 'Valid agy model ids:\n%s\n' "$DEVKIT_AGY_MODEL_IDS" >&2
+  printf 'Valid agy model ids:\n%s\n' "$MEGABRAIN_AGY_MODEL_IDS" >&2
 }
 
 devkit_agy_model_id() {
@@ -253,7 +253,7 @@ devkit_agent_command() {
   while IFS='|' read -r launch_agent launch_arg; do
     [ "$launch_agent" = "$agent_lower" ] && command_parts+=("$launch_arg")
   done <<EOF
-$DEVKIT_AGENT_LAUNCH_ARGS
+$MEGABRAIN_AGENT_LAUNCH_ARGS
 EOF
   option_template='--model|%s|--effort|%s'
   while IFS='|' read -r known_agent known_model_flag known_model_format known_effort_flag known_effort_format; do
@@ -262,7 +262,7 @@ EOF
       break
     fi
   done <<EOF
-$DEVKIT_AGENT_OPTION_TEMPLATES
+$MEGABRAIN_AGENT_OPTION_TEMPLATES
 EOF
   IFS='|' read -r model_flag model_format effort_flag effort_format <<<"$option_template"
   if [ -n "$model" ]; then
@@ -297,15 +297,15 @@ devkit_terminal_command_with_agent_permissions() {
       esac
     fi
   done <<EOF
-$DEVKIT_AGENT_LAUNCH_ARGS
+$MEGABRAIN_AGENT_LAUNCH_ARGS
 EOF
   printf '%s%s%s%s\n' "$prefix" "$agent_lower" "$launch_args" "$rest"
 }
 
 devkit_resolve_spawn_runtime() {
   local requested="${1:-auto}"
-  DEVKIT_SPAWN_RUNTIME=""
-  DEVKIT_SPAWN_CONTEXT=""
+  MEGABRAIN_SPAWN_RUNTIME=""
+  MEGABRAIN_SPAWN_CONTEXT=""
   case "$requested" in
     auto)
       if devkit_runtime_enabled; then
@@ -317,13 +317,13 @@ devkit_resolve_spawn_runtime() {
     true) requested=tmux ;;
     false) requested=host ;;
     tmux|host) ;;
-    *) devkit_error "invalid spawn runtime: $requested"; return "$DEVKIT_USAGE_ERROR" ;;
+    *) devkit_error "invalid spawn runtime: $requested"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
   if [ "$requested" = tmux ]; then
     devkit_tmux_available || { devkit_error "tmux spawn runtime was selected but tmux is not on PATH"; return 1; }
   fi
   devkit_session_id >/dev/null
-  if [ -z "$DEVKIT_SESSION_ID" ]; then
+  if [ -z "$MEGABRAIN_SESSION_ID" ]; then
     if [ "$requested" = host ]; then
       devkit_error "IDE spawn runtime requires a managed Orca or Superset terminal"
       return 1
@@ -331,9 +331,9 @@ devkit_resolve_spawn_runtime() {
     devkit_error "tmux spawn runtime requires a managed Orca or Superset terminal"
     return 1
   fi
-  DEVKIT_SPAWN_RUNTIME="$requested"
-  DEVKIT_SPAWN_CONTEXT="$DEVKIT_SESSION_HOST"
-  case "$DEVKIT_SPAWN_CONTEXT" in
+  MEGABRAIN_SPAWN_RUNTIME="$requested"
+  MEGABRAIN_SPAWN_CONTEXT="$MEGABRAIN_SESSION_HOST"
+  case "$MEGABRAIN_SPAWN_CONTEXT" in
     orca|superset) ;;
     *) devkit_error "cannot launch agent from unknown orchestration host"; return 1 ;;
   esac
@@ -404,7 +404,7 @@ devkit_host_terminal_readback() {
 }
 
 devkit_superset_wait_for_terminal_ready() {
-  local workspace_id="$1" terminal_id="$2" timeout_ms="${DEVKIT_AGENT_READY_TIMEOUT_MS:-10000}"
+  local workspace_id="$1" terminal_id="$2" timeout_ms="${MEGABRAIN_AGENT_READY_TIMEOUT_MS:-10000}"
   local attempts=$(( (timeout_ms + 99) / 100 )) attempt output rendered previous=""
   [ "$attempts" -gt 0 ] || attempts=1
   for ((attempt = 1; attempt <= attempts; attempt++)); do
@@ -455,31 +455,31 @@ devkit_launch_agent() {
   local -a passthrough_args=()
   shift 7
   [ "$#" -eq 0 ] || passthrough_args=("$@")
-  DEVKIT_LAST_DISPATCH=""
+  MEGABRAIN_LAST_DISPATCH=""
   devkit_session_id >/dev/null
-  parent_id="$DEVKIT_SESSION_ID"
-  parent_host="$DEVKIT_SESSION_HOST"
+  parent_id="$MEGABRAIN_SESSION_ID"
+  parent_host="$MEGABRAIN_SESSION_HOST"
   if [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
     parent_tmux_session="$(devkit_dispatch_tmux_caller_session 2>/dev/null || true)"
     parent_tmux_pane="$TMUX_PANE"
   fi
   [ -n "$parent_id" ] || { devkit_error "cannot spawn a managed dispatch from an unmanaged shell"; return 1; }
-  if [ -z "${DEVKIT_SPAWN_RUNTIME:-}" ] || [ -z "${DEVKIT_SPAWN_CONTEXT:-}" ]; then
+  if [ -z "${MEGABRAIN_SPAWN_RUNTIME:-}" ] || [ -z "${MEGABRAIN_SPAWN_CONTEXT:-}" ]; then
     devkit_resolve_spawn_runtime auto || return 1
   fi
-  runtime="$DEVKIT_SPAWN_RUNTIME"
-  context="$DEVKIT_SPAWN_CONTEXT"
-  DEVKIT_LAST_RUNTIME="$runtime"
+  runtime="$MEGABRAIN_SPAWN_RUNTIME"
+  context="$MEGABRAIN_SPAWN_CONTEXT"
+  MEGABRAIN_LAST_RUNTIME="$runtime"
   if [ "$runtime" = tmux ]; then
-    DEVKIT_LAST_SPAWN_RUNTIME=tmux
+    MEGABRAIN_LAST_SPAWN_RUNTIME=tmux
   else
-    DEVKIT_LAST_SPAWN_RUNTIME=ide
+    MEGABRAIN_LAST_SPAWN_RUNTIME=ide
   fi
   agent_used="$agent"
   branch="$(git -C "$worktree_path" symbolic-ref --quiet --short HEAD 2>/dev/null || printf 'detached')"
   [ -n "$label" ] || label="$(devkit_dispatch_default_label)"
   case "$label" in
-    *$'\n'*) devkit_error "dispatch label cannot contain a newline"; return "$DEVKIT_USAGE_ERROR" ;;
+    *$'\n'*) devkit_error "dispatch label cannot contain a newline"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
   dispatch_preamble="$(devkit_dispatch_preamble "$worktree_path")" || return 1
   final_prompt="[devkit dispatch: ${label}]
@@ -500,7 +500,7 @@ ${prompt}"
       devkit_require_command orca || { devkit_error "orca CLI is not available"; return 1; }
     fi
     devkit_tmux_existing_session_for_worktree "$worktree_path" || true
-    existing_session="${DEVKIT_TMUX_EXISTING_SESSION:-}"
+    existing_session="${MEGABRAIN_TMUX_EXISTING_SESSION:-}"
     if [ -n "$existing_session" ]; then
       tmux_session="$existing_session"
       session_id="$(devkit_tmux_host_terminal_for_session "$tmux_session" 2>/dev/null || true)"
@@ -535,7 +535,7 @@ ${prompt}"
       }
       devkit_tmux_set_state_dir "$tmux_session" || {
         devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "" "$host_terminal_created"
-        devkit_error "could not scope tmux child session $tmux_session to $DEVKIT_STATE_DIR"
+        devkit_error "could not scope tmux child session $tmux_session to $MEGABRAIN_STATE_DIR"
         return 1
       }
       tmux_pane="$(devkit_tmux_first_pane "$tmux_session")"
@@ -561,7 +561,7 @@ ${prompt}"
         return 1
       }
     fi
-    command_text="cd $(printf '%q' "$worktree_path") && DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") DEVKIT_TMUX_SESSION=$(printf '%q' "$tmux_session") DEVKIT_TMUX_PANE=$(printf '%q' "$tmux_pane") $command_text"
+    command_text="cd $(printf '%q' "$worktree_path") && MEGABRAIN_DISPATCH_ID=$(printf '%q' "$dispatch_id") MEGABRAIN_TMUX_SESSION=$(printf '%q' "$tmux_session") MEGABRAIN_TMUX_PANE=$(printf '%q' "$tmux_pane") $command_text"
     devkit_dispatch_meta_write "$dispatch_id" "$parent_id" "$parent_host" "$context" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" true "$agent_used" "$tmux_session" "$tmux_pane" tmux tmux "$parent_tmux_session" "$parent_tmux_pane" "$parent_workspace_id" >/dev/null || {
       devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
       devkit_error "could not persist dispatch metadata: $dispatch_id"
@@ -613,7 +613,7 @@ ${prompt}"
       devkit_dispatch_failure_error "$dispatch_id" "could not persist tmux dispatch state: $dispatch_id"
       return 1
     }
-    DEVKIT_LAST_DISPATCH="$dispatch_id"
+    MEGABRAIN_LAST_DISPATCH="$dispatch_id"
     printf '%s\n' "$response"
     return 0
   fi
@@ -666,9 +666,9 @@ ${prompt}"
     return 1
   }
   if [ "$child_host" = orca ]; then
-    command_text="cd $(printf '%q' "$worktree_path") && env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR=$(printf '%q' "$DEVKIT_STATE_DIR") ORCA_TERMINAL_HANDLE=$(printf '%q' "$session_id") DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") $command_text"
+    command_text="cd $(printf '%q' "$worktree_path") && env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR=$(printf '%q' "$MEGABRAIN_STATE_DIR") ORCA_TERMINAL_HANDLE=$(printf '%q' "$session_id") MEGABRAIN_DISPATCH_ID=$(printf '%q' "$dispatch_id") $command_text"
   else
-    command_text="cd $(printf '%q' "$worktree_path") && env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR=$(printf '%q' "$DEVKIT_STATE_DIR") SUPERSET_TERMINAL_ID=$(printf '%q' "$session_id") DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") $command_text"
+    command_text="cd $(printf '%q' "$worktree_path") && env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR=$(printf '%q' "$MEGABRAIN_STATE_DIR") SUPERSET_TERMINAL_ID=$(printf '%q' "$session_id") MEGABRAIN_DISPATCH_ID=$(printf '%q' "$dispatch_id") $command_text"
   fi
   meta="$(devkit_dispatch_meta_read "$dispatch_id")" || {
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
@@ -683,10 +683,10 @@ ${prompt}"
     return 1
   fi
   if [ "$child_host" = orca ]; then
-    if ! orca terminal wait --terminal "$session_id" --for tui-idle --timeout-ms "$DEVKIT_AGENT_READY_TIMEOUT_MS" >/dev/null; then
+    if ! orca terminal wait --terminal "$session_id" --for tui-idle --timeout-ms "$MEGABRAIN_AGENT_READY_TIMEOUT_MS" >/dev/null; then
       devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
       devkit_spawn_mark_prompt_failed "$dispatch_id" readiness-timeout
-      devkit_dispatch_failure_error "$dispatch_id" "orca terminal $session_id did not become ready within ${DEVKIT_AGENT_READY_TIMEOUT_MS}ms"
+      devkit_dispatch_failure_error "$dispatch_id" "orca terminal $session_id did not become ready within ${MEGABRAIN_AGENT_READY_TIMEOUT_MS}ms"
       return 1
     fi
   elif ! devkit_superset_wait_for_terminal_ready "$workspace_id" "$session_id"; then
@@ -705,7 +705,7 @@ ${prompt}"
   if ! devkit_dispatch_wait_for_prompt_receipt "$dispatch_id"; then
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-receipt-timeout
-    devkit_dispatch_failure_error "$dispatch_id" "dispatch $dispatch_id did not receive a prompt receipt within ${DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS}s"
+    devkit_dispatch_failure_error "$dispatch_id" "dispatch $dispatch_id did not receive a prompt receipt within ${MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS}s"
     return 1
   fi
   if ! devkit_spawn_mark_prompt_delivered "$dispatch_id"; then
@@ -719,7 +719,7 @@ ${prompt}"
     devkit_dispatch_failure_error "$dispatch_id" "could not persist host dispatch state: $session_id"
     return 1
   }
-  DEVKIT_LAST_DISPATCH="$dispatch_id"
+  MEGABRAIN_LAST_DISPATCH="$dispatch_id"
   printf '%s\n' "$response"
   return 0
 }
@@ -739,7 +739,7 @@ devkit_terminal_create() {
         printf 'Superset tabs are not titled; only Orca tabs are.\n'
         return 0
         ;;
-      *) devkit_error "unknown terminal create option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown terminal create option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
   if [ -n "$worktree_selector" ]; then
@@ -757,7 +757,7 @@ devkit_terminal_create() {
     command_text="$(devkit_project_run_command "$worktree_path" || true)"
     [ -n "$command_text" ] || {
       devkit_error "no --command given and no .superset/config.json run script found in $worktree_path"
-      return "$DEVKIT_USAGE_ERROR"
+      return "$MEGABRAIN_USAGE_ERROR"
     }
   fi
   command_text="$(devkit_terminal_command_with_agent_permissions "$command_text")"
@@ -812,7 +812,7 @@ devkit_worktree_create() {
       --worktree) worktree_selector="${2:-}"; shift 2 ;;
       --tmux) tmux_choice="${2:-}"; shift 2 ;;
       --agent-arg)
-        [ "$#" -ge 2 ] && [ -n "${2:-}" ] || { devkit_error "--agent-arg requires a non-empty value"; return "$DEVKIT_USAGE_ERROR"; }
+        [ "$#" -ge 2 ] && [ -n "${2:-}" ] || { devkit_error "--agent-arg requires a non-empty value"; return "$MEGABRAIN_USAGE_ERROR"; }
         agent_args+=("$2")
         shift 2
         ;;
@@ -822,37 +822,37 @@ devkit_worktree_create() {
         printf 'Usage: megabrain worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]\n'
         return 0
         ;;
-      *) devkit_error "unknown worktree create option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown worktree create option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
   if [ "$orchestrate" = true ]; then
     devkit_session_id >/dev/null
-    [ -n "$DEVKIT_SESSION_ID" ] || { devkit_error "cannot spawn a managed dispatch from an unmanaged shell"; return 1; }
+    [ -n "$MEGABRAIN_SESSION_ID" ] || { devkit_error "cannot spawn a managed dispatch from an unmanaged shell"; return 1; }
   fi
   if [ -n "$worktree_selector" ] && [ "$orchestrate" != true ]; then
     devkit_error "--worktree is only supported by orchestrate spawn"
-    return "$DEVKIT_USAGE_ERROR"
+    return "$MEGABRAIN_USAGE_ERROR"
   fi
   if [ "$orchestrate" != true ] && [ "$tmux_choice" != auto ]; then
     devkit_error "--tmux is only supported by orchestrate spawn"
-    return "$DEVKIT_USAGE_ERROR"
+    return "$MEGABRAIN_USAGE_ERROR"
   fi
   if [ -z "$worktree_selector" ]; then
-    [ -n "$repo_selector" ] || { devkit_error "--repo is required"; return "$DEVKIT_USAGE_ERROR"; }
-    [ -n "$branch" ] || { devkit_error "--branch is required"; return "$DEVKIT_USAGE_ERROR"; }
+    [ -n "$repo_selector" ] || { devkit_error "--repo is required"; return "$MEGABRAIN_USAGE_ERROR"; }
+    [ -n "$branch" ] || { devkit_error "--branch is required"; return "$MEGABRAIN_USAGE_ERROR"; }
   fi
   host="$(devkit_context_detect)"
   if [ "$orchestrate" = true ]; then
-    [ -n "$agent" ] || { devkit_error "--agent is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
-    [ -n "$model" ] || { devkit_error "--model is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
+    [ -n "$agent" ] || { devkit_error "--agent is required for orchestrate spawn"; return "$MEGABRAIN_USAGE_ERROR"; }
+    [ -n "$model" ] || { devkit_error "--model is required for orchestrate spawn"; return "$MEGABRAIN_USAGE_ERROR"; }
     if [ -z "$effort" ] && { ! devkit_model_known "$agent" "$model" || devkit_model_effort_separate "$agent" "$model"; }; then
       devkit_error "--effort is required for orchestrate spawn"
-      return "$DEVKIT_USAGE_ERROR"
+      return "$MEGABRAIN_USAGE_ERROR"
     fi
-    [ -n "$prompt" ] || { devkit_error "--prompt is required for orchestrate spawn"; return "$DEVKIT_USAGE_ERROR"; }
+    [ -n "$prompt" ] || { devkit_error "--prompt is required for orchestrate spawn"; return "$MEGABRAIN_USAGE_ERROR"; }
     devkit_resolve_spawn_runtime "$tmux_choice" || return 1
-    runtime="$DEVKIT_SPAWN_RUNTIME"
-    host="$DEVKIT_SPAWN_CONTEXT"
+    runtime="$MEGABRAIN_SPAWN_RUNTIME"
+    host="$MEGABRAIN_SPAWN_CONTEXT"
     if [ "$runtime" = tmux ]; then
       devkit_validate_prompt_budget "$prompt" tmux prompt || return 1
     else
@@ -926,8 +926,8 @@ devkit_worktree_create() {
         devkit_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" || return 1
       fi
     fi
-    dispatch="$DEVKIT_LAST_DISPATCH"
-    runtime="$DEVKIT_LAST_SPAWN_RUNTIME"
+    dispatch="$MEGABRAIN_LAST_DISPATCH"
+    runtime="$MEGABRAIN_LAST_SPAWN_RUNTIME"
     if [ -n "$dispatch" ] && [ "$json" != true ]; then
       printf 'dispatch: %s\nruntime: %s\n' "$dispatch" "$runtime"
     fi
@@ -988,13 +988,13 @@ devkit_worktree_finish() {
       --force) force=true; shift ;;
       -h|--help) printf 'Usage: megabrain worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]\n'; return 0 ;;
       *)
-        [ -z "$target" ] || { devkit_error "unknown worktree finish option: $arg"; return "$DEVKIT_USAGE_ERROR"; }
+        [ -z "$target" ] || { devkit_error "unknown worktree finish option: $arg"; return "$MEGABRAIN_USAGE_ERROR"; }
         target="$arg"
         shift
         ;;
     esac
   done
-  [ -n "$target" ] || { devkit_error "Usage: megabrain worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$target" ] || { devkit_error "Usage: megabrain worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]"; return "$MEGABRAIN_USAGE_ERROR"; }
   shared_root="$(devkit_worktree_root 2>/dev/null || true)"
   path=""
   if devkit_superset_available; then
@@ -1065,7 +1065,7 @@ devkit_worktree_list() {
       --repo) repo_selector="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: megabrain worktree list [--repo <name|path>] [--json]\n'; return 0 ;;
-      *) devkit_error "unknown worktree list option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown worktree list option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
   shared_root="$(devkit_worktree_root)" || return 1
@@ -1115,13 +1115,13 @@ devkit_worktree_adopt() {
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: megabrain worktree adopt <path|branch> [--json]\n'; return 0 ;;
       *)
-        [ -z "$target" ] || { devkit_error "unknown worktree adopt option: $arg"; return "$DEVKIT_USAGE_ERROR"; }
+        [ -z "$target" ] || { devkit_error "unknown worktree adopt option: $arg"; return "$MEGABRAIN_USAGE_ERROR"; }
         target="$arg"
         shift
         ;;
     esac
   done
-  [ -n "$target" ] || { devkit_error "Usage: megabrain worktree adopt <path|branch> [--json]"; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$target" ] || { devkit_error "Usage: megabrain worktree adopt <path|branch> [--json]"; return "$MEGABRAIN_USAGE_ERROR"; }
   shared_root="$(devkit_worktree_root)" || return 1
   if [ -d "$target" ]; then
     path="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null || true)"
@@ -1162,7 +1162,7 @@ command_worktree() {
     -h|--help|"")
       printf 'Usage: megabrain worktree create|finish|list|adopt ...\n'
       ;;
-    *) devkit_error "unknown worktree command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
+    *) devkit_error "unknown worktree command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }
 
@@ -1175,7 +1175,7 @@ command_terminal() {
       printf 'Usage: megabrain terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]\n'
       printf 'Superset tabs are not titled; only Orca tabs are.\n'
       ;;
-    *) devkit_error "unknown terminal command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
+    *) devkit_error "unknown terminal command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }
 

@@ -5,8 +5,8 @@ if ! declare -F devkit_model_init >/dev/null 2>&1; then
   source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/module-model.sh"
 fi
 
-DEVKIT_CHAIN_AGENTS='codex claude agy'
-DEVKIT_CHAIN_WINDOWS='5h weekly'
+MEGABRAIN_CHAIN_AGENTS='codex claude agy'
+MEGABRAIN_CHAIN_WINDOWS='5h weekly'
 
 devkit_chain_seed() {
   cat <<'EOF'
@@ -47,26 +47,26 @@ EOF
 
 devkit_chain_init() {
   local tmp seed
-  mkdir -p "$DEVKIT_STATE_DIR" || return 1
+  mkdir -p "$MEGABRAIN_STATE_DIR" || return 1
   devkit_model_init || return 1
-  if [ ! -f "$DEVKIT_CHAIN_FILE" ]; then
-    tmp="$(mktemp "$DEVKIT_STATE_DIR/chains.XXXXXX")" || return 1
+  if [ ! -f "$MEGABRAIN_CHAIN_FILE" ]; then
+    tmp="$(mktemp "$MEGABRAIN_STATE_DIR/chains.XXXXXX")" || return 1
     seed="$(devkit_chain_seed)" || return 1
     devkit_chain_validate_config "$seed" true || return 1
     if ! printf '%s\n' "$seed" >"$tmp"; then
       rm -f "$tmp"
       return 1
     fi
-    mv -f "$tmp" "$DEVKIT_CHAIN_FILE"
-  elif ! jq empty "$DEVKIT_CHAIN_FILE" >/dev/null 2>&1; then
-    devkit_error "chain file is not valid JSON: $DEVKIT_CHAIN_FILE"
+    mv -f "$tmp" "$MEGABRAIN_CHAIN_FILE"
+  elif ! jq empty "$MEGABRAIN_CHAIN_FILE" >/dev/null 2>&1; then
+    devkit_error "chain file is not valid JSON: $MEGABRAIN_CHAIN_FILE"
     return 1
   fi
 }
 
 devkit_chain_read() {
   devkit_chain_init || return 1
-  cat "$DEVKIT_CHAIN_FILE"
+  cat "$MEGABRAIN_CHAIN_FILE"
 }
 
 devkit_chain_agent_known() {
@@ -227,12 +227,12 @@ devkit_chain_validate_config() {
 
 devkit_chain_write() {
   local config="$1" tmp
-  tmp="$(mktemp "$DEVKIT_STATE_DIR/chains.XXXXXX")" || return 1
+  tmp="$(mktemp "$MEGABRAIN_STATE_DIR/chains.XXXXXX")" || return 1
   if ! printf '%s' "$config" >"$tmp"; then
     rm -f "$tmp"
     return 1
   fi
-  mv -f "$tmp" "$DEVKIT_CHAIN_FILE"
+  mv -f "$tmp" "$MEGABRAIN_CHAIN_FILE"
 }
 
 devkit_chain_format_list() {
@@ -254,7 +254,7 @@ command_chain_list() {
     case "$arg" in
       --json) json=true ;;
       -h|--help) printf 'Usage: megabrain chain list [--json]\n'; return 0 ;;
-      *) devkit_error "unknown chain list option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown chain list option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
   config="$(devkit_chain_read)" || return 1
@@ -264,17 +264,17 @@ command_chain_list() {
 
 command_chain_add() {
   local name="" when_json='{}' steps_json='[]' json=false allow_unknown=false arg value chain config result registry
-  [ "$#" -gt 0 ] || { devkit_error 'Usage: megabrain chain add <name> --when <json> --steps <json> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+  [ "$#" -gt 0 ] || { devkit_error 'Usage: megabrain chain add <name> --when <json> --steps <json> [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
   name="$1"
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
-      --when) value="${2:-}"; [ -n "$value" ] || { devkit_error '--when requires a value'; return "$DEVKIT_USAGE_ERROR"; }; when_json="$value"; shift 2 ;;
-      --steps) value="${2:-}"; [ -n "$value" ] || { devkit_error '--steps requires a value'; return "$DEVKIT_USAGE_ERROR"; }; steps_json="$value"; shift 2 ;;
-      --step) value="${2:-}"; [ -n "$value" ] || { devkit_error '--step requires a value'; return "$DEVKIT_USAGE_ERROR"; }; steps_json="$(printf '%s' "$steps_json" | jq --argjson step "$value" '. + [$step]' 2>/dev/null)" || { devkit_error 'invalid --step JSON'; return 1; }; shift 2 ;;
+      --when) value="${2:-}"; [ -n "$value" ] || { devkit_error '--when requires a value'; return "$MEGABRAIN_USAGE_ERROR"; }; when_json="$value"; shift 2 ;;
+      --steps) value="${2:-}"; [ -n "$value" ] || { devkit_error '--steps requires a value'; return "$MEGABRAIN_USAGE_ERROR"; }; steps_json="$value"; shift 2 ;;
+      --step) value="${2:-}"; [ -n "$value" ] || { devkit_error '--step requires a value'; return "$MEGABRAIN_USAGE_ERROR"; }; steps_json="$(printf '%s' "$steps_json" | jq --argjson step "$value" '. + [$step]' 2>/dev/null)" || { devkit_error 'invalid --step JSON'; return 1; }; shift 2 ;;
       --parent-agent|--parent-model|--parent-effort)
-        value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$DEVKIT_USAGE_ERROR"; }
+        value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$MEGABRAIN_USAGE_ERROR"; }
         case "$arg" in
           --parent-agent) when_json="$(printf '%s' "$when_json" | jq --arg value "$value" '. + {parentAgent: $value}')" ;;
           --parent-model) when_json="$(printf '%s' "$when_json" | jq --arg value "$value" '. + {parentModel: $value}')" ;;
@@ -285,7 +285,7 @@ command_chain_add() {
       --allow-unknown-model) allow_unknown=true; shift ;;
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: megabrain chain add <name> --when <json> --steps <json> [--json]\n'; return 0 ;;
-      *) devkit_error "unknown chain add option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown chain add option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
   devkit_chain_name_valid "$name" || { devkit_error "invalid chain name: $name"; return 1; }
@@ -314,7 +314,7 @@ command_chain_add() {
 
 command_chain_edit() {
   local name="" json=false allow_unknown=false arg config tmp edited editor registry
-  [ "$#" -gt 0 ] || { devkit_error 'Usage: megabrain chain edit <name> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+  [ "$#" -gt 0 ] || { devkit_error 'Usage: megabrain chain edit <name> [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
   name="$1"
   shift
   while [ "$#" -gt 0 ]; do
@@ -323,7 +323,7 @@ command_chain_edit() {
       --json) json=true; shift ;;
       --allow-unknown-model) allow_unknown=true; shift ;;
       -h|--help) printf 'Usage: megabrain chain edit <name> [--json]\n'; return 0 ;;
-      *) devkit_error "unknown chain edit option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown chain edit option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
   config="$(devkit_chain_read)" || return 1
@@ -331,15 +331,15 @@ command_chain_edit() {
     devkit_error "chain not found: $name"
     return 1
   fi
-  tmp="$(mktemp "$DEVKIT_STATE_DIR/chains-edit.XXXXXX")" || return 1
-  cp "$DEVKIT_CHAIN_FILE" "$tmp" || { rm -f "$tmp"; return 1; }
+  tmp="$(mktemp "$MEGABRAIN_STATE_DIR/chains-edit.XXXXXX")" || return 1
+  cp "$MEGABRAIN_CHAIN_FILE" "$tmp" || { rm -f "$tmp"; return 1; }
   editor="${EDITOR:-vi}"
   if ! "$editor" "$tmp"; then
     rm -f "$tmp"
     devkit_error "editor failed while editing chain $name"
     return 1
   fi
-  if cmp -s "$DEVKIT_CHAIN_FILE" "$tmp"; then
+  if cmp -s "$MEGABRAIN_CHAIN_FILE" "$tmp"; then
     rm -f "$tmp"
     if [ "$json" = true ]; then
       jq -n --arg name "$name" '{changed: false, name: $name}'
@@ -369,7 +369,7 @@ command_chain_edit() {
 
 command_chain_delete() {
   local name="" json=false arg config names result
-  [ "$#" -gt 0 ] || { devkit_error 'Usage: megabrain chain delete <name> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+  [ "$#" -gt 0 ] || { devkit_error 'Usage: megabrain chain delete <name> [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
   name="$1"
   shift
   while [ "$#" -gt 0 ]; do
@@ -377,7 +377,7 @@ command_chain_delete() {
     case "$arg" in
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: megabrain chain delete <name> [--json]\n'; return 0 ;;
-      *) devkit_error "unknown chain delete option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown chain delete option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
   config="$(devkit_chain_read)" || return 1
@@ -398,7 +398,7 @@ command_chain_delete() {
 
 command_chain_repair() {
   local name="${1:-}" step_number="" model="" effort="" json=false has_effort=false arg config result step agent
-  [ -n "$name" ] || { devkit_error 'Usage: megabrain chain repair <name> --step <number> --model <id> [--effort <level>] [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$name" ] || { devkit_error 'Usage: megabrain chain repair <name> --step <number> --model <id> [--effort <level>] [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -408,13 +408,13 @@ command_chain_repair() {
       --effort) effort="${2:-}"; has_effort=true; shift 2 ;;
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: megabrain chain repair <name> --step <number> --model <id> [--effort <level>] [--json]\n'; return 0 ;;
-      *) devkit_error "unknown chain repair option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown chain repair option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
   case "$step_number" in
-    ''|*[!0-9]*|0) devkit_error 'chain repair requires a positive --step number'; return "$DEVKIT_USAGE_ERROR" ;;
+    ''|*[!0-9]*|0) devkit_error 'chain repair requires a positive --step number'; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
-  [ -n "$model" ] || { devkit_error '--model is required for chain repair'; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$model" ] || { devkit_error '--model is required for chain repair'; return "$MEGABRAIN_USAGE_ERROR"; }
   config="$(devkit_chain_read)" || return 1
   step="$(printf '%s' "$config" | jq -c --arg name "$name" --argjson index "$step_number" '.chains[$name].steps[$index - 1] // empty')"
   [ -n "$step" ] || { devkit_error "chain step not found: $name step $step_number"; return 1; }
@@ -453,7 +453,7 @@ devkit_chain_limits_print_rows() {
   local agent="$1" result="$2" source="$3" fetched_at="$4" reason="$5" requested_window="${6:-}" window used reset bucket
   if [ -n "$result" ]; then
     while IFS=$'\t' read -r window bucket used reset; do
-      if [ "${DEVKIT_CHAIN_LIMIT_STATUS:-unknown}" = current ]; then
+      if [ "${MEGABRAIN_CHAIN_LIMIT_STATUS:-unknown}" = current ]; then
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t%s\n' "$agent" "$window" current "$used" "$reset" "$source" "$fetched_at" "$bucket"
       else
         printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\n' "$agent" "$window" "$fetched_at" "$reason"
@@ -482,7 +482,7 @@ command_chain_limits() {
       --notice-off) notice_off=true ;;
       --notice-interval) notice_interval="${2:-}"; shift 2 ;;
       -h|--help) printf 'Usage: megabrain chain limits [--json] [--enable <providers>] [--disable <providers>] [--notice-on|--notice-off] [--notice-interval <seconds>]\n'; return 0 ;;
-      *) devkit_error "unknown chain limits option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown chain limits option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
     [ "$arg" = --enable ] || [ "$arg" = --disable ] || [ "$arg" = --notice-interval ] || shift
   done
@@ -498,7 +498,7 @@ command_chain_limits() {
   if [ "$notice_on" = true ] || [ "$notice_off" = true ] || [ -n "$notice_interval" ]; then
     if [ "$notice_on" = true ] && [ "$notice_off" = true ]; then
       devkit_error 'cannot enable and disable the usage notice together'
-      return "$DEVKIT_USAGE_ERROR"
+      return "$MEGABRAIN_USAGE_ERROR"
     fi
     result="$(printf '%s' "$result" | jq --argjson turnOn "$( [ "$notice_on" = true ] && printf true || printf false )" --argjson turnOff "$( [ "$notice_off" = true ] && printf true || printf false )" --arg interval "$notice_interval" '
       .usageLimits = ((.usageLimits // {}) + {liveProviders: (.usageLimits.liveProviders // []), cacheTtlSeconds: (.usageLimits.cacheTtlSeconds // 30), timeoutSeconds: (.usageLimits.timeoutSeconds // 5), notice: {enabled: (if $turnOn then true elif $turnOff then false else (.usageLimits.notice.enabled // false) end), intervalSeconds: (if $interval == "" then (.usageLimits.notice.intervalSeconds // 3600) else ($interval | tonumber) end)}})
@@ -509,16 +509,16 @@ command_chain_limits() {
     devkit_chain_write "$result" || return 1
     config="$result"
   fi
-  tmp_file="$(mktemp "$DEVKIT_STATE_DIR/chain-limits.XXXXXX")" || return 1
+  tmp_file="$(mktemp "$MEGABRAIN_STATE_DIR/chain-limits.XXXXXX")" || return 1
   for agent in codex claude agy; do
     devkit_chain_limit_read "$agent" 5h
-    if [ -n "$DEVKIT_CHAIN_LIMIT_RESULT" ]; then
-      devkit_chain_limits_print_rows "$agent" "$DEVKIT_CHAIN_LIMIT_RESULT" "$DEVKIT_CHAIN_LIMIT_SOURCE" "$DEVKIT_CHAIN_LIMIT_FETCHED_AT" "$DEVKIT_CHAIN_LIMIT_REASON" >>"$tmp_file"
+    if [ -n "$MEGABRAIN_CHAIN_LIMIT_RESULT" ]; then
+      devkit_chain_limits_print_rows "$agent" "$MEGABRAIN_CHAIN_LIMIT_RESULT" "$MEGABRAIN_CHAIN_LIMIT_SOURCE" "$MEGABRAIN_CHAIN_LIMIT_FETCHED_AT" "$MEGABRAIN_CHAIN_LIMIT_REASON" >>"$tmp_file"
     else
-      first_reason="$DEVKIT_CHAIN_LIMIT_REASON"
+      first_reason="$MEGABRAIN_CHAIN_LIMIT_REASON"
       devkit_chain_limit_read "$agent" weekly
-      devkit_chain_limits_print_rows "$agent" '' unknown "$DEVKIT_CHAIN_LIMIT_FETCHED_AT" "$first_reason" 5h >>"$tmp_file"
-      devkit_chain_limits_print_rows "$agent" '' unknown "$DEVKIT_CHAIN_LIMIT_FETCHED_AT" "$DEVKIT_CHAIN_LIMIT_REASON" weekly >>"$tmp_file"
+      devkit_chain_limits_print_rows "$agent" '' unknown "$MEGABRAIN_CHAIN_LIMIT_FETCHED_AT" "$first_reason" 5h >>"$tmp_file"
+      devkit_chain_limits_print_rows "$agent" '' unknown "$MEGABRAIN_CHAIN_LIMIT_FETCHED_AT" "$MEGABRAIN_CHAIN_LIMIT_REASON" weekly >>"$tmp_file"
     fi
   done
   if [ "$json" = true ]; then
@@ -532,13 +532,13 @@ command_chain_limits() {
   rm -f "$tmp_file"
 }
 
-DEVKIT_CHAIN_LIMIT_STATUS="unknown"
-DEVKIT_CHAIN_LIMIT_USED=""
-DEVKIT_CHAIN_LIMIT_RESETS=""
-DEVKIT_CHAIN_LIMIT_REASON=""
-DEVKIT_CHAIN_LIMIT_SOURCE=""
-DEVKIT_CHAIN_LIMIT_RESULT=""
-DEVKIT_CHAIN_LIMIT_FETCHED_AT=""
+MEGABRAIN_CHAIN_LIMIT_STATUS="unknown"
+MEGABRAIN_CHAIN_LIMIT_USED=""
+MEGABRAIN_CHAIN_LIMIT_RESETS=""
+MEGABRAIN_CHAIN_LIMIT_REASON=""
+MEGABRAIN_CHAIN_LIMIT_SOURCE=""
+MEGABRAIN_CHAIN_LIMIT_RESULT=""
+MEGABRAIN_CHAIN_LIMIT_FETCHED_AT=""
 
 devkit_chain_limit_capability() {
   case "$1" in
@@ -567,18 +567,18 @@ devkit_chain_latest_codex_rollout() {
 
 devkit_chain_limit_unknown() {
   local agent="$1" window="$2" reason="$3"
-  DEVKIT_CHAIN_LIMIT_STATUS=unknown
-  DEVKIT_CHAIN_LIMIT_USED=""
-  DEVKIT_CHAIN_LIMIT_RESETS=""
-  DEVKIT_CHAIN_LIMIT_SOURCE=unknown
-  DEVKIT_CHAIN_LIMIT_RESULT=""
-  DEVKIT_CHAIN_LIMIT_FETCHED_AT=""
-  DEVKIT_CHAIN_LIMIT_REASON="$agent $window window unknown ($reason)"
+  MEGABRAIN_CHAIN_LIMIT_STATUS=unknown
+  MEGABRAIN_CHAIN_LIMIT_USED=""
+  MEGABRAIN_CHAIN_LIMIT_RESETS=""
+  MEGABRAIN_CHAIN_LIMIT_SOURCE=unknown
+  MEGABRAIN_CHAIN_LIMIT_RESULT=""
+  MEGABRAIN_CHAIN_LIMIT_FETCHED_AT=""
+  MEGABRAIN_CHAIN_LIMIT_REASON="$agent $window window unknown ($reason)"
 }
 
 devkit_chain_limit_config() {
   devkit_chain_init || return 1
-  cat "$DEVKIT_CHAIN_FILE"
+  cat "$MEGABRAIN_CHAIN_FILE"
 }
 
 devkit_chain_live_enabled() {
@@ -589,8 +589,8 @@ devkit_chain_live_enabled() {
 
 devkit_chain_limit_ttl() {
   local config value
-  if [ -n "${DEVKIT_CHAIN_LIMIT_TTL_SECONDS:-}" ]; then
-    printf '%s\n' "$DEVKIT_CHAIN_LIMIT_TTL_SECONDS"
+  if [ -n "${MEGABRAIN_CHAIN_LIMIT_TTL_SECONDS:-}" ]; then
+    printf '%s\n' "$MEGABRAIN_CHAIN_LIMIT_TTL_SECONDS"
     return 0
   fi
   config="$(devkit_chain_limit_config)" || return 1
@@ -600,8 +600,8 @@ devkit_chain_limit_ttl() {
 
 devkit_chain_limit_timeout() {
   local config value
-  if [ -n "${DEVKIT_CHAIN_LIMIT_TIMEOUT_SECONDS:-}" ]; then
-    printf '%s\n' "$DEVKIT_CHAIN_LIMIT_TIMEOUT_SECONDS"
+  if [ -n "${MEGABRAIN_CHAIN_LIMIT_TIMEOUT_SECONDS:-}" ]; then
+    printf '%s\n' "$MEGABRAIN_CHAIN_LIMIT_TIMEOUT_SECONDS"
     return 0
   fi
   config="$(devkit_chain_limit_config)" || return 1
@@ -610,7 +610,7 @@ devkit_chain_limit_timeout() {
 }
 
 devkit_chain_limit_cache_path() {
-  printf '%s/usage-limits-%s.json\n' "$DEVKIT_STATE_DIR" "$1"
+  printf '%s/usage-limits-%s.json\n' "$MEGABRAIN_STATE_DIR" "$1"
 }
 
 devkit_chain_limit_cache_read() {
@@ -627,14 +627,14 @@ devkit_chain_limit_cache_read() {
   esac
   [ "$fetched_at" -le "$now" ] && [ $((now - fetched_at)) -lt "$ttl" ] || return 1
   devkit_chain_limit_apply "$cached" "$agent" "$window" cache
-  [ "$DEVKIT_CHAIN_LIMIT_STATUS" = current ]
+  [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = current ]
 }
 
 devkit_chain_limit_cache_write() {
   local agent="$1" result="$2" path tmp
-  mkdir -p "$DEVKIT_STATE_DIR" || return 1
+  mkdir -p "$MEGABRAIN_STATE_DIR" || return 1
   path="$(devkit_chain_limit_cache_path "$agent")"
-  tmp="$(mktemp "$DEVKIT_STATE_DIR/usage-limits.XXXXXX")" || return 1
+  tmp="$(mktemp "$MEGABRAIN_STATE_DIR/usage-limits.XXXXXX")" || return 1
   if ! printf '%s' "$result" | jq -e --arg provider "$agent" '.provider == $provider and (.fetchedAt | type == "number") and (.windows | type == "array")' >/dev/null 2>&1; then
     rm -f "$tmp"
     return 1
@@ -656,11 +656,11 @@ devkit_chain_usage_notice_report() {
   local agent result summary report="Usage limits:"
   for agent in codex claude agy; do
     devkit_chain_limit_read "$agent" 5h
-    result="$DEVKIT_CHAIN_LIMIT_RESULT"
+    result="$MEGABRAIN_CHAIN_LIMIT_RESULT"
     if [ -n "$result" ]; then
       summary="$(printf '%s' "$result" | jq -r '[.windows[] | ((.bucket // "default") + " " + .name + " " + (.usedPercent | tostring) + "% used, resets " + .resetsAt)] | join("; ")')"
     else
-      summary="unknown (${DEVKIT_CHAIN_LIMIT_REASON#* window unknown (}"
+      summary="unknown (${MEGABRAIN_CHAIN_LIMIT_REASON#* window unknown (}"
       summary="${summary%)}"
     fi
     report="$report $agent $summary;"
@@ -669,7 +669,7 @@ devkit_chain_usage_notice_report() {
 }
 
 devkit_chain_usage_notice_state_path() {
-  printf '%s/usage-limit-notice.json\n' "$DEVKIT_STATE_DIR"
+  printf '%s/usage-limit-notice.json\n' "$MEGABRAIN_STATE_DIR"
 }
 
 devkit_chain_usage_notice_due() {
@@ -690,9 +690,9 @@ devkit_chain_usage_notice_due() {
 
 devkit_chain_usage_notice_mark() {
   local path tmp now
-  mkdir -p "$DEVKIT_STATE_DIR" || return 1
+  mkdir -p "$MEGABRAIN_STATE_DIR" || return 1
   path="$(devkit_chain_usage_notice_state_path)"
-  tmp="$(mktemp "$DEVKIT_STATE_DIR/usage-limit-notice.XXXXXX")" || return 1
+  tmp="$(mktemp "$MEGABRAIN_STATE_DIR/usage-limit-notice.XXXXXX")" || return 1
   now="$(date +%s)"
   jq -n --argjson sentAt "$now" '{sentAt: $sentAt}' >"$tmp" || { rm -f "$tmp"; return 1; }
   mv -f "$tmp" "$path"
@@ -705,7 +705,7 @@ devkit_chain_usage_notice_maybe() {
   report="$(devkit_chain_usage_notice_report)" || return 0
   meta="$(devkit_dispatch_meta_read "$dispatch_id" 2>/dev/null || true)"
   [ -n "$meta" ] || return 0
-  devkit_dispatch_message_append "$dispatch_id" devkit usage "$report" "${DEVKIT_SESSION_ID:-devkit}" >/dev/null 2>&1 || return 0
+  devkit_dispatch_message_append "$dispatch_id" devkit usage "$report" "${MEGABRAIN_SESSION_ID:-devkit}" >/dev/null 2>&1 || return 0
   devkit_parent_notify_dispatch "$meta" >/dev/null 2>&1 || true
   devkit_chain_usage_notice_mark >/dev/null 2>&1 || true
 }
@@ -715,23 +715,23 @@ devkit_chain_limit_apply() {
   entry="$(printf '%s' "$result" | jq -c --arg window "$window" '
     [.windows[]? | select(.name == $window)] | first // empty
   ' 2>/dev/null)"
-  DEVKIT_CHAIN_LIMIT_RESULT="$result"
-  DEVKIT_CHAIN_LIMIT_FETCHED_AT="$(printf '%s' "$result" | jq -r '.fetchedAt // empty' 2>/dev/null)"
-  DEVKIT_CHAIN_LIMIT_SOURCE="$source"
+  MEGABRAIN_CHAIN_LIMIT_RESULT="$result"
+  MEGABRAIN_CHAIN_LIMIT_FETCHED_AT="$(printf '%s' "$result" | jq -r '.fetchedAt // empty' 2>/dev/null)"
+  MEGABRAIN_CHAIN_LIMIT_SOURCE="$source"
   if [ -z "$entry" ] || ! printf '%s' "$entry" | jq -e '
     (.usedPercent | type == "number") and
     (.remainingPercent | type == "number") and
     (.resetsAt | type == "string") and (.resetsAt | length > 0)
   ' >/dev/null 2>&1; then
     devkit_chain_limit_unknown "$agent" "$window" 'provider response has no usable window'
-    DEVKIT_CHAIN_LIMIT_RESULT="$result"
-    DEVKIT_CHAIN_LIMIT_FETCHED_AT="$(printf '%s' "$result" | jq -r '.fetchedAt // empty' 2>/dev/null)"
+    MEGABRAIN_CHAIN_LIMIT_RESULT="$result"
+    MEGABRAIN_CHAIN_LIMIT_FETCHED_AT="$(printf '%s' "$result" | jq -r '.fetchedAt // empty' 2>/dev/null)"
     return 0
   fi
-  DEVKIT_CHAIN_LIMIT_USED="$(printf '%s' "$entry" | jq -r '.usedPercent')"
-  DEVKIT_CHAIN_LIMIT_RESETS="$(printf '%s' "$entry" | jq -r '.resetsAt')"
-  DEVKIT_CHAIN_LIMIT_STATUS=current
-  DEVKIT_CHAIN_LIMIT_REASON="$agent $window window at $DEVKIT_CHAIN_LIMIT_USED percent"
+  MEGABRAIN_CHAIN_LIMIT_USED="$(printf '%s' "$entry" | jq -r '.usedPercent')"
+  MEGABRAIN_CHAIN_LIMIT_RESETS="$(printf '%s' "$entry" | jq -r '.resetsAt')"
+  MEGABRAIN_CHAIN_LIMIT_STATUS=current
+  MEGABRAIN_CHAIN_LIMIT_REASON="$agent $window window at $MEGABRAIN_CHAIN_LIMIT_USED percent"
 }
 
 devkit_chain_limit_result_codex() {
@@ -751,17 +751,17 @@ devkit_chain_limit_result_codex() {
 devkit_chain_claude_credentials() {
   local credentials
   credentials="$(security find-generic-password -s 'Claude Code-credentials' -w 2>/dev/null)" || return 1
-  DEVKIT_CHAIN_CLAUDE_TOKEN="$(printf '%s' "$credentials" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)"
-  DEVKIT_CHAIN_CLAUDE_EXPIRES="$(printf '%s' "$credentials" | jq -r '.claudeAiOauth.expiresAt // empty' 2>/dev/null)"
+  MEGABRAIN_CHAIN_CLAUDE_TOKEN="$(printf '%s' "$credentials" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)"
+  MEGABRAIN_CHAIN_CLAUDE_EXPIRES="$(printf '%s' "$credentials" | jq -r '.claudeAiOauth.expiresAt // empty' 2>/dev/null)"
   unset credentials
-  [ -n "$DEVKIT_CHAIN_CLAUDE_TOKEN" ] || return 2
+  [ -n "$MEGABRAIN_CHAIN_CLAUDE_TOKEN" ] || return 2
   return 0
 }
 
 devkit_chain_claude_usage() {
   local requested_window="$1" response http_status curl_rc=0 url result now expires credential_rc timeout
-  DEVKIT_CHAIN_CLAUDE_TOKEN=""
-  DEVKIT_CHAIN_CLAUDE_EXPIRES=""
+  MEGABRAIN_CHAIN_CLAUDE_TOKEN=""
+  MEGABRAIN_CHAIN_CLAUDE_EXPIRES=""
   if devkit_chain_claude_credentials; then
     credential_rc=0
   else
@@ -775,31 +775,31 @@ devkit_chain_claude_usage() {
     return 0
   fi
   now="$(date +%s)"
-  expires="$DEVKIT_CHAIN_CLAUDE_EXPIRES"
+  expires="$MEGABRAIN_CHAIN_CLAUDE_EXPIRES"
   if [ -n "$expires" ]; then
     case "$expires" in
       *[!0-9]*)
         devkit_chain_limit_unknown claude "$requested_window" 'credential expiry is malformed'
-        unset DEVKIT_CHAIN_CLAUDE_TOKEN DEVKIT_CHAIN_CLAUDE_EXPIRES
+        unset MEGABRAIN_CHAIN_CLAUDE_TOKEN MEGABRAIN_CHAIN_CLAUDE_EXPIRES
         return 0
         ;;
       *) [ "$expires" -gt 100000000000 ] && expires=$((expires / 1000)) ;;
     esac
     if [ "$expires" -le "$now" ]; then
       devkit_chain_limit_unknown claude "$requested_window" "credential is expired at $expires; refreshing requires a separate OAuth flow"
-      unset DEVKIT_CHAIN_CLAUDE_TOKEN DEVKIT_CHAIN_CLAUDE_EXPIRES
+      unset MEGABRAIN_CHAIN_CLAUDE_TOKEN MEGABRAIN_CHAIN_CLAUDE_EXPIRES
       return 0
     fi
   fi
   timeout="$(devkit_chain_limit_timeout)" || timeout=5
-  url="${DEVKIT_CHAIN_CLAUDE_USAGE_URL:-https://api.anthropic.com/api/oauth/usage}"
+  url="${MEGABRAIN_CHAIN_CLAUDE_USAGE_URL:-https://api.anthropic.com/api/oauth/usage}"
   response="$(curl -sS --connect-timeout "$timeout" --max-time "$timeout" \
-    -H "Authorization: Bearer $DEVKIT_CHAIN_CLAUDE_TOKEN" \
+    -H "Authorization: Bearer $MEGABRAIN_CHAIN_CLAUDE_TOKEN" \
     -H 'anthropic-beta: oauth-2025-04-20' -H 'anthropic-version: 2023-06-01' \
-    -w '\nDEVKIT_HTTP_STATUS:%{http_code}' "$url" 2>/dev/null)" || curl_rc=$?
-  unset DEVKIT_CHAIN_CLAUDE_TOKEN DEVKIT_CHAIN_CLAUDE_EXPIRES
-  http_status="${response##*DEVKIT_HTTP_STATUS:}"
-  response="${response%$'\n'DEVKIT_HTTP_STATUS:*}"
+    -w '\nMEGABRAIN_HTTP_STATUS:%{http_code}' "$url" 2>/dev/null)" || curl_rc=$?
+  unset MEGABRAIN_CHAIN_CLAUDE_TOKEN MEGABRAIN_CHAIN_CLAUDE_EXPIRES
+  http_status="${response##*MEGABRAIN_HTTP_STATUS:}"
+  response="${response%$'\n'MEGABRAIN_HTTP_STATUS:*}"
   if [ "$curl_rc" -eq 28 ]; then
     devkit_chain_limit_unknown claude "$requested_window" 'request timed out'
     return 0
@@ -828,8 +828,8 @@ devkit_chain_claude_usage() {
     devkit_chain_limit_unknown claude "$requested_window" 'response body is unparseable or incomplete'
     return 0
   fi
-  DEVKIT_CHAIN_LIMIT_RESULT="$result"
-  DEVKIT_CHAIN_LIMIT_FETCHED_AT="$now"
+  MEGABRAIN_CHAIN_LIMIT_RESULT="$result"
+  MEGABRAIN_CHAIN_LIMIT_FETCHED_AT="$now"
 }
 
 devkit_chain_agy_credentials() {
@@ -840,15 +840,15 @@ devkit_chain_agy_credentials() {
     *) unset credentials; return 2 ;;
   esac
   credentials="$(printf '%s' "$encoded" | base64 -D 2>/dev/null)" || { unset encoded; return 2; }
-  DEVKIT_CHAIN_AGY_TOKEN="$(printf '%s' "$credentials" | jq -r '.token // empty' 2>/dev/null)"
+  MEGABRAIN_CHAIN_AGY_TOKEN="$(printf '%s' "$credentials" | jq -r '.token // empty' 2>/dev/null)"
   unset credentials encoded
-  [ -n "$DEVKIT_CHAIN_AGY_TOKEN" ] || return 3
+  [ -n "$MEGABRAIN_CHAIN_AGY_TOKEN" ] || return 3
   return 0
 }
 
 devkit_chain_agy_usage() {
   local requested_window="$1" response http_status curl_rc=0 url result now credential_rc timeout
-  DEVKIT_CHAIN_AGY_TOKEN=""
+  MEGABRAIN_CHAIN_AGY_TOKEN=""
   if devkit_chain_agy_credentials; then
     credential_rc=0
   else
@@ -863,14 +863,14 @@ devkit_chain_agy_usage() {
     return 0
   fi
   timeout="$(devkit_chain_limit_timeout)" || timeout=5
-  url="${DEVKIT_CHAIN_AGY_USAGE_URL:-https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary}"
+  url="${MEGABRAIN_CHAIN_AGY_USAGE_URL:-https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary}"
   # WHY: this is an undocumented client endpoint and its response contract can change.
   response="$(curl -sS --connect-timeout "$timeout" --max-time "$timeout" \
-    -X POST -H "Authorization: Bearer $DEVKIT_CHAIN_AGY_TOKEN" -H 'Content-Type: application/json' \
-    -d '{}' -w '\nDEVKIT_HTTP_STATUS:%{http_code}' "$url" 2>/dev/null)" || curl_rc=$?
-  unset DEVKIT_CHAIN_AGY_TOKEN
-  http_status="${response##*DEVKIT_HTTP_STATUS:}"
-  response="${response%$'\n'DEVKIT_HTTP_STATUS:*}"
+    -X POST -H "Authorization: Bearer $MEGABRAIN_CHAIN_AGY_TOKEN" -H 'Content-Type: application/json' \
+    -d '{}' -w '\nMEGABRAIN_HTTP_STATUS:%{http_code}' "$url" 2>/dev/null)" || curl_rc=$?
+  unset MEGABRAIN_CHAIN_AGY_TOKEN
+  http_status="${response##*MEGABRAIN_HTTP_STATUS:}"
+  response="${response%$'\n'MEGABRAIN_HTTP_STATUS:*}"
   if [ "$curl_rc" -eq 28 ]; then
     devkit_chain_limit_unknown agy "$requested_window" 'request timed out'
     return 0
@@ -910,19 +910,19 @@ devkit_chain_agy_usage() {
     devkit_chain_limit_unknown agy "$requested_window" 'response body is unparseable or incomplete'
     return 0
   fi
-  DEVKIT_CHAIN_LIMIT_RESULT="$result"
-  DEVKIT_CHAIN_LIMIT_FETCHED_AT="$now"
+  MEGABRAIN_CHAIN_LIMIT_RESULT="$result"
+  MEGABRAIN_CHAIN_LIMIT_FETCHED_AT="$now"
 }
 
 devkit_chain_limit_read() {
   local agent="$1" window="$2" rollout snapshot field expected_minutes now fetched_at result
-  DEVKIT_CHAIN_LIMIT_STATUS=unknown
-  DEVKIT_CHAIN_LIMIT_USED=""
-  DEVKIT_CHAIN_LIMIT_RESETS=""
-  DEVKIT_CHAIN_LIMIT_REASON=""
-  DEVKIT_CHAIN_LIMIT_SOURCE=""
-  DEVKIT_CHAIN_LIMIT_RESULT=""
-  DEVKIT_CHAIN_LIMIT_FETCHED_AT=""
+  MEGABRAIN_CHAIN_LIMIT_STATUS=unknown
+  MEGABRAIN_CHAIN_LIMIT_USED=""
+  MEGABRAIN_CHAIN_LIMIT_RESETS=""
+  MEGABRAIN_CHAIN_LIMIT_REASON=""
+  MEGABRAIN_CHAIN_LIMIT_SOURCE=""
+  MEGABRAIN_CHAIN_LIMIT_RESULT=""
+  MEGABRAIN_CHAIN_LIMIT_FETCHED_AT=""
   case "$agent" in
     claude|agy)
       if ! devkit_chain_live_enabled "$agent"; then
@@ -934,26 +934,26 @@ devkit_chain_limit_read() {
       fi
       if [ "$agent" = claude ]; then
         devkit_chain_claude_usage "$window"
-        if [ -n "$DEVKIT_CHAIN_LIMIT_RESULT" ]; then
-          devkit_chain_limit_apply "$DEVKIT_CHAIN_LIMIT_RESULT" claude "$window" live
-          [ "$DEVKIT_CHAIN_LIMIT_STATUS" = current ] && devkit_chain_limit_cache_write claude "$DEVKIT_CHAIN_LIMIT_RESULT" >/dev/null 2>&1 || true
+        if [ -n "$MEGABRAIN_CHAIN_LIMIT_RESULT" ]; then
+          devkit_chain_limit_apply "$MEGABRAIN_CHAIN_LIMIT_RESULT" claude "$window" live
+          [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = current ] && devkit_chain_limit_cache_write claude "$MEGABRAIN_CHAIN_LIMIT_RESULT" >/dev/null 2>&1 || true
         else
-          [ -n "$DEVKIT_CHAIN_LIMIT_REASON" ] || devkit_chain_limit_unknown claude "$window" 'provider reader returned no result'
+          [ -n "$MEGABRAIN_CHAIN_LIMIT_REASON" ] || devkit_chain_limit_unknown claude "$window" 'provider reader returned no result'
         fi
       else
         devkit_chain_agy_usage "$window"
-        if [ -n "$DEVKIT_CHAIN_LIMIT_RESULT" ]; then
-          devkit_chain_limit_apply "$DEVKIT_CHAIN_LIMIT_RESULT" agy "$window" live
-          [ "$DEVKIT_CHAIN_LIMIT_STATUS" = current ] && devkit_chain_limit_cache_write agy "$DEVKIT_CHAIN_LIMIT_RESULT" >/dev/null 2>&1 || true
+        if [ -n "$MEGABRAIN_CHAIN_LIMIT_RESULT" ]; then
+          devkit_chain_limit_apply "$MEGABRAIN_CHAIN_LIMIT_RESULT" agy "$window" live
+          [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = current ] && devkit_chain_limit_cache_write agy "$MEGABRAIN_CHAIN_LIMIT_RESULT" >/dev/null 2>&1 || true
         else
-          [ -n "$DEVKIT_CHAIN_LIMIT_REASON" ] || devkit_chain_limit_unknown agy "$window" 'provider reader returned no result'
+          [ -n "$MEGABRAIN_CHAIN_LIMIT_REASON" ] || devkit_chain_limit_unknown agy "$window" 'provider reader returned no result'
         fi
       fi
       return 0
       ;;
     codex) ;;
     *)
-      DEVKIT_CHAIN_LIMIT_REASON="$agent $window window unknown (unsupported provider)"
+      MEGABRAIN_CHAIN_LIMIT_REASON="$agent $window window unknown (unsupported provider)"
       return 0
       ;;
   esac
@@ -961,7 +961,7 @@ devkit_chain_limit_read() {
     5h) field=primary; expected_minutes=300 ;;
     weekly) field=secondary; expected_minutes=10080 ;;
     *)
-      DEVKIT_CHAIN_LIMIT_REASON="codex $window window unknown (unsupported window)"
+      MEGABRAIN_CHAIN_LIMIT_REASON="codex $window window unknown (unsupported window)"
       return 0
       ;;
   esac
@@ -984,16 +984,16 @@ devkit_chain_limit_read() {
     devkit_chain_limit_unknown codex "$window" 'rollout has no rate limit snapshot'
     return 0
   fi
-  DEVKIT_CHAIN_LIMIT_USED="$(printf '%s' "$snapshot" | jq -r --arg field "$field" '.[$field].used_percent // empty')"
-  DEVKIT_CHAIN_LIMIT_RESETS="$(printf '%s' "$snapshot" | jq -r --arg field "$field" '.[$field].resets_at // empty')"
-  if [ -z "$DEVKIT_CHAIN_LIMIT_USED" ] || [ -z "$DEVKIT_CHAIN_LIMIT_RESETS" ]; then
+  MEGABRAIN_CHAIN_LIMIT_USED="$(printf '%s' "$snapshot" | jq -r --arg field "$field" '.[$field].used_percent // empty')"
+  MEGABRAIN_CHAIN_LIMIT_RESETS="$(printf '%s' "$snapshot" | jq -r --arg field "$field" '.[$field].resets_at // empty')"
+  if [ -z "$MEGABRAIN_CHAIN_LIMIT_USED" ] || [ -z "$MEGABRAIN_CHAIN_LIMIT_RESETS" ]; then
     devkit_chain_limit_unknown codex "$window" 'snapshot is incomplete'
     return 0
   fi
   now="$(date +%s)"
   # WHY: current Codex snapshots nest rate_limits under payload.
-  if [ "$DEVKIT_CHAIN_LIMIT_RESETS" -le "$now" ]; then
-    devkit_chain_limit_unknown codex "$window" "snapshot stale; reset $DEVKIT_CHAIN_LIMIT_RESETS"
+  if [ "$MEGABRAIN_CHAIN_LIMIT_RESETS" -le "$now" ]; then
+    devkit_chain_limit_unknown codex "$window" "snapshot stale; reset $MEGABRAIN_CHAIN_LIMIT_RESETS"
     return 0
   fi
   fetched_at="$(stat -f '%m' "$rollout" 2>/dev/null || stat -c '%Y' "$rollout" 2>/dev/null || printf '%s' "$now")"
@@ -1001,33 +1001,33 @@ devkit_chain_limit_read() {
     ''|*[!0-9]*) fetched_at="$now" ;;
   esac
   result="$(devkit_chain_limit_result_codex "$snapshot" "$fetched_at")"
-  DEVKIT_CHAIN_LIMIT_RESULT="$result"
-  DEVKIT_CHAIN_LIMIT_FETCHED_AT="$fetched_at"
-  DEVKIT_CHAIN_LIMIT_STATUS=current
-  DEVKIT_CHAIN_LIMIT_SOURCE=disk
-  DEVKIT_CHAIN_LIMIT_REASON="codex $window window at $DEVKIT_CHAIN_LIMIT_USED percent"
+  MEGABRAIN_CHAIN_LIMIT_RESULT="$result"
+  MEGABRAIN_CHAIN_LIMIT_FETCHED_AT="$fetched_at"
+  MEGABRAIN_CHAIN_LIMIT_STATUS=current
+  MEGABRAIN_CHAIN_LIMIT_SOURCE=disk
+  MEGABRAIN_CHAIN_LIMIT_REASON="codex $window window at $MEGABRAIN_CHAIN_LIMIT_USED percent"
 }
 
-DEVKIT_CHAIN_SELECTED_NAME=""
-DEVKIT_CHAIN_SELECTED_STEPS="[]"
-DEVKIT_CHAIN_SELECTION_REASON=""
-DEVKIT_CHAIN_SELECTION_DEFAULT=false
+MEGABRAIN_CHAIN_SELECTED_NAME=""
+MEGABRAIN_CHAIN_SELECTED_STEPS="[]"
+MEGABRAIN_CHAIN_SELECTION_REASON=""
+MEGABRAIN_CHAIN_SELECTION_DEFAULT=false
 
 devkit_chain_select() {
   local config="$1" explicit_name="${2:-}" parent_agent="${3:-}" parent_model="${4:-}" parent_effort="${5:-}"
   local chain selector field required actual matched specificity best_specificity=-1 candidates='' count=0
-  DEVKIT_CHAIN_SELECTED_NAME=""
-  DEVKIT_CHAIN_SELECTED_STEPS='[]'
-  DEVKIT_CHAIN_SELECTION_REASON=""
-  DEVKIT_CHAIN_SELECTION_DEFAULT=false
+  MEGABRAIN_CHAIN_SELECTED_NAME=""
+  MEGABRAIN_CHAIN_SELECTED_STEPS='[]'
+  MEGABRAIN_CHAIN_SELECTION_REASON=""
+  MEGABRAIN_CHAIN_SELECTION_DEFAULT=false
   if [ -n "$explicit_name" ]; then
     if ! printf '%s' "$config" | jq -e --arg name "$explicit_name" '.chains | has($name)' >/dev/null 2>&1; then
       devkit_error "chain not found: $explicit_name"
       return 1
     fi
-    DEVKIT_CHAIN_SELECTED_NAME="$explicit_name"
-    DEVKIT_CHAIN_SELECTED_STEPS="$(printf '%s' "$config" | jq -c --arg name "$explicit_name" '.chains[$name].steps')"
-    DEVKIT_CHAIN_SELECTION_REASON="explicit name given"
+    MEGABRAIN_CHAIN_SELECTED_NAME="$explicit_name"
+    MEGABRAIN_CHAIN_SELECTED_STEPS="$(printf '%s' "$config" | jq -c --arg name "$explicit_name" '.chains[$name].steps')"
+    MEGABRAIN_CHAIN_SELECTION_REASON="explicit name given"
     return 0
   fi
   while IFS= read -r chain; do
@@ -1062,14 +1062,14 @@ devkit_chain_select() {
     return 1
   fi
   if [ "$count" -eq 1 ]; then
-    DEVKIT_CHAIN_SELECTED_NAME="$candidates"
-    DEVKIT_CHAIN_SELECTED_STEPS="$(printf '%s' "$config" | jq -c --arg name "$candidates" '.chains[$name].steps')"
-    DEVKIT_CHAIN_SELECTION_REASON="selector match with $best_specificity field(s)"
+    MEGABRAIN_CHAIN_SELECTED_NAME="$candidates"
+    MEGABRAIN_CHAIN_SELECTED_STEPS="$(printf '%s' "$config" | jq -c --arg name "$candidates" '.chains[$name].steps')"
+    MEGABRAIN_CHAIN_SELECTION_REASON="selector match with $best_specificity field(s)"
     return 0
   fi
-  DEVKIT_CHAIN_SELECTION_DEFAULT=true
-  DEVKIT_CHAIN_SELECTION_REASON="no selector matched; using defaultSteps"
-  DEVKIT_CHAIN_SELECTED_STEPS="$(printf '%s' "$config" | jq -c '.defaultSteps')"
+  MEGABRAIN_CHAIN_SELECTION_DEFAULT=true
+  MEGABRAIN_CHAIN_SELECTION_REASON="no selector matched; using defaultSteps"
+  MEGABRAIN_CHAIN_SELECTED_STEPS="$(printf '%s' "$config" | jq -c '.defaultSteps')"
 }
 
 devkit_chain_run_spawn() {
@@ -1103,11 +1103,11 @@ devkit_chain_reset_display() {
 }
 
 devkit_chain_clear_dispatch_context() {
-  DEVKIT_CHAIN_NAME=""
-  DEVKIT_CHAIN_STEP=""
-  DEVKIT_CHAIN_TOTAL=""
-  DEVKIT_CHAIN_REASON=""
-  DEVKIT_CHAIN_DEFAULT=false
+  MEGABRAIN_CHAIN_NAME=""
+  MEGABRAIN_CHAIN_STEP=""
+  MEGABRAIN_CHAIN_TOTAL=""
+  MEGABRAIN_CHAIN_REASON=""
+  MEGABRAIN_CHAIN_DEFAULT=false
 }
 
 command_chain_run() {
@@ -1134,28 +1134,28 @@ command_chain_run() {
       --label) label="${2:-}"; shift 2 ;;
       --tmux) tmux_choice="${2:-}"; shift 2 ;;
       --agent-arg)
-        [ "$#" -ge 2 ] && [ -n "${2:-}" ] || { devkit_error '--agent-arg requires a non-empty value'; return "$DEVKIT_USAGE_ERROR"; }
+        [ "$#" -ge 2 ] && [ -n "${2:-}" ] || { devkit_error '--agent-arg requires a non-empty value'; return "$MEGABRAIN_USAGE_ERROR"; }
         agent_args+=("$2")
         shift 2
         ;;
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: megabrain chain run [name] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [spawn options] [--json]\n'; return 0 ;;
-      *) devkit_error "unknown chain run option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown chain run option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
-  [ -n "$prompt" ] || { devkit_error '--prompt is required for chain run'; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$prompt" ] || { devkit_error '--prompt is required for chain run'; return "$MEGABRAIN_USAGE_ERROR"; }
   if [ -z "$worktree" ]; then
-    [ -n "$repo" ] || { devkit_error '--repo is required for chain run unless --worktree is used'; return "$DEVKIT_USAGE_ERROR"; }
-    [ -n "$branch" ] || { devkit_error '--branch is required for chain run unless --worktree is used'; return "$DEVKIT_USAGE_ERROR"; }
+    [ -n "$repo" ] || { devkit_error '--repo is required for chain run unless --worktree is used'; return "$MEGABRAIN_USAGE_ERROR"; }
+    [ -n "$branch" ] || { devkit_error '--branch is required for chain run unless --worktree is used'; return "$MEGABRAIN_USAGE_ERROR"; }
   fi
   config="$(devkit_chain_read)" || return 1
   devkit_chain_validate_config "$config" || return 1
   devkit_chain_select "$config" "$explicit_name" "$parent_agent" "$parent_model" "$parent_effort" || return 1
-  step_count="$(printf '%s' "$DEVKIT_CHAIN_SELECTED_STEPS" | jq 'length')"
-  report_chain="$DEVKIT_CHAIN_SELECTED_NAME"
-  [ "$DEVKIT_CHAIN_SELECTION_DEFAULT" = true ] && report_chain=defaultSteps
+  step_count="$(printf '%s' "$MEGABRAIN_CHAIN_SELECTED_STEPS" | jq 'length')"
+  report_chain="$MEGABRAIN_CHAIN_SELECTED_NAME"
+  [ "$MEGABRAIN_CHAIN_SELECTION_DEFAULT" = true ] && report_chain=defaultSteps
   reasons_json='[]'
-  error_file="$(mktemp "$DEVKIT_STATE_DIR/chain-run.XXXXXX")" || return 1
+  error_file="$(mktemp "$MEGABRAIN_STATE_DIR/chain-run.XXXXXX")" || return 1
   index=0
   while IFS= read -r step; do
     index=$((index + 1))
@@ -1164,33 +1164,33 @@ command_chain_run() {
     effort="$(printf '%s' "$step" | jq -r '.effort // empty')"
     until_json="$(printf '%s' "$step" | jq -c '.until // empty')"
     limit_reason=""
-    DEVKIT_CHAIN_LIMIT_RESETS=""
+    MEGABRAIN_CHAIN_LIMIT_RESETS=""
     if [ -n "$until_json" ]; then
       threshold="$(printf '%s' "$until_json" | jq -r '.usedPercent')"
       window="$(printf '%s' "$until_json" | jq -r '.window')"
       devkit_chain_limit_read "$agent" "$window"
-      limit_reason="$DEVKIT_CHAIN_LIMIT_REASON"
-      if [ "$DEVKIT_CHAIN_LIMIT_STATUS" = current ] && awk -v used="$DEVKIT_CHAIN_LIMIT_USED" -v threshold="$threshold" 'BEGIN { exit !(used >= threshold) }'; then
+      limit_reason="$MEGABRAIN_CHAIN_LIMIT_REASON"
+      if [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = current ] && awk -v used="$MEGABRAIN_CHAIN_LIMIT_USED" -v threshold="$threshold" 'BEGIN { exit !(used >= threshold) }'; then
         reset_text=""
-        [ -n "$DEVKIT_CHAIN_LIMIT_RESETS" ] && reset_text="; resets at $(devkit_chain_reset_display "$DEVKIT_CHAIN_LIMIT_RESETS")"
-        reason="$DEVKIT_CHAIN_LIMIT_REASON$reset_text"
+        [ -n "$MEGABRAIN_CHAIN_LIMIT_RESETS" ] && reset_text="; resets at $(devkit_chain_reset_display "$MEGABRAIN_CHAIN_LIMIT_RESETS")"
+        reason="$MEGABRAIN_CHAIN_LIMIT_REASON$reset_text"
         reasons_json="$(printf '%s' "$reasons_json" | jq --argjson step "$index" --arg agent "$agent" --arg reason "$reason" '. + [{step: $step, agent: $agent, kind: "limit", reason: $reason}]')"
         continue
       fi
     fi
     final_reason="$(printf '%s' "$reasons_json" | jq -r '[.[].reason] | join("; ")')"
     [ -n "$final_reason" ] || final_reason="no earlier steps skipped"
-    if [ "$DEVKIT_CHAIN_SELECTION_DEFAULT" = true ]; then
+    if [ "$MEGABRAIN_CHAIN_SELECTION_DEFAULT" = true ]; then
       final_reason="used defaultSteps; $final_reason"
     else
-      final_reason="$final_reason; $DEVKIT_CHAIN_SELECTION_REASON"
+      final_reason="$final_reason; $MEGABRAIN_CHAIN_SELECTION_REASON"
     fi
-    [ -n "$limit_reason" ] && [ "$DEVKIT_CHAIN_LIMIT_STATUS" = unknown ] && final_reason="$final_reason; $limit_reason"
-    DEVKIT_CHAIN_NAME="$report_chain"
-    DEVKIT_CHAIN_STEP="$index"
-    DEVKIT_CHAIN_TOTAL="$step_count"
-    DEVKIT_CHAIN_REASON="$final_reason"
-    DEVKIT_CHAIN_DEFAULT="$DEVKIT_CHAIN_SELECTION_DEFAULT"
+    [ -n "$limit_reason" ] && [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = unknown ] && final_reason="$final_reason; $limit_reason"
+    MEGABRAIN_CHAIN_NAME="$report_chain"
+    MEGABRAIN_CHAIN_STEP="$index"
+    MEGABRAIN_CHAIN_TOTAL="$step_count"
+    MEGABRAIN_CHAIN_REASON="$final_reason"
+    MEGABRAIN_CHAIN_DEFAULT="$MEGABRAIN_CHAIN_SELECTION_DEFAULT"
     spawn_succeeded=false
     if [ "${#agent_args[@]}" -gt 0 ]; then
       if spawn_output="$(devkit_chain_run_spawn "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$agent" "${agent_args[@]}" 2>"$error_file")"; then
@@ -1225,9 +1225,9 @@ command_chain_run() {
     spawn_error="$(cat "$error_file")"
     [ -n "$spawn_error" ] || spawn_error="launch failed"
     failure_reason="$agent launch failed: $spawn_error"
-    [ -n "$limit_reason" ] && [ "$DEVKIT_CHAIN_LIMIT_STATUS" = unknown ] && failure_reason="$failure_reason; $limit_reason"
+    [ -n "$limit_reason" ] && [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = unknown ] && failure_reason="$failure_reason; $limit_reason"
     reasons_json="$(printf '%s' "$reasons_json" | jq --argjson step "$index" --arg agent "$agent" --arg reason "$failure_reason" '. + [{step: $step, agent: $agent, kind: "failure", reason: $reason}]')"
-  done < <(printf '%s' "$DEVKIT_CHAIN_SELECTED_STEPS" | jq -c '.[]')
+  done < <(printf '%s' "$MEGABRAIN_CHAIN_SELECTED_STEPS" | jq -c '.[]')
   rm -f "$error_file"
   devkit_chain_clear_dispatch_context
   final_reason="$(printf '%s' "$reasons_json" | jq -r '[.[].reason] | join("; ")')"
@@ -1254,6 +1254,6 @@ command_chain() {
     -h|--help|"")
       printf 'Usage: megabrain chain list|limits|add|edit|delete|run|repair ...\n'
       ;;
-    *) devkit_error "unknown chain command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
+    *) devkit_error "unknown chain command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }
