@@ -52,7 +52,7 @@ devkit_state_migrate() {
       return 1
     }
     entries="$(devkit_state_migration_entries "$source")"
-    rm -rf -- "$source" || {
+    rm -rf "$source" || {
       devkit_error "could not remove the verified old state directory: $source"
       return 1
     }
@@ -69,17 +69,17 @@ devkit_state_migrate() {
   }
   mkdir "$staging" || return 1
   if ! cp -Rp "$source/." "$staging/"; then
-    rm -rf -- "$staging"
+    rm -rf "$staging"
     devkit_error "could not copy state to the migration staging path"
     return 1
   fi
   if ! devkit_state_migration_verify "$source" "$staging"; then
-    rm -rf -- "$staging"
+    rm -rf "$staging"
     devkit_error "copied state did not verify; the old state was left untouched"
     return 1
   fi
   if ! mv "$staging" "$target"; then
-    rm -rf -- "$staging"
+    rm -rf "$staging"
     devkit_error "could not activate the verified migrated state; the old state was left untouched"
     return 1
   fi
@@ -88,7 +88,7 @@ devkit_state_migrate() {
     return 1
   fi
   entries="$(devkit_state_migration_entries "$source")"
-  rm -rf -- "$source" || {
+  rm -rf "$source" || {
     devkit_error "could not remove the verified old state directory: $source"
     return 1
   }
