@@ -37,6 +37,9 @@ command_tv() {
   shift || true
   case "$operation" in
     connect)
+      case "${1:-}" in
+        -h|--help) printf 'Usage: megabrain tv connect <ip> [--port 5555]\n'; return 0 ;;
+      esac
       ip="${1:-}"
       [ -n "$ip" ] || { devkit_error "Usage: megabrain tv connect <ip> [--port 5555]"; return "$DEVKIT_USAGE_ERROR"; }
       shift
@@ -60,6 +63,9 @@ command_tv() {
       return 1
       ;;
     disconnect)
+      case "${1:-}" in
+        -h|--help) printf 'Usage: megabrain tv disconnect [<ip>]\n'; return 0 ;;
+      esac
       ip="${1:-}"
       if [ "$#" -gt 0 ]; then
         shift

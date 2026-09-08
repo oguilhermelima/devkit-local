@@ -264,6 +264,9 @@ command_chain_list() {
 
 command_chain_add() {
   local name="" when_json='{}' steps_json='[]' json=false allow_unknown=false arg value chain config result registry
+  case "${1:-}" in
+    -h|--help) printf 'Usage: megabrain chain add <name> --when <json> --steps <json> [--json]\n'; return 0 ;;
+  esac
   [ "$#" -gt 0 ] || { devkit_error 'Usage: megabrain chain add <name> --when <json> --steps <json> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
   name="$1"
   shift
@@ -314,6 +317,9 @@ command_chain_add() {
 
 command_chain_edit() {
   local name="" json=false allow_unknown=false arg config tmp edited editor registry
+  case "${1:-}" in
+    -h|--help) printf 'Usage: megabrain chain edit <name> [--json]\n'; return 0 ;;
+  esac
   [ "$#" -gt 0 ] || { devkit_error 'Usage: megabrain chain edit <name> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
   name="$1"
   shift
@@ -369,6 +375,9 @@ command_chain_edit() {
 
 command_chain_delete() {
   local name="" json=false arg config names result
+  case "${1:-}" in
+    -h|--help) printf 'Usage: megabrain chain delete <name> [--json]\n'; return 0 ;;
+  esac
   [ "$#" -gt 0 ] || { devkit_error 'Usage: megabrain chain delete <name> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
   name="$1"
   shift
@@ -398,6 +407,9 @@ command_chain_delete() {
 
 command_chain_repair() {
   local name="${1:-}" step_number="" model="" effort="" json=false has_effort=false arg config result step agent
+  case "$name" in
+    -h|--help) printf 'Usage: megabrain chain repair <name> --step <number> --model <id> [--effort <level>] [--json]\n'; return 0 ;;
+  esac
   [ -n "$name" ] || { devkit_error 'Usage: megabrain chain repair <name> --step <number> --model <id> [--effort <level>] [--json]'; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do

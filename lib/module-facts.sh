@@ -201,6 +201,9 @@ devkit_fact_id_valid() {
 
 devkit_fact_command_add() {
   local id="${1:-}" measurement="" who="" when="" command="" scope_type=global repository="" json=false arg value store path fact updated
+  case "$id" in
+    -h|--help) printf 'Usage: megabrain fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]\n'; return 0 ;;
+  esac
   [ -n "$id" ] || { devkit_error 'Usage: megabrain fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]'; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
@@ -270,6 +273,9 @@ devkit_fact_command_list() {
 
 devkit_fact_command_edit() {
   local id="${1:-}" json=false arg path store tmp editor edited
+  case "$id" in
+    -h|--help) printf 'Usage: megabrain fact edit <id> [--json]\n'; return 0 ;;
+  esac
   [ -n "$id" ] || { devkit_error 'Usage: megabrain fact edit <id> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
@@ -312,6 +318,9 @@ devkit_fact_command_edit() {
 
 devkit_fact_command_remove() {
   local id="${1:-}" json=false arg path store updated
+  case "$id" in
+    -h|--help) printf 'Usage: megabrain fact remove <id> [--json]\n'; return 0 ;;
+  esac
   [ -n "$id" ] || { devkit_error 'Usage: megabrain fact remove <id> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do

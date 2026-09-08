@@ -36,6 +36,9 @@ EOF
 
 command_model_refresh() {
   local agent="${1:-}" arg
+  case "$agent" in
+    -h|--help) printf 'Usage: megabrain model refresh <agent>\n'; return 0 ;;
+  esac
   [ -n "$agent" ] || { devkit_error 'Usage: megabrain model refresh <agent>'; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do

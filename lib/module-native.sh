@@ -122,6 +122,9 @@ command_native() {
   shift || true
   case "$family" in
     appium)
+      case "${1:-}" in
+        -h|--help) printf 'Usage: megabrain native appium start|stop|status\n'; return 0 ;;
+      esac
       [ "$#" -eq 0 ] || { devkit_error "unknown native appium option: $1"; return "$DEVKIT_USAGE_ERROR"; }
       case "$operation" in
         start) devkit_appium_start ;;

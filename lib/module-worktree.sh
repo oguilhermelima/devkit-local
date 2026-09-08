@@ -819,7 +819,11 @@ devkit_worktree_create() {
       --orchestrate) orchestrate=true; shift ;;
       --json) json=true; shift ;;
       -h|--help)
-        printf 'Usage: megabrain worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]\n'
+        if [ "$orchestrate" = true ]; then
+          printf 'Usage: megabrain orchestrate spawn --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]\n'
+        else
+          printf 'Usage: megabrain worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]\n'
+        fi
         return 0
         ;;
       *) devkit_error "unknown worktree create option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
