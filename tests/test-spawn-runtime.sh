@@ -113,4 +113,20 @@ assert_equal "$spawn_agent_arg_count" 7
 spawn_gate_passed=true
 printf 'spawn without --agent-arg -> empty optional array accepted\n'
 
+# WHY: the runtime is decided by reading one flag out of the state file. An unreadable
+# state file made that read fail like an unset flag, so every spawn silently dropped from
+# a tmux pane to an IDE tab and the only thing the operator saw was doctor blaming the
+# module for being disabled. A file that cannot be parsed has to say so.
+broken_state="$state_dir/broken-state"
+mkdir -p "$broken_state"
+printf '%s\n' '{"tmux-runtime": {"installed": true} THIS IS NOT JSON' >"$broken_state/state.json"
+
+runtime_stderr="$(MEGABRAIN_STATE_DIR="$broken_state" MEGABRAIN_STATE_FILE="$broken_state/state.json" \
+  bash -c 'source "$1/lib/common.sh"; megabrain_runtime_enabled; printf ""' _ "$root" 2>&1 >/dev/null)"
+case "$runtime_stderr" in
+  *'not valid JSON'*) ;;
+  *) fail "an unreadable state file changed the runtime without saying so: '$runtime_stderr'" ;;
+esac
+printf 'an unreadable state file is reported instead of read as a disabled flag\n'
+
 printf 'ok: spawn runtime resolution truth table\n'
