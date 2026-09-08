@@ -86,6 +86,14 @@ megabrain_fact_validate() {
     # WHY: provenance makes stale measurements distinguishable from verified facts.
     [ -n "$who" ] || { megabrain_error "fact $id is missing provenance.who"; return 1; }
     [ -n "$when" ] || { megabrain_error "fact $id is missing provenance.when"; return 1; }
+    # WHY: a fact is a measurement plus the moment it was taken. A when that is not a
+    # timestamp cannot be compared or aged, and this store is committed, so the bad value
+    # would travel to everyone who pulls it. The shape accepted is the one megabrain_iso_now
+    # writes, allowing fractional seconds and a numeric offset for hand-written entries.
+    if ! [[ "$when" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$ ]]; then
+      megabrain_error "fact $id has a provenance.when that is not an ISO-8601 timestamp: $when"
+      return 1
+    fi
     [ -n "$command" ] || { megabrain_error "fact $id is missing provenance.command"; return 1; }
     for key in "$id" "$measurement" "$repository" "$who" "$when" "$command"; do
       megabrain_fact_string_valid "$key" || { megabrain_error "fact $id contains a newline in a field"; return 1; }
