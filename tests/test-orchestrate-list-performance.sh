@@ -61,3 +61,18 @@ count="$(cat "$count_file")"
 [ "$count" -le 6 ] || fail "orchestrate list used $count jq invocations for 200 dispatches"
 
 printf 'ok: orchestrate list stays linear at 200 dispatches with %s jq invocations\n' "$count"
+
+# WHY: the listing slurps every meta in one jq, so a single unreadable file aborted the
+# batch and the coordinator lost sight of every dispatch it owns. That is the same shape
+# as a dead marketplace entry breaking a whole plugin listing. One bad file must cost
+# that file and nothing else, and the warning must stay off stdout so --json survives.
+mkdir -p "$state_dir/dispatches/broken-meta"
+printf '%s\n' '{"dispatchId":"broken-meta", THIS IS NOT JSON' >"$state_dir/dispatches/broken-meta/meta.json"
+
+if ! survivors="$(command_orchestrate_list --all --json 2>"$state_dir/list-stderr")"; then
+  fail 'one unreadable meta made the whole listing fail'
+fi
+[ "$(printf '%s' "$survivors" | "$real_jq" 'length')" = 200 ] || fail "expected the 200 readable dispatches, got $(printf '%s' "$survivors" | "$real_jq" 'length')"
+printf '%s' "$survivors" | "$real_jq" -e 'map(select(.dispatchId == "broken-meta")) | length == 0' >/dev/null || fail 'the unreadable dispatch was reported as if it were readable'
+grep -q 'broken-meta' "$state_dir/list-stderr" || fail 'the unreadable meta was skipped without telling anyone'
+printf 'one unreadable meta costs that dispatch and no other\n'
