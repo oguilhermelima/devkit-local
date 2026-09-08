@@ -238,8 +238,16 @@ megabrain_module_ids() {
   printf '%s\n' orchestration orchestration-hooks worktree simulator-web simulator-native simulator-tv tv-adb tmux-runtime
 }
 
+# WHY: a file that cannot be parsed used to fail this read exactly like an absent flag, so
+# every spawn silently dropped from a tmux pane to an IDE tab and doctor blamed the module
+# instead of the file. An unreadable state file is a different answer from a disabled one
+# and has to say so.
 megabrain_runtime_enabled() {
   [ -f "$MEGABRAIN_STATE_FILE" ] || return 1
+  if ! jq empty "$MEGABRAIN_STATE_FILE" >/dev/null 2>&1; then
+    megabrain_notice "state file is not valid JSON, treating every module as uninstalled: $MEGABRAIN_STATE_FILE"
+    return 1
+  fi
   jq -e '."tmux-runtime".installed == true' "$MEGABRAIN_STATE_FILE" >/dev/null 2>&1
 }
 
