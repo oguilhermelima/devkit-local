@@ -186,7 +186,7 @@ parent_ack() {
 run_flow() {
   local runtime="$1" chain_output dispatch_meta dispatch_id delivery replay delivery_id reply_result push_check push_ack
   local question_delivery question_delivery_id pull_result pull_delivery_id done_delivery done_delivery_id
-  local busy_pane busy_before
+  local busy_pane busy_before receipt_before receipt_after ask_capture
   MEGABRAIN_TEST_RUNTIME="$runtime"
   fake_send_mode=ok
   fake_close=false
@@ -226,11 +226,23 @@ run_flow() {
     assert_contains "$(cat "$state_dir/fake-sends.log")" "MEGABRAIN_DISPATCH_ID=$dispatch_id"
     assert_contains "$(cat "$state_dir/fake-sends.log")" "MEGABRAIN_STATE_DIR=$state_dir"
   fi
+  if [ "$runtime" = tmux ]; then
+    receipt_before="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -30)"
+  fi
   child_command received >/dev/null
+  if [ "$runtime" = tmux ]; then
+    receipt_after="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -30)"
+    assert_equal "$receipt_after" "$receipt_before"
+    assert_not_contains "$receipt_after" "[megabrain] mail available for dispatch $dispatch_id"
+  fi
   receipt_delivery="$(parent_watch)"
   receipt_delivery_id="$(jq -r '.deliveryId' <<<"$receipt_delivery")"
   parent_ack "$receipt_delivery_id" >/dev/null
   child_command ask "$runtime-question" >/dev/null
+  if [ "$runtime" = tmux ]; then
+    ask_capture="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -30)"
+    assert_contains "$ask_capture" "[megabrain] mail available for dispatch $dispatch_id"
+  fi
   delivery="$(parent_watch)"
   replay="$(parent_watch)"
   delivery_id="$(jq -r '.deliveryId' <<<"$delivery")"
