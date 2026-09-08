@@ -50,6 +50,7 @@ megabrain orchestrate reply <dispatch-id> --text <answer> [--json]
 megabrain orchestrate read <dispatch-id> [--lines <count>] [--json]
 megabrain orchestrate reconcile <dispatch-id> [--all] [--json]
 megabrain orchestrate close <dispatch-id> [--force-release] [--json]
+megabrain orchestrate prune [--older-than <days>] [--state <list>] [--archive|--delete] [--dry-run] [--json]
 ```
 
 `watch` returns a delivery that **replays until acked**, so nothing is lost if you read it and
@@ -59,6 +60,16 @@ do not act. Ack it once you have acted; acking twice is safe and reports `duplic
 one-line pointer into the parent's terminal, but that nudge is best effort and the transport can
 still fail. **The queue is the truth; the pointer is only a nudge.** If you are waiting on a
 worker, run `watch` yourself rather than waiting for the pointer to arrive.
+
+When your own turn ends, megabrain checks the dispatches you own and points at any that
+have unread child mail, once per message. That is what makes a missed pointer recover
+instead of being lost, and it is why a notice can appear immediately after you finish
+speaking. It stays quiet for a dispatch you already have a `watch` open on.
+
+Nothing removes a finished dispatch on its own. `prune` archives terminal ones past an
+age threshold, and archives rather than deletes by default because a dispatch's message
+queue is the record of what actually happened. It never touches a dispatch that is still
+open, and a state it does not recognise counts as open.
 
 Reading the dispatch record is not reading the message. A failure's `reason` field is the
 symptom; the child's own message in the queue is usually the cause. Look at the messages before

@@ -108,10 +108,23 @@ done < <(grep -oE '^megabrain [a-z][a-z-]*( [a-z][a-z-]*)?[^|]*' "$skill")
 
 [ "$skill_checked" -ge 25 ] || fail "expected at least 25 skill command lines, checked $skill_checked"
 
-case "$(cat "$skill")" in
-  *"megabrain chain run"*) ;;
-  *) fail 'the skill never mentions chain run, so a session has nothing telling it to let megabrain choose the agent' ;;
-esac
+# A command the skill never names does not exist as far as a fresh session is
+# concerned. This started as one hardcoded check for chain run, which is exactly why
+# orchestrate prune shipped and went undocumented on the same day: a rule that names
+# one command cannot notice the next one. Every key must appear.
+skill_group_covered=' model-add model-refresh fact-add fact-edit fact-remove '
+skill_text="$(cat "$skill")"
+while IFS= read -r key; do
+  [ -n "$key" ] || continue
+  case "$skill_group_covered" in
+    *" $key "*) continue ;;
+  esac
+  words="$(printf '%s' "$key" | tr '-' ' ')"
+  case "$skill_text" in
+    *"megabrain $words"*) ;;
+    *) fail "the skill never names 'megabrain $words', so a session has no way to learn it exists" ;;
+  esac
+done < <(usage_keys)
 
 printf 'ok: the skill names %s commands and invents no flags\n' "$skill_checked"
 
