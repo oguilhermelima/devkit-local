@@ -447,7 +447,7 @@ installer_manifest_path() {
 installer_manifest_summary() {
   local manifest="$INSTALL_MANIFEST"
   [ -f "$manifest" ] || return 0
-  printf 'Existing devkit installation:\n'
+  printf 'Existing megabrain installation:\n'
   if command -v jq >/dev/null 2>&1 && jq empty "$manifest" >/dev/null 2>&1; then
     jq -r '"  version: " + (.version // "unknown"), "  source: " + (.sourceRef // "unknown"), "  installed: " + (.installedAt // "unknown"), "  agents: " + ((.agents // []) | join(", ") // "none"), "  modules: " + ((.modules // []) | join(", ") // "none"), "  runtime: " + (.runtime // "host")' "$manifest"
   else
@@ -459,7 +459,7 @@ installer_prepare_existing_install() {
   local existing=false choice
   installer_manifest_path
   [ "$INSTALL_FRESH" = true ] && return 0
-  if [ -f "$INSTALL_MANIFEST" ] || [ -x "$INSTALL_ROOT/devkit" ]; then
+  if [ -f "$INSTALL_MANIFEST" ] || [ -x "$INSTALL_ROOT/megabrain" ]; then
     existing=true
   fi
   [ "$existing" = true ] || return 0
