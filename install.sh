@@ -516,12 +516,17 @@ installer_update_from_tarball() {
 }
 
 installer_write_manifest() {
-  local version="1.0.0" temp status
+  local version="1.0.0" temp status backup
   if [ -x "$SOURCE_ROOT/megabrain" ]; then
     version="$($SOURCE_ROOT/megabrain --version 2>/dev/null | awk '{print $2}' | head -n 1)"
     [ -n "$version" ] || version="1.0.0"
   fi
   mkdir -p "$INSTALL_ROOT" || { installer_error "could not create $INSTALL_ROOT for the install manifest"; return 1; }
+  if [ -f "$INSTALL_MANIFEST" ]; then
+    backup="$(installer_backup_path "$INSTALL_MANIFEST")"
+    cp -p "$INSTALL_MANIFEST" "$backup" || { installer_error "could not back up $INSTALL_MANIFEST to $backup"; return 1; }
+    installer_summary "backed up $INSTALL_MANIFEST to $backup"
+  fi
   temp="$(mktemp "${INSTALL_MANIFEST}.XXXXXX")" || return 1
   if ! jq -n \
     --arg version "$version" \
@@ -642,13 +647,17 @@ installer_link_devkit() {
 }
 
 installer_copy_skill() {
-  local destination="$1" existing="" result=""
+  local destination="$1" existing="" result="" backup
   existing="$destination/SKILL.md"
   if [ -f "$existing" ]; then
     if cmp -s "$SOURCE_ROOT/skills/megabrain/SKILL.md" "$existing"; then
-      result="already current"
+      installer_summary "Claude Code skill already-current at $destination"
+      return 0
     else
       result="updated differing existing skill"
+      backup="$(installer_backup_path "$existing")"
+      cp -p "$existing" "$backup" || { installer_error "could not back up $existing to $backup"; return 1; }
+      installer_summary "backed up $existing to $backup"
     fi
   else
     result="installed"
@@ -659,10 +668,11 @@ installer_copy_skill() {
 }
 
 installer_remove_stale_claude_skill() {
-  local stale="$HOME/.claude/skills/megabrain"
+  local stale="$HOME/.claude/skills/devkit" backup
   if [ -e "$stale" ] || [ -L "$stale" ]; then
-    rm -rf "$stale" || { installer_error "could not remove stale Claude skill directory: $stale"; return 1; }
-    installer_summary "removed stale Claude skills-dir plugin at $stale"
+    backup="$(installer_backup_path "$stale")"
+    mv "$stale" "$backup" || { installer_error "could not back up stale Claude skill directory: $stale"; return 1; }
+    installer_summary "backed up stale Claude skills-dir plugin from $stale to $backup"
   fi
 }
 
