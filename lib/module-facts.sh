@@ -202,9 +202,9 @@ devkit_fact_id_valid() {
 devkit_fact_command_add() {
   local id="${1:-}" measurement="" who="" when="" command="" scope_type=global repository="" json=false arg value store path fact updated
   case "$id" in
-    -h|--help) printf 'Usage: megabrain fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]\n'; return 0 ;;
+    -h|--help) devkit_usage_show fact-add; return 0 ;;
   esac
-  [ -n "$id" ] || { devkit_error 'Usage: megabrain fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ -n "$id" ] || { devkit_usage_fail fact-add; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -216,7 +216,7 @@ devkit_fact_command_add() {
       --scope) value="${2:-}"; [ -n "$value" ] || { devkit_error '--scope requires a value'; return "$MEGABRAIN_USAGE_ERROR"; }; scope_type="$value"; shift 2 ;;
       --repository|--repo) value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$MEGABRAIN_USAGE_ERROR"; }; repository="$value"; scope_type=repository; shift 2 ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: megabrain fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show fact-add; return 0 ;;
       *) devkit_error "unknown fact add option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -254,7 +254,7 @@ devkit_fact_command_list() {
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: megabrain fact list [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show fact-list; return 0 ;;
       *) devkit_error "unknown fact list option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -274,15 +274,15 @@ devkit_fact_command_list() {
 devkit_fact_command_edit() {
   local id="${1:-}" json=false arg path store tmp editor edited
   case "$id" in
-    -h|--help) printf 'Usage: megabrain fact edit <id> [--json]\n'; return 0 ;;
+    -h|--help) devkit_usage_show fact-edit; return 0 ;;
   esac
-  [ -n "$id" ] || { devkit_error 'Usage: megabrain fact edit <id> [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ -n "$id" ] || { devkit_usage_fail fact-edit; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: megabrain fact edit <id> [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show fact-edit; return 0 ;;
       *) devkit_error "unknown fact edit option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -319,15 +319,15 @@ devkit_fact_command_edit() {
 devkit_fact_command_remove() {
   local id="${1:-}" json=false arg path store updated
   case "$id" in
-    -h|--help) printf 'Usage: megabrain fact remove <id> [--json]\n'; return 0 ;;
+    -h|--help) devkit_usage_show fact-remove; return 0 ;;
   esac
-  [ -n "$id" ] || { devkit_error 'Usage: megabrain fact remove <id> [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ -n "$id" ] || { devkit_usage_fail fact-remove; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: megabrain fact remove <id> [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show fact-remove; return 0 ;;
       *) devkit_error "unknown fact remove option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -356,7 +356,7 @@ command_fact() {
     edit) devkit_fact_command_edit "$@" ;;
     remove|delete) devkit_fact_command_remove "$@" ;;
     -h|--help|"")
-      printf 'Usage: megabrain fact list|add|edit|remove ...\n'
+      devkit_usage_show fact
       ;;
     *) devkit_error "unknown fact command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac

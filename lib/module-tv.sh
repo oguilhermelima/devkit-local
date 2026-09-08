@@ -38,16 +38,16 @@ command_tv() {
   case "$operation" in
     connect)
       case "${1:-}" in
-        -h|--help) printf 'Usage: megabrain tv connect <ip> [--port 5555]\n'; return 0 ;;
+        -h|--help) devkit_usage_show tv-connect; return 0 ;;
       esac
       ip="${1:-}"
-      [ -n "$ip" ] || { devkit_error "Usage: megabrain tv connect <ip> [--port 5555]"; return "$MEGABRAIN_USAGE_ERROR"; }
+      [ -n "$ip" ] || { devkit_usage_fail tv-connect; return "$MEGABRAIN_USAGE_ERROR"; }
       shift
       while [ "$#" -gt 0 ]; do
         arg="$1"
         case "$arg" in
           --port) port="${2:-}"; shift 2 ;;
-          -h|--help) printf 'Usage: megabrain tv connect <ip> [--port 5555]\n'; return 0 ;;
+          -h|--help) devkit_usage_show tv-connect; return 0 ;;
           *) devkit_error "unknown tv connect option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
         esac
       done
@@ -64,12 +64,12 @@ command_tv() {
       ;;
     disconnect)
       case "${1:-}" in
-        -h|--help) printf 'Usage: megabrain tv disconnect [<ip>]\n'; return 0 ;;
+        -h|--help) devkit_usage_show tv-disconnect; return 0 ;;
       esac
       ip="${1:-}"
       if [ "$#" -gt 0 ]; then
         shift
-        [ "$#" -eq 0 ] || { devkit_error "Usage: megabrain tv disconnect [<ip>]"; return "$MEGABRAIN_USAGE_ERROR"; }
+        [ "$#" -eq 0 ] || { devkit_usage_fail tv-disconnect; return "$MEGABRAIN_USAGE_ERROR"; }
         module_tv_adb_doctor >/dev/null || return 1
         adb disconnect "$ip"
       else
@@ -77,7 +77,7 @@ command_tv() {
         adb disconnect
       fi
       ;;
-    -h|--help|"") printf 'Usage: megabrain tv connect <ip> [--port 5555] | megabrain tv disconnect [<ip>]\n' ;;
+    -h|--help|"") devkit_usage_show tv-connect tv-disconnect ;;
     *) devkit_error "unknown tv command: $operation"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }

@@ -734,7 +734,7 @@ devkit_terminal_create() {
       --title) title="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
       -h|--help)
-        printf 'Usage: megabrain terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]\n'
+        devkit_usage_show terminal-create
         printf 'Without --command, use the worktree .superset/config.json run script.\n'
         printf 'Superset tabs are not titled; only Orca tabs are.\n'
         return 0
@@ -820,9 +820,9 @@ devkit_worktree_create() {
       --json) json=true; shift ;;
       -h|--help)
         if [ "$orchestrate" = true ]; then
-          printf 'Usage: megabrain orchestrate spawn --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]\n'
+          devkit_usage_show orchestrate-spawn
         else
-          printf 'Usage: megabrain worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]\n'
+          devkit_usage_show worktree-create
         fi
         return 0
         ;;
@@ -990,7 +990,7 @@ devkit_worktree_finish() {
       --json) json=true; shift ;;
       --delete-branch) delete_branch=true; shift ;;
       --force) force=true; shift ;;
-      -h|--help) printf 'Usage: megabrain worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show worktree-finish; return 0 ;;
       *)
         [ -z "$target" ] || { devkit_error "unknown worktree finish option: $arg"; return "$MEGABRAIN_USAGE_ERROR"; }
         target="$arg"
@@ -998,7 +998,7 @@ devkit_worktree_finish() {
         ;;
     esac
   done
-  [ -n "$target" ] || { devkit_error "Usage: megabrain worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]"; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ -n "$target" ] || { devkit_usage_fail worktree-finish; return "$MEGABRAIN_USAGE_ERROR"; }
   shared_root="$(devkit_worktree_root 2>/dev/null || true)"
   path=""
   if devkit_superset_available; then
@@ -1068,7 +1068,7 @@ devkit_worktree_list() {
     case "$arg" in
       --repo) repo_selector="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: megabrain worktree list [--repo <name|path>] [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show worktree-list; return 0 ;;
       *) devkit_error "unknown worktree list option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -1117,7 +1117,7 @@ devkit_worktree_adopt() {
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: megabrain worktree adopt <path|branch> [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show worktree-adopt; return 0 ;;
       *)
         [ -z "$target" ] || { devkit_error "unknown worktree adopt option: $arg"; return "$MEGABRAIN_USAGE_ERROR"; }
         target="$arg"
@@ -1125,7 +1125,7 @@ devkit_worktree_adopt() {
         ;;
     esac
   done
-  [ -n "$target" ] || { devkit_error "Usage: megabrain worktree adopt <path|branch> [--json]"; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ -n "$target" ] || { devkit_usage_fail worktree-adopt; return "$MEGABRAIN_USAGE_ERROR"; }
   shared_root="$(devkit_worktree_root)" || return 1
   if [ -d "$target" ]; then
     path="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null || true)"
@@ -1164,7 +1164,7 @@ command_worktree() {
     list) devkit_worktree_list "$@" ;;
     adopt) devkit_worktree_adopt "$@" ;;
     -h|--help|"")
-      printf 'Usage: megabrain worktree create|finish|list|adopt ...\n'
+      devkit_usage_show worktree
       ;;
     *) devkit_error "unknown worktree command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
@@ -1176,7 +1176,7 @@ command_terminal() {
   case "$subcommand" in
     create) devkit_terminal_create "$@" ;;
     -h|--help|"")
-      printf 'Usage: megabrain terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]\n'
+      devkit_usage_show terminal-create
       printf 'Superset tabs are not titled; only Orca tabs are.\n'
       ;;
     *) devkit_error "unknown terminal command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;

@@ -5,15 +5,15 @@
 - Run megabrain doctor [module-id] [--json].
 - Run megabrain context [--json].
 - Run megabrain migrate.
-- Run megabrain worktree create --repo <name-or-path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json].
+- Run megabrain worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json].
 - Run megabrain worktree finish <branch|path|slug> [--delete-branch] [--force] [--json].
 - Run megabrain worktree list [--repo <name|path>] [--json].
 - Run megabrain worktree adopt <path|branch> [--json].
 - Run megabrain terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json].
-- Run megabrain orchestrate spawn --repo <name-or-path> --branch <branch> --agent <id> --model <id> [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json].
+- Run megabrain orchestrate spawn --repo <name|path> --branch <branch> --agent <id> --model <id> [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json].
 - Run megabrain orchestrate list [--all|--orphans] [--json].
 - Run megabrain orchestrate reconcile <dispatch-id> [--all] [--json].
-- Run megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--json].
+- Run megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--consumer <id>] [--generation <number>] [--json].
 - Run megabrain orchestrate read <dispatch-id> [--lines <count>] [--json].
 - Run megabrain orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json].
 - Run megabrain orchestrate reply <dispatch-id> --text <answer> [--json].
@@ -29,7 +29,7 @@
 - Run megabrain chain edit <name> [--allow-unknown-model] [--json].
 - Run megabrain chain delete <name> [--json].
 - Run megabrain chain repair <name> --step <number> --model <id> [--effort <level>] [--json].
-- Run megabrain chain run [name] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name-or-path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json].
+- Run megabrain chain run [name] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name|path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json].
 - Run megabrain model list [--json].
 - Run megabrain model add <agent> <model> --reasoning <levels>.
 - Run megabrain model refresh <agent>.
@@ -42,6 +42,6 @@
 - Run megabrain native appium stop.
 - Run megabrain tv connect <ip> [--port <port>].
 - Run megabrain tv disconnect [<ip>].
-- Run megabrain tmux tune [--yes|--dry-run|--revert] [--json].
-- Run megabrain tmux wrapper [--yes|--dry-run|--revert] [--json].
+- Run megabrain tmux tune [--yes] [--dry-run] [--revert] [--json].
+- Run megabrain tmux wrapper [--yes] [--dry-run] [--revert] [--json].
 - Run ./install.sh [--agents claude,codex,agy|none] [--skill none|global|project] [--agents-md none|global|project] [--modules list|all|none] [--yes].

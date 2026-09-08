@@ -429,7 +429,7 @@ devkit_dispatch_reconcile() {
   local dispatch_id="" all=false json=false arg meta_path meta entries='[]' outcome
   case "${1:-}" in
     -h|--help)
-      printf 'Usage: megabrain orchestrate reconcile <dispatch-id> [--all] [--json]\n'
+      devkit_usage_show orchestrate-reconcile
       return 0
       ;;
   esac
@@ -438,7 +438,7 @@ devkit_dispatch_reconcile() {
     case "$arg" in
       --all) all=true; shift ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: megabrain orchestrate reconcile <dispatch-id> [--all] [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show orchestrate-reconcile; return 0 ;;
       *)
         [ -z "$dispatch_id" ] || { devkit_error "unknown reconcile option: $arg"; return "$MEGABRAIN_USAGE_ERROR"; }
         dispatch_id="$arg"
@@ -456,7 +456,7 @@ devkit_dispatch_reconcile() {
       entries="$(jq --argjson item "$meta" --arg outcome "$outcome" '. + [$item + {reconcileResult: $outcome}]' <<<"$entries")" || return 1
     done
   else
-    [ -n "$dispatch_id" ] || { devkit_error 'Usage: megabrain orchestrate reconcile <dispatch-id> [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
+    [ -n "$dispatch_id" ] || { devkit_usage_fail orchestrate-reconcile; return "$MEGABRAIN_USAGE_ERROR"; }
     devkit_dispatch_reconcile_one "$dispatch_id" || return 1
     meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
     outcome="${MEGABRAIN_RECONCILE_OUTCOME:-unchanged}"
@@ -827,16 +827,16 @@ devkit_dispatch_native_close() {
 devkit_dispatch_read() {
   local dispatch_id="${1:-}" lines=200 json=false arg meta runtime pane output
   case "$dispatch_id" in
-    -h|--help) printf 'Usage: megabrain orchestrate read <dispatch-id> [--lines <count>] [--json]\n'; return 0 ;;
+    -h|--help) devkit_usage_show orchestrate-read; return 0 ;;
   esac
-  [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate read <dispatch-id> [--lines <count>] [--json]"; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ -n "$dispatch_id" ] || { devkit_usage_fail orchestrate-read; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --lines) lines="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: megabrain orchestrate read <dispatch-id> [--lines <count>] [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show orchestrate-read; return 0 ;;
       *) devkit_error "unknown orchestrate read option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -871,16 +871,16 @@ devkit_dispatch_mailbox_watch() {
   case "${1:-}" in
     -h|--help)
       if [ "$mailbox" = parent ]; then
-        printf 'Usage: megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--json]\n'
+        devkit_usage_show orchestrate-watch
       else
-        printf 'Usage: megabrain check [--timeout <seconds>] [--poll-interval <seconds>] [--json]\n'
+        devkit_usage_show check
       fi
       return 0
       ;;
   esac
   if [ "$mailbox" = parent ]; then
     dispatch_id="${1:-}"
-    [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]"; return "$MEGABRAIN_USAGE_ERROR"; }
+    [ -n "$dispatch_id" ] || { devkit_usage_fail orchestrate-watch; return "$MEGABRAIN_USAGE_ERROR"; }
     shift
   else
     devkit_dispatch_find_child || return 1
@@ -898,9 +898,9 @@ devkit_dispatch_mailbox_watch() {
       --json) json=true; shift ;;
       -h|--help)
         if [ "$mailbox" = parent ]; then
-          printf 'Usage: megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--json]\n'
+          devkit_usage_show orchestrate-watch
         else
-          printf 'Usage: megabrain check [--timeout <seconds>] [--poll-interval <seconds>] [--json]\n'
+          devkit_usage_show check
         fi
         return 0
         ;;
@@ -1037,9 +1037,9 @@ devkit_dispatch_ack_for_owner() {
   case "${1:-}" in
     -h|--help)
       if [ "$owner" = parent ]; then
-        printf 'Usage: megabrain orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json]\n'
+        devkit_usage_show orchestrate-ack
       else
-        printf 'Usage: megabrain ack <delivery-id> [--consumer <id>] [--generation <number>] [--json]\n'
+        devkit_usage_show ack
       fi
       return 0
       ;;
@@ -1055,14 +1055,14 @@ devkit_dispatch_ack_for_owner() {
     dispatch_id="$MEGABRAIN_FOUND_DISPATCH"
     [ -n "$consumer" ] || consumer="$(devkit_dispatch_child_consumer)" || return 1
   fi
-  [ -n "$dispatch_id" ] && [ -n "$delivery_id" ] || { devkit_error "Usage: megabrain orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>]"; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ -n "$dispatch_id" ] && [ -n "$delivery_id" ] || { devkit_usage_fail orchestrate-ack; return "$MEGABRAIN_USAGE_ERROR"; }
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --consumer) consumer="${2:-}"; shift 2 ;;
       --generation) generation="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: megabrain orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show orchestrate-ack; return 0 ;;
       *) devkit_error "unknown orchestrate ack option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -1141,16 +1141,16 @@ devkit_dispatch_child_ack() {
 devkit_dispatch_reply() {
   local dispatch_id="${1:-}" answer="" json=false arg meta state idle status
   case "$dispatch_id" in
-    -h|--help) printf 'Usage: megabrain orchestrate reply <dispatch-id> --text <answer> [--json]\n'; return 0 ;;
+    -h|--help) devkit_usage_show orchestrate-reply; return 0 ;;
   esac
-  [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate reply <dispatch-id> --text <answer> [--json]"; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ -n "$dispatch_id" ] || { devkit_usage_fail orchestrate-reply; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --text) answer="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: megabrain orchestrate reply <dispatch-id> --text <answer> [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show orchestrate-reply; return 0 ;;
       *) devkit_error "unknown orchestrate reply option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -1180,16 +1180,16 @@ devkit_dispatch_reply() {
 devkit_dispatch_close() {
   local dispatch_id="${1:-}" json=false force_release=false arg meta runtime child_host terminal_state process_state
   case "$dispatch_id" in
-    -h|--help) printf 'Usage: megabrain orchestrate close <dispatch-id> [--force-release] [--json]\n'; return 0 ;;
+    -h|--help) devkit_usage_show orchestrate-close; return 0 ;;
   esac
-  [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate close <dispatch-id> [--json]"; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ -n "$dispatch_id" ] || { devkit_usage_fail orchestrate-close; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
       --force-release) force_release=true; shift ;;
-      -h|--help) printf 'Usage: megabrain orchestrate close <dispatch-id> [--force-release] [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show orchestrate-close; return 0 ;;
       *) devkit_error "unknown orchestrate close option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -1273,25 +1273,25 @@ devkit_dispatch_child_message() {
 command_ask() {
   # WHY: --help must not look up a child dispatch and enqueue a question.
   case "${1:-}" in
-    -h|--help) printf 'Usage: megabrain ask "question"\n'; return 0 ;;
+    -h|--help) devkit_usage_show ask; return 0 ;;
   esac
-  [ "$#" -eq 1 ] && [ -n "$1" ] || { devkit_error 'Usage: megabrain ask "question"'; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ "$#" -eq 1 ] && [ -n "$1" ] || { devkit_usage_fail ask; return "$MEGABRAIN_USAGE_ERROR"; }
   devkit_dispatch_child_message ask "$1"
 }
 
 command_received() {
   case "${1:-}" in
-    -h|--help) printf 'Usage: megabrain received\n'; return 0 ;;
+    -h|--help) devkit_usage_show received; return 0 ;;
   esac
-  [ "$#" -eq 0 ] || { devkit_error 'Usage: megabrain received'; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ "$#" -eq 0 ] || { devkit_usage_fail received; return "$MEGABRAIN_USAGE_ERROR"; }
   devkit_dispatch_child_message received 'prompt received'
 }
 
 command_done() {
   case "${1:-}" in
-    -h|--help) printf 'Usage: megabrain done "summary"\n'; return 0 ;;
+    -h|--help) devkit_usage_show done; return 0 ;;
   esac
-  [ "$#" -eq 1 ] && [ -n "$1" ] || { devkit_error 'Usage: megabrain done "summary"'; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ "$#" -eq 1 ] && [ -n "$1" ] || { devkit_usage_fail done; return "$MEGABRAIN_USAGE_ERROR"; }
   devkit_dispatch_child_message done "$1"
 }
 

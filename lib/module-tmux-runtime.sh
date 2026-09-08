@@ -541,7 +541,7 @@ devkit_tmux_tune() {
       --revert) revert=true; shift ;;
       --json) json=true; shift ;;
       -h|--help)
-        printf 'Usage: megabrain tmux tune [--yes] [--dry-run] [--revert] [--json]\n'
+        devkit_usage_show tmux-tune
         return 0
         ;;
       *)
@@ -837,7 +837,7 @@ devkit_tmux_wrapper() {
       --revert) revert=true; shift ;;
       --json) json=true; shift ;;
       -h|--help)
-        printf 'Usage: megabrain tmux wrapper [--yes] [--dry-run] [--revert] [--json]\n'
+        devkit_usage_show tmux-wrapper
         return 0
         ;;
       *)
@@ -928,8 +928,7 @@ command_tmux() {
     tune) devkit_tmux_tune "$@" ;;
     wrapper) devkit_tmux_wrapper "$@" ;;
     -h|--help|"")
-      printf 'Usage: megabrain tmux tune [--yes] [--dry-run] [--revert] [--json]\n'
-      printf '       megabrain tmux wrapper [--yes] [--dry-run] [--revert] [--json]\n'
+      devkit_usage_show tmux-tune tmux-wrapper
       ;;
     *) devkit_error "unknown tmux command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac

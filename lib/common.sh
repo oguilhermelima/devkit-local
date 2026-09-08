@@ -134,6 +134,77 @@ devkit_state_set() {
   mv -f "$tmp" "$MEGABRAIN_STATE_FILE"
 }
 
+# WHY: one string per command. Help output, group listings and missing-argument
+# errors all read from here, so the three cannot drift apart the way they did while
+# each site carried its own copy.
+devkit_usage_line() {
+  case "$1" in
+    install) printf 'install [module-id] [--yes] [--revert]' ;;
+    doctor) printf 'doctor [module-id] [--json]' ;;
+    context) printf 'context [--json]' ;;
+    migrate) printf 'migrate' ;;
+    worktree) printf 'worktree create|finish|list|adopt ...' ;;
+    worktree-create) printf 'worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
+    worktree-finish) printf 'worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]' ;;
+    worktree-list) printf 'worktree list [--repo <name|path>] [--json]' ;;
+    worktree-adopt) printf 'worktree adopt <path|branch> [--json]' ;;
+    terminal-create) printf 'terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]' ;;
+    orchestrate-spawn) printf 'orchestrate spawn --repo <name|path> --branch <branch> --agent <id> --model <id> [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
+    orchestrate-list) printf 'orchestrate list [--all|--orphans] [--json]' ;;
+    orchestrate-reconcile) printf 'orchestrate reconcile <dispatch-id> [--all] [--json]' ;;
+    orchestrate-watch) printf 'orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--consumer <id>] [--generation <number>] [--json]' ;;
+    orchestrate-read) printf 'orchestrate read <dispatch-id> [--lines <count>] [--json]' ;;
+    orchestrate-ack) printf 'orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json]' ;;
+    orchestrate-reply) printf 'orchestrate reply <dispatch-id> --text <answer> [--json]' ;;
+    orchestrate-close) printf 'orchestrate close <dispatch-id> [--force-release] [--json]' ;;
+    ask) printf 'ask "question"' ;;
+    done) printf 'done "summary"' ;;
+    received) printf 'received' ;;
+    check) printf 'check [--timeout <seconds>] [--poll-interval <seconds>] [--consumer <id>] [--generation <number>] [--json]' ;;
+    ack) printf 'ack <delivery-id> [--consumer <id>] [--generation <number>] [--json]' ;;
+    chain) printf 'chain list|limits|add|edit|delete|run|repair ...' ;;
+    chain-list) printf 'chain list [--json]' ;;
+    chain-limits) printf 'chain limits [--json] [--enable <providers>] [--disable <providers>] [--notice-on|--notice-off] [--notice-interval <seconds>]' ;;
+    chain-add) printf 'chain add <name> --when <json> --steps <json> [--step <json>] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--allow-unknown-model] [--json]' ;;
+    chain-edit) printf 'chain edit <name> [--allow-unknown-model] [--json]' ;;
+    chain-delete) printf 'chain delete <name> [--json]' ;;
+    chain-repair) printf 'chain repair <name> --step <number> --model <id> [--effort <level>] [--json]' ;;
+    chain-run) printf 'chain run [name] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name|path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
+    model) printf 'model list|add|refresh ...' ;;
+    model-list) printf 'model list [--json]' ;;
+    model-add) printf 'model add <agent> <model> --reasoning <levels>' ;;
+    model-refresh) printf 'model refresh <agent>' ;;
+    fact) printf 'fact list|add|edit|remove ...' ;;
+    fact-list) printf 'fact list [--json]' ;;
+    fact-add) printf 'fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]' ;;
+    fact-edit) printf 'fact edit <id> [--json]' ;;
+    fact-remove) printf 'fact remove <id> [--json]' ;;
+    native-appium) printf 'native appium start|stop|status' ;;
+    tv-connect) printf 'tv connect <ip> [--port <port>]' ;;
+    tv-disconnect) printf 'tv disconnect [<ip>]' ;;
+    tmux-tune) printf 'tmux tune [--yes] [--dry-run] [--revert] [--json]' ;;
+    tmux-wrapper) printf 'tmux wrapper [--yes] [--dry-run] [--revert] [--json]' ;;
+    *) return 1 ;;
+  esac
+}
+
+devkit_usage_show() {
+  local key first=true
+  for key in "$@"; do
+    if [ "$first" = true ]; then
+      printf 'Usage: megabrain %s\n' "$(devkit_usage_line "$key")"
+      first=false
+    else
+      printf '       megabrain %s\n' "$(devkit_usage_line "$key")"
+    fi
+  done
+}
+
+devkit_usage_fail() {
+  devkit_error "Usage: megabrain $(devkit_usage_line "$1")"
+  return "$MEGABRAIN_USAGE_ERROR"
+}
+
 devkit_set_status() {
   MODULE_STATUS="$1"
   MODULE_REASON="$2"

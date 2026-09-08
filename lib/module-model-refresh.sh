@@ -37,15 +37,15 @@ EOF
 command_model_refresh() {
   local agent="${1:-}" arg
   case "$agent" in
-    -h|--help) printf 'Usage: megabrain model refresh <agent>\n'; return 0 ;;
+    -h|--help) devkit_usage_show model-refresh; return 0 ;;
   esac
-  [ -n "$agent" ] || { devkit_error 'Usage: megabrain model refresh <agent>'; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ -n "$agent" ] || { devkit_usage_fail model-refresh; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) shift ;;
-      -h|--help) printf 'Usage: megabrain model refresh <agent>\n'; return 0 ;;
+      -h|--help) devkit_usage_show model-refresh; return 0 ;;
       *) devkit_error "unknown model refresh option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done

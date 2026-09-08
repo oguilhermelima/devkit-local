@@ -108,7 +108,7 @@ command_migrate() {
       devkit_state_migrate
       ;;
     -h|--help)
-      printf 'Usage: megabrain migrate\n'
+      devkit_usage_show migrate
       ;;
     *)
       devkit_error "unknown migrate option: $arg"

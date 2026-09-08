@@ -118,7 +118,7 @@ command_install() {
       --yes) assume_yes=true; shift ;;
       --revert) revert=true; shift ;;
       -h|--help)
-        printf 'Usage: megabrain install [module-id] [--yes] [--revert]\n'
+        devkit_usage_show install
         return 0
         ;;
       *)
@@ -160,7 +160,7 @@ command_doctor() {
     case "$arg" in
       --json) json=true; shift ;;
       -h|--help)
-        printf 'Usage: megabrain doctor [module-id] [--json]\n'
+        devkit_usage_show doctor
         return 0
         ;;
       *)

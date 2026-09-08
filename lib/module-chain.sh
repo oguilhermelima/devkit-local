@@ -253,7 +253,7 @@ command_chain_list() {
   for arg in "$@"; do
     case "$arg" in
       --json) json=true ;;
-      -h|--help) printf 'Usage: megabrain chain list [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show chain-list; return 0 ;;
       *) devkit_error "unknown chain list option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -265,9 +265,9 @@ command_chain_list() {
 command_chain_add() {
   local name="" when_json='{}' steps_json='[]' json=false allow_unknown=false arg value chain config result registry
   case "${1:-}" in
-    -h|--help) printf 'Usage: megabrain chain add <name> --when <json> --steps <json> [--json]\n'; return 0 ;;
+    -h|--help) devkit_usage_show chain-add; return 0 ;;
   esac
-  [ "$#" -gt 0 ] || { devkit_error 'Usage: megabrain chain add <name> --when <json> --steps <json> [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ "$#" -gt 0 ] || { devkit_usage_fail chain-add; return "$MEGABRAIN_USAGE_ERROR"; }
   name="$1"
   shift
   while [ "$#" -gt 0 ]; do
@@ -287,7 +287,7 @@ command_chain_add() {
         ;;
       --allow-unknown-model) allow_unknown=true; shift ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: megabrain chain add <name> --when <json> --steps <json> [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show chain-add; return 0 ;;
       *) devkit_error "unknown chain add option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -318,9 +318,9 @@ command_chain_add() {
 command_chain_edit() {
   local name="" json=false allow_unknown=false arg config tmp edited editor registry
   case "${1:-}" in
-    -h|--help) printf 'Usage: megabrain chain edit <name> [--json]\n'; return 0 ;;
+    -h|--help) devkit_usage_show chain-edit; return 0 ;;
   esac
-  [ "$#" -gt 0 ] || { devkit_error 'Usage: megabrain chain edit <name> [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ "$#" -gt 0 ] || { devkit_usage_fail chain-edit; return "$MEGABRAIN_USAGE_ERROR"; }
   name="$1"
   shift
   while [ "$#" -gt 0 ]; do
@@ -328,7 +328,7 @@ command_chain_edit() {
     case "$arg" in
       --json) json=true; shift ;;
       --allow-unknown-model) allow_unknown=true; shift ;;
-      -h|--help) printf 'Usage: megabrain chain edit <name> [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show chain-edit; return 0 ;;
       *) devkit_error "unknown chain edit option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -376,16 +376,16 @@ command_chain_edit() {
 command_chain_delete() {
   local name="" json=false arg config names result
   case "${1:-}" in
-    -h|--help) printf 'Usage: megabrain chain delete <name> [--json]\n'; return 0 ;;
+    -h|--help) devkit_usage_show chain-delete; return 0 ;;
   esac
-  [ "$#" -gt 0 ] || { devkit_error 'Usage: megabrain chain delete <name> [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ "$#" -gt 0 ] || { devkit_usage_fail chain-delete; return "$MEGABRAIN_USAGE_ERROR"; }
   name="$1"
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: megabrain chain delete <name> [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show chain-delete; return 0 ;;
       *) devkit_error "unknown chain delete option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -408,9 +408,9 @@ command_chain_delete() {
 command_chain_repair() {
   local name="${1:-}" step_number="" model="" effort="" json=false has_effort=false arg config result step agent
   case "$name" in
-    -h|--help) printf 'Usage: megabrain chain repair <name> --step <number> --model <id> [--effort <level>] [--json]\n'; return 0 ;;
+    -h|--help) devkit_usage_show chain-repair; return 0 ;;
   esac
-  [ -n "$name" ] || { devkit_error 'Usage: megabrain chain repair <name> --step <number> --model <id> [--effort <level>] [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ -n "$name" ] || { devkit_usage_fail chain-repair; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -419,7 +419,7 @@ command_chain_repair() {
       --model) model="${2:-}"; shift 2 ;;
       --effort) effort="${2:-}"; has_effort=true; shift 2 ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: megabrain chain repair <name> --step <number> --model <id> [--effort <level>] [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show chain-repair; return 0 ;;
       *) devkit_error "unknown chain repair option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -493,7 +493,7 @@ command_chain_limits() {
       --notice-on) notice_on=true ;;
       --notice-off) notice_off=true ;;
       --notice-interval) notice_interval="${2:-}"; shift 2 ;;
-      -h|--help) printf 'Usage: megabrain chain limits [--json] [--enable <providers>] [--disable <providers>] [--notice-on|--notice-off] [--notice-interval <seconds>]\n'; return 0 ;;
+      -h|--help) devkit_usage_show chain-limits; return 0 ;;
       *) devkit_error "unknown chain limits option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
     [ "$arg" = --enable ] || [ "$arg" = --disable ] || [ "$arg" = --notice-interval ] || shift
@@ -1151,7 +1151,7 @@ command_chain_run() {
         shift 2
         ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: megabrain chain run [name] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [spawn options] [--json]\n'; return 0 ;;
+      -h|--help) devkit_usage_show chain-run; return 0 ;;
       *) devkit_error "unknown chain run option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -1264,7 +1264,7 @@ command_chain() {
     run) command_chain_run "$@" ;;
     repair) command_chain_repair "$@" ;;
     -h|--help|"")
-      printf 'Usage: megabrain chain list|limits|add|edit|delete|run|repair ...\n'
+      devkit_usage_show chain
       ;;
     *) devkit_error "unknown chain command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
