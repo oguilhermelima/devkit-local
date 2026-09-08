@@ -1,14 +1,14 @@
-# devkit
+# megabrain
 
-devkit is one command surface for keeping Orca and Superset.sh aligned around Git worktrees and coding agents.
+megabrain is one command surface for keeping Orca and Superset.sh aligned around Git worktrees and coding agents.
 Both tools create worktrees but do not share bookkeeping: a worktree made in one is invisible to the other until it is imported by hand.
 Devkit owns agent launch and uses either tmux or one host terminal primitive for the child process.
 
 ## Before and after
 
-| Without devkit | With devkit |
+| Without megabrain | With megabrain |
 | --- | --- |
-| Run `git worktree add`, register the project and workspace with Superset, then import or launch through the other tool. | `devkit worktree create --repo "$PWD" --branch docs/readme` |
+| Run `git worktree add`, register the project and workspace with Superset, then import or launch through the other tool. | `megabrain worktree create --repo "$PWD" --branch docs/readme` |
 | `git worktree add ../docs-readme -b docs/readme` and `superset projects create --local --import "$PWD" --name "$(basename "$PWD")"` are separate bookkeeping steps. | The same command creates the Git worktree and registers the project and workspace in Superset. |
 
 ## Requirements
@@ -38,10 +38,28 @@ curl -fsSL https://raw.githubusercontent.com/oguilhermelima/devkit-local/main/in
 From an Orca or Superset terminal, the first useful checks and actions are:
 
 ```sh
-devkit doctor --json
-devkit worktree create --repo "$PWD" --branch feature/example --json
-devkit orchestrate spawn --repo "$PWD" --branch feature/agent-task --agent codex --model gpt-5 --effort medium --prompt "Inspect the repository and report findings." --json
+megabrain doctor --json
+megabrain worktree create --repo "$PWD" --branch feature/example --json
+megabrain orchestrate spawn --repo "$PWD" --branch feature/agent-task --agent codex --model gpt-5 --effort medium --prompt "Inspect the repository and report findings." --json
 ```
+
+The command is now megabrain. mb is a short alias, and devkit remains a deprecated compatibility
+alias for at least two release cycles so existing scripts can migrate without interruption. The
+old DEVKIT_STATE_DIR variable remains accepted with a deprecation notice; use MEGABRAIN_STATE_DIR
+for new installations.
+
+Migrate an existing live state directory after installing the new command:
+
+```sh
+megabrain migrate
+```
+
+The migration copies ~/.devkit to ~/.megabrain, verifies the complete copy, and removes the old
+directory only after verification. It is safe to run again.
+
+The GitHub repository remains oguilhermelima/devkit-local for this transition. The repository must
+be renamed by the user in GitHub when they are ready; the command and runtime do not depend on the
+remote repository name.
 
 Their trimmed output shapes are:
 
@@ -58,7 +76,7 @@ delivered and acknowledged.
 
 ### Model registry
 
-The supported model registry is versioned in `.devkit/models.json` and copied to the active
+The supported model registry is versioned in `.megabrain/models.json` and copied to the active
 state directory on first use. Every entry records its agent, exact model identifier, supported
 reasoning levels, and provenance. A live entry records the command that produced it; curated
 codex and claude entries record manual curation and their observation date.
@@ -66,9 +84,9 @@ codex and claude entries record manual curation and their observation date.
 Inspect and maintain the registry with:
 
 ```sh
-devkit model list [--json]
-devkit model refresh agy
-devkit model add <agent> <model> --reasoning low,medium,high
+megabrain model list [--json]
+megabrain model refresh agy
+megabrain model add <agent> <model> --reasoning low,medium,high
 ```
 
 Only agy has a live listing command, so `model refresh agy` runs `agy models` and replaces the agy
@@ -78,8 +96,8 @@ registry therefore records that it is not a separate axis.
 
 ### Agent chains
 
-`devkit chain` stores ordered fallback agents in `$DEVKIT_STATE_DIR/chains.json` (by default
-`~/.devkit/chains.json`). A chain name is the parent agent it applies to; it is not the child
+`megabrain chain` stores ordered fallback agents in `$MEGABRAIN_STATE_DIR/chains.json` (by default
+`~/.megabrain/chains.json`). A chain name is the parent agent it applies to; it is not the child
 agent that the chain launches. The first use seeds exactly the `claude`, `codex`, and `agy`
 parent-agent chains. Their selectors contain only `parentAgent`; selectors may also use
 `parentModel` and `parentEffort` in user-created chains.
@@ -87,12 +105,12 @@ parent-agent chains. Their selectors contain only `parentAgent`; selectors may a
 List and manage chains with JSON definitions:
 
 ```sh
-devkit chain list [--json]
-devkit chain add <name> --when '{"parentAgent":"codex"}' \
+megabrain chain list [--json]
+megabrain chain add <name> --when '{"parentAgent":"codex"}' \
   --steps '[{"agent":"agy","model":"gemini-3.1-pro-high","effort":"high"}]' [--json]
-devkit chain edit <name> [--json]
-devkit chain delete <name> [--json]
-devkit chain repair <name> --step <number> --model <id> --effort <level>
+megabrain chain edit <name> [--json]
+megabrain chain delete <name> [--json]
+megabrain chain repair <name> --step <number> --model <id> --effort <level>
 ```
 
 `add` and `edit` validate the complete configuration before replacing the file. Steps require a
@@ -109,7 +127,7 @@ reports each chain, step, and unknown value; repair each step explicitly with `c
 Run a chain with the same launch options as `orchestrate spawn`:
 
 ```sh
-devkit chain run [name] --parent-agent codex --repo "$PWD" --branch feature/child \
+megabrain chain run [name] --parent-agent codex --repo "$PWD" --branch feature/child \
   --prompt "Inspect the task" [--json]
 ```
 
@@ -123,11 +141,11 @@ Limits are checked before launch. The codex provider reads the newest rollout sn
 `~/.codex/sessions` and supports the 5-hour and weekly windows. A snapshot whose reset has passed
 is stale and becomes unknown. Claude and agy can read live usage only when explicitly enabled in
 `usageLimits.liveProviders`; the seeded configuration leaves this list empty. Use
-`devkit chain limits --enable claude,agy` to opt in, or `--disable claude,agy` to turn it back off.
+`megabrain chain limits --enable claude,agy` to opt in, or `--disable claude,agy` to turn it back off.
 Unknown is usable and never counts as exhausted. A launch failure is always a valid reason to
 advance to the next step.
 
-`devkit chain limits [--json]` prints both windows for every provider with status, source, fetched
+`megabrain chain limits [--json]` prints both windows for every provider with status, source, fetched
 time, reset time, and reason. Codex uses source `disk`; successful live reads use `live`, and a
 successful read within the 30-second cache TTL uses `cache`. The normalized in-memory shape is an
 object with `provider`, `fetchedAt`, and `windows`; each window has `name`, `bucket`,
@@ -143,14 +161,14 @@ would require a separate OAuth flow, which this feature deliberately does not at
 When `usageLimits.notice.enabled` is true, `chain run` periodically appends a short usage report
 to the newly created dispatch and asks the existing parent notification contract to deliver it.
 Set `usageLimits.notice.intervalSeconds` to choose the cadence and use
-`devkit chain limits --notice-off` to disable it. This is driven by chain runs rather than a daemon,
+`megabrain chain limits --notice-off` to disable it. This is driven by chain runs rather than a daemon,
 so it has no background process and naturally follows existing activity. Notice delivery failures
 leave the durable message queued and do not fail the chain caller.
 
 ### Environment facts
 
 Environment measurements that are expensive to rediscover live in the versioned
-`.devkit/facts.json` file. JSON keeps the store machine-readable and reviewable in a normal
+`.megabrain/facts.json` file. JSON keeps the store machine-readable and reviewable in a normal
 diff. A fact has an `id`, the measured `measurement`, a `scope`, and `provenance` containing
 `who`, `when`, and the exact `command` that can measure it again. Provenance is required so a
 reader can verify a measurement instead of treating an unverified statement as truth.
@@ -163,10 +181,10 @@ repository to a child.
 
 Manage facts with:
 
-    devkit fact list [--json]
-    devkit fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>]
-    devkit fact edit <id> [--json]
-    devkit fact remove <id> [--json]
+    megabrain fact list [--json]
+    megabrain fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>]
+    megabrain fact edit <id> [--json]
+    megabrain fact remove <id> [--json]
 
 The add command rejects missing provenance fields before writing. Edit also validates the complete
 store before replacing it. Fact preambles are limited to 20 in-scope facts and 6000 bytes; a
@@ -189,17 +207,17 @@ The runtime is resolved once before the worktree or terminal is created:
 IDE mode uses the issuing terminal identity: `SUPERSET_TERMINAL_ID` selects Superset and
 `ORCA_TERMINAL_HANDLE` selects Orca. An unmanaged shell fails before creating anything. In IDE
 mode the only host operation that starts the child is `terminals create` in Superset or
-`terminal create` in Orca, with the worktree and complete devkit-built command. In tmux mode the
-same host operation opens a shell in the worktree; devkit then launches the child in that pane.
+`terminal create` in Orca, with the worktree and complete megabrain-built command. In tmux mode the
+same host operation opens a shell in the worktree; megabrain then launches the child in that pane.
 
 The prompt is never part of the agent command line. Tmux and host readiness checks are only cheap
 launch preflights: they establish that an agent process exists, not that it accepts input. The
-dispatch preamble tells the child to run `./devkit received` before starting work. Spawn waits for
+dispatch preamble tells the child to run `./megabrain received` before starting work. Spawn waits for
 that durable queue message and its Delivery acknowledgement; only that receiver signal marks
 `promptDelivered` true. A send or receipt timeout leaves the dispatch failed with
 `promptDelivery: "not-delivered"` and a reason naming the missing confirmation.
 
-Use repeatable `--agent-arg <value>` to append arbitrary agent flags after devkit's generated
+Use repeatable `--agent-arg <value>` to append arbitrary agent flags after megabrain's generated
 launch, model, and effort flags. Values are passed as separate shell arguments and retain their
 quoting.
 
@@ -210,7 +228,7 @@ quoting.
 | Field | Values and meaning |
 | --- | --- |
 | `state` | `spawning`, `running`, `waiting_for_reply`, `done`, `closed`, `failed`, `orphaned`, `stalled`, `timeout`, or `circuit_broken`; the existing dispatch status. |
-| `processState` | `starting`, `start-unproven`, `running`, `stopping`, `stop-unproven`, `stopped`, `succeeded`, `failed`, or `abandoned`; the child process outcome. `abandoned` ends devkit's logical authority without asserting that the process died. |
+| `processState` | `starting`, `start-unproven`, `running`, `stopping`, `stop-unproven`, `stopped`, `succeeded`, `failed`, or `abandoned`; the child process outcome. `abandoned` ends megabrain's logical authority without asserting that the process died. |
 | `terminalState` | `owned`, `retained`, `missing`, or `released`; the terminal resource state. `retained` blocks release and reuse when terminal identity is unproven or the parent is gone. |
 
 `orchestrate list` reads the durable dispatch inventory without querying live terminal state. Use
@@ -227,14 +245,14 @@ retained terminal counts.
 | SUPERSET_TERMINAL_ID or    |
 | ORCA_TERMINAL_HANDLE        |
 +--------------+--------------+
-               | devkit orchestrate spawn
+               | megabrain orchestrate spawn
                v
 +-----------------------------+
 | Child agent in a worktree   |
 +--------------+--------------+
                |
                v
-~/.devkit/dispatches/<id>/
+~/.megabrain/dispatches/<id>/
   meta.json  cursor.json  messages/*.json
   deliveries/*.json
 ```
@@ -245,10 +263,10 @@ a parent can inspect, reply to, or close its own dispatch, but ownership does no
 
 Messages are delivered in FIFO batches of up to 50 through a Delivery record. An outstanding Delivery is replayed with the same delivery id until it is acknowledged; there is one outstanding Delivery per mailbox. A different consumer identity or generation fences the old Delivery and receives the same unread messages under a new id. Acknowledgement is idempotent, and cursor.json is retained for compatibility but is not the source of read state.
 
-The child reads queued parent replies with `devkit check [--timeout 0] --json`. It receives a
+The child reads queued parent replies with `megabrain check [--timeout 0] --json`. It receives a
 Delivery with the same replay behavior as the parent watch path; until it acknowledges that
 Delivery, another check returns the same delivery id and messages. A child acknowledges with
-`devkit ack <delivery-id> --json`; acknowledgement is idempotent.
+`megabrain ack <delivery-id> --json`; acknowledgement is idempotent.
 
 Child ask, done, and stalled messages also make a best-effort parent nudge. The durable message
 queue and Delivery record remain the source of truth: the nudge contains only a short pointer
@@ -264,22 +282,22 @@ interrupt hint is busy, while missing or changing evidence is unknown. Input is 
 separate tmux send-keys calls so text and Enter cannot be coalesced.
 
 In IDE mode, Orca provides terminal wait --for tui-idle and terminal send --enter. Superset has
-no terminal idle verb, so devkit polls terminals read until two snapshots settle within the
+no terminal idle verb, so megabrain polls terminals read until two snapshots settle within the
 timeout, then uses terminals send, whose default submits the text. If an adapter is unavailable
-or liveness cannot be established, devkit skips the nudge and leaves polling and the queue
+or liveness cannot be established, megabrain skips the nudge and leaves polling and the queue
 available.
 
 watch defaults to wait-mode nudge. It blocks on a disposable wake marker and rechecks the durable
 queue after waking. Use wait-mode poll, or poll, to retain the original polling loop explicitly.
 
-With the optional `tmux-runtime` module enabled, devkit launches each child inside a tmux session
+With the optional `tmux-runtime` module enabled, megabrain launches each child inside a tmux session
 hosted in the IDE tab instead of the host's own agent primitive. That gives full control of the
 agent command line, real splits for siblings in one tab, per-pane reads, and a close that removes
 the pane. The host app then no longer treats the child as one of its agents, so features tied to
 that (Superset resume/fork/handoff and its agent-attention badge) do not apply.
 
-Child identity is pane-scoped inside tmux. When `TMUX` and `TMUX_PANE` are set, `devkit ask` and
-`devkit done` match the current tmux session and pane, together with the child host; the shared
+Child identity is pane-scoped inside tmux. When `TMUX` and `TMUX_PANE` are set, `megabrain ask` and
+`megabrain done` match the current tmux session and pane, together with the child host; the shared
 host terminal id is not used to select a child. Outside tmux, lookup remains terminal-id based.
 A missing pane or an ambiguous identity is refused, and parent reads, acknowledgements, and replies
 remain restricted to the dispatch's direct `parentSessionId` and `parentHost`. When a managed child
@@ -289,19 +307,19 @@ unknown-host-terminal marker as the final fallback.
 
 ### Tmux tuning
 
-To fix tmux colours and match the default terminal, run `devkit tmux tune`.
+To fix tmux colours and match the default terminal, run `megabrain tmux tune`.
 
 ### Tmux agent wrapper
 
-The tmux runtime has two fronts: devkit launches managed agents inside tmux, while the shell
+The tmux runtime has two fronts: megabrain launches managed agents inside tmux, while the shell
 wrapper opens hand-typed `claude`, `codex`, and `agy` commands there too. Install it with
-`devkit tmux wrapper`; this defines shell functions with those names in every new interactive
+`megabrain tmux wrapper`; this defines shell functions with those names in every new interactive
 zsh, so `DEVKIT_NO_TMUX=1` or `command claude` bypasses the wrapper when a bare command is needed.
 
-The wrapper records its main session in `~/.devkit/sessions/<session>.json` (or the directory
-selected by `DEVKIT_STATE_DIR`). The record includes the tmux session, agent, starting directory,
+The wrapper records its main session in `~/.megabrain/sessions/<session>.json` (or the directory
+selected by `MEGABRAIN_STATE_DIR`). The record includes the tmux session, agent, starting directory,
 main pane, host, and creation time. Registration is best effort; if tmux or state storage is
-unavailable, the agent runs directly. When devkit searches for a session, records for sessions
+unavailable, the agent runs directly. When megabrain searches for a session, records for sessions
 that no longer exist are ignored and pruned automatically.
 
 When a wrapper session is reused for a managed child, the registered main pane stays on the left
@@ -309,7 +327,7 @@ half of the window. The first child opens on the right; later children are stack
 that right column, and the main pane is resized back to half after every split. Sessions without
 a registered main pane keep the existing tmux split behavior.
 
-Agents launched by devkit run without approval prompts because they are isolated in a worktree; launch the agent manually if you want approval prompts.
+Agents launched by megabrain run without approval prompts because they are isolated in a worktree; launch the agent manually if you want approval prompts.
 
 ## Command reference
 
@@ -317,11 +335,11 @@ Agents launched by devkit run without approval prompts because they are isolated
 
 | Command | What it does | Notable flags |
 | --- | --- | --- |
-| `devkit install` | Interactively installs selected modules. | Select module numbers or `all`. |
-| `devkit install orchestration` | Installs and verifies one module. | Replace the module id with any supported module. |
-| `devkit doctor` | Checks every module without changing configuration. | `--json` |
-| `devkit doctor simulator-web` | Checks one module. | `--json` |
-| `devkit context --json` | Reports the detected host and available workspace, terminal, and agent ids. | `--json` |
+| `megabrain install` | Interactively installs selected modules. | Select module numbers or `all`. |
+| `megabrain install orchestration` | Installs and verifies one module. | Replace the module id with any supported module. |
+| `megabrain doctor` | Checks every module without changing configuration. | `--json` |
+| `megabrain doctor simulator-web` | Checks one module. | `--json` |
+| `megabrain context --json` | Reports the detected host and available workspace, terminal, and agent ids. | `--json` |
 
 Supported module ids are `orchestration`, `orchestration-hooks`, `worktree`, `simulator-web`,
 `simulator-native`, `simulator-tv`, and `tv-adb`. Doctor reports `ok`, `missing`,
@@ -331,11 +349,11 @@ Supported module ids are `orchestration`, `orchestration-hooks`, `worktree`, `si
 
 | Command | What it does | Notable flags |
 | --- | --- | --- |
-| `devkit worktree create --repo "$PWD" --branch feature/example` | Creates a Git worktree and its Superset project and workspace. | `--base`, `--name`, `--json` |
-| `devkit worktree finish feature/example` | Removes a shared worktree and registered workspace. | `--delete-branch`, `--force`, `--json` |
-| `devkit worktree list` | Lists worktrees under Superset's shared root and whether each is registered. | `--repo`, `--json` |
-| `devkit worktree adopt feature/example` | Registers an existing physical worktree in Superset. | `--json` |
-| `devkit terminal create --worktree "$PWD" --command "./devkit --version" --title "devkit version" --json` | Opens a terminal in the current orchestrator. | `--worktree`, `--command`, `--title`, `--json` |
+| `megabrain worktree create --repo "$PWD" --branch feature/example` | Creates a Git worktree and its Superset project and workspace. | `--base`, `--name`, `--json` |
+| `megabrain worktree finish feature/example` | Removes a shared worktree and registered workspace. | `--delete-branch`, `--force`, `--json` |
+| `megabrain worktree list` | Lists worktrees under Superset's shared root and whether each is registered. | `--repo`, `--json` |
+| `megabrain worktree adopt feature/example` | Registers an existing physical worktree in Superset. | `--json` |
+| `megabrain terminal create --worktree "$PWD" --command "./megabrain --version" --title "megabrain version" --json` | Opens a terminal in the current orchestrator. | `--worktree`, `--command`, `--title`, `--json` |
 
 `worktree create` defaults the base to the origin default branch, then Git's configured default,
 then `main`. `terminal create` uses `.superset/config.json` only when `--command` is omitted.
@@ -344,23 +362,23 @@ then `main`. `terminal create` uses `.superset/config.json` only when `--command
 
 | Command | What it does | Notable flags |
 | --- | --- | --- |
-| `devkit orchestrate spawn --repo "$PWD" --branch feature/agent-task --agent codex --model gpt-5 --effort medium --prompt "Inspect the repository."` | Creates or reuses a worktree and launches a managed child agent. | `--base`, `--name`, `--label`, `--worktree`, `--tmux`, `--agent-arg`, `--json` |
-| `devkit orchestrate list --json` | Lists dispatches owned by the current parent. | `--all`, `--orphans`, `--json` |
-| `devkit orchestrate reconcile <dispatch-id> --json` | Reconciles one open dispatch without respawning it. | `--all`, `--json` |
-| `devkit orchestrate watch <dispatch-id> --json` | Waits for the next child Delivery batch, waking from the parent nudge marker by default. | `--timeout`, `--poll-interval`, `--wait-mode nudge\|poll`, `--poll`, `--consumer`, `--generation`, `--json` |
-| `devkit orchestrate ack <dispatch-id> <delivery-id> --json` | Acknowledges a Delivery batch. | `--consumer`, `--generation`, `--json` |
-| `devkit orchestrate reply <dispatch-id> --text "Continue." --json` | Queues a reply for a child that is running or waiting for the parent. | `--json` |
-| `devkit orchestrate close <dispatch-id> --json` | Closes the child terminal and records the dispatch as closed. | `--force-release`, `--json` |
-| `devkit ask "question"` | Sends a question from a child to its direct parent. | One question argument. |
-| `devkit done "summary"` | Sends completion from a child to its direct parent. | One summary argument. |
-| `devkit check --timeout 0 --json` | Reads queued replies addressed to the current child. | `--timeout`, `--poll-interval`, `--consumer`, `--generation`, `--json` |
-| `devkit ack <delivery-id> --json` | Acknowledges a child reply Delivery. | `--consumer`, `--generation`, `--json` |
+| `megabrain orchestrate spawn --repo "$PWD" --branch feature/agent-task --agent codex --model gpt-5 --effort medium --prompt "Inspect the repository."` | Creates or reuses a worktree and launches a managed child agent. | `--base`, `--name`, `--label`, `--worktree`, `--tmux`, `--agent-arg`, `--json` |
+| `megabrain orchestrate list --json` | Lists dispatches owned by the current parent. | `--all`, `--orphans`, `--json` |
+| `megabrain orchestrate reconcile <dispatch-id> --json` | Reconciles one open dispatch without respawning it. | `--all`, `--json` |
+| `megabrain orchestrate watch <dispatch-id> --json` | Waits for the next child Delivery batch, waking from the parent nudge marker by default. | `--timeout`, `--poll-interval`, `--wait-mode nudge\|poll`, `--poll`, `--consumer`, `--generation`, `--json` |
+| `megabrain orchestrate ack <dispatch-id> <delivery-id> --json` | Acknowledges a Delivery batch. | `--consumer`, `--generation`, `--json` |
+| `megabrain orchestrate reply <dispatch-id> --text "Continue." --json` | Queues a reply for a child that is running or waiting for the parent. | `--json` |
+| `megabrain orchestrate close <dispatch-id> --json` | Closes the child terminal and records the dispatch as closed. | `--force-release`, `--json` |
+| `megabrain ask "question"` | Sends a question from a child to its direct parent. | One question argument. |
+| `megabrain done "summary"` | Sends completion from a child to its direct parent. | One summary argument. |
+| `megabrain check --timeout 0 --json` | Reads queued replies addressed to the current child. | `--timeout`, `--poll-interval`, `--consumer`, `--generation`, `--json` |
+| `megabrain ack <delivery-id> --json` | Acknowledges a child reply Delivery. | `--consumer`, `--generation`, `--json` |
 
 `watch` reports the Delivery id, replayed flag, covered message sequences, and messages alongside
 `received`, `waiting_for_reply`, `done`, `stalled`, or `timeout`. A child should use `ask` or `done` instead
 of printing protocol markers.
 
-The dispatch preamble requires the child to run `./devkit received` before work begins. The parent
+The dispatch preamble requires the child to run `./megabrain received` before work begins. The parent
 waits for that child-authored queue message and acknowledges its Delivery before recording
 `promptDelivered: true`; pane output, composer changes, context percentages, and terminal idle
 states are not delivery evidence.
@@ -381,46 +399,46 @@ is enabled.
 
 | Command | What it does | Notable flags |
 | --- | --- | --- |
-| `devkit native appium start` | Starts the shared Appium server on port 4723. | No flags. |
-| `devkit native appium status` | Reports whether Appium is up, down, or occupying the port. | No flags. |
-| `devkit native appium stop` | Stops the Appium process managed by devkit. | No flags. |
+| `megabrain native appium start` | Starts the shared Appium server on port 4723. | No flags. |
+| `megabrain native appium status` | Reports whether Appium is up, down, or occupying the port. | No flags. |
+| `megabrain native appium stop` | Stops the Appium process managed by megabrain. | No flags. |
 
-Install the prerequisites first with `devkit install simulator-native`. Apple TV uses the same
+Install the prerequisites first with `megabrain install simulator-native`. Apple TV uses the same
 Appium/XCUITest toolchain through `simulator-tv`.
 
 ### Android TV
 
 | Command | What it does | Notable flags |
 | --- | --- | --- |
-| `devkit tv connect <ip>` | Connects to an Android TV and requires adb to report it as `device`. | `--port` (default `5555`) |
-| `devkit tv disconnect` | Disconnects all adb devices. | An IP argument disconnects one device. |
+| `megabrain tv connect <ip>` | Connects to an Android TV and requires adb to report it as `device`. | `--port` (default `5555`) |
+| `megabrain tv disconnect` | Disconnects all adb devices. | An IP argument disconnects one device. |
 
-Check adb with `devkit doctor tv-adb`; when it is missing, `devkit install tv-adb` prints the
+Check adb with `megabrain doctor tv-adb`; when it is missing, `megabrain install tv-adb` prints the
 platform-tools command for the detected package manager.
 
 ### Web browser testing
 
 | Command | What it does | Notable flags |
 | --- | --- | --- |
-| `devkit install simulator-web` | Verifies npx and registers Playwright MCP with installed agent CLIs. | No flags. |
-| `devkit doctor simulator-web` | Checks npx, Playwright MCP, and agent registrations. | `--json` |
+| `megabrain install simulator-web` | Verifies npx and registers Playwright MCP with installed agent CLIs. | No flags. |
+| `megabrain doctor simulator-web` | Checks npx, Playwright MCP, and agent registrations. | `--json` |
 
 The module runs `@playwright/mcp@latest` through npx.
 
 ## Known limitations
 
 - Closing a Superset dispatch disposes the session, but the pane remains visible as `Desconectado` until a human dismisses it with the pane X. There is no CLI verb to remove a pane; this was verified against the terminal and browser command surfaces, the local database, and app state files.
-- Installing devkit's turn-end hook changes the agent hook configuration and invalidates Codex's per-entry trust. The next Codex launch shows `Hooks need review` until a human trusts it once. Opening Codex through Superset does not clear it because Superset passes `--dangerously-bypass-hook-trust`.
+- Installing megabrain's turn-end hook changes the agent hook configuration and invalidates Codex's per-entry trust. The next Codex launch shows `Hooks need review` until a human trusts it once. Opening Codex through Superset does not clear it because Superset passes `--dangerously-bypass-hook-trust`.
 - Superset terminals cannot be given a title by any flag. Their pane title follows the running command; `--title` affects Orca terminals only.
 
 ## Troubleshooting
 
 | Symptom | Cause | What to run |
 | --- | --- | --- |
-| `devkit doctor` says a module is `missing` | A module prerequisite is absent. | `devkit install <module-id>` |
-| Codex hangs on `Hooks need review` | The hook changed Codex's trusted configuration. | Run `codex` in a plain terminal and choose `Trust all and continue`; then `devkit doctor orchestration-hooks`. |
-| A dispatch never reports | The child may be stalled or has not sent a recognized message. | `devkit orchestrate watch <dispatch-id> --json` and inspect the `stalled` or `timeout` status. |
-| A worktree exists in one tool but not the other | Its physical checkout is not registered in Superset. | `devkit worktree adopt <path-or-branch>` |
+| `megabrain doctor` says a module is `missing` | A module prerequisite is absent. | `megabrain install <module-id>` |
+| Codex hangs on `Hooks need review` | The hook changed Codex's trusted configuration. | Run `codex` in a plain terminal and choose `Trust all and continue`; then `megabrain doctor orchestration-hooks`. |
+| A dispatch never reports | The child may be stalled or has not sent a recognized message. | `megabrain orchestrate watch <dispatch-id> --json` and inspect the `stalled` or `timeout` status. |
+| A worktree exists in one tool but not the other | Its physical checkout is not registered in Superset. | `megabrain worktree adopt <path-or-branch>` |
 
 ## Exit codes
 
