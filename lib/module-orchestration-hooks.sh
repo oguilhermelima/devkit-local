@@ -29,6 +29,7 @@ devkit_hooks_event() {
 devkit_hooks_command() {
   local agent="$1" root="${DEVKIT_ROOT:-}"
   if [ -z "$root" ]; then
+    # Resolve from the running script so this survives a local repository directory rename.
     root="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd -P)" || return 1
   fi
   [ -x "$root/hooks/megabrain-turn-end.sh" ] || return 1
@@ -40,18 +41,18 @@ devkit_hooks_config_has_entry() {
   case "$agent" in
     cursor)
       jq -e '
-        def devkit_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
+        def megabrain_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
         (.hooks? | type == "object") and
         ((.hooks.afterAgentResponse? // []) | type == "array") and
-        any(.hooks.afterAgentResponse[]?; devkit_entry)
+        any(.hooks.afterAgentResponse[]?; megabrain_entry)
       ' "$path" >/dev/null 2>&1
       ;;
     claude|codex|agy)
       jq -e '
-        def devkit_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
+        def megabrain_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
         (.hooks? | type == "object") and
         ((.hooks.Stop? // []) | type == "array") and
-        any(.hooks.Stop[]?; (.hooks? | type == "array") and any(.hooks[]?; devkit_entry))
+        any(.hooks.Stop[]?; (.hooks? | type == "array") and any(.hooks[]?; megabrain_entry))
       ' "$path" >/dev/null 2>&1
       ;;
     *) return 1 ;;
@@ -74,17 +75,17 @@ devkit_hooks_trust_warning() {
     devkit_hooks_codex_trust_note
     return 0
   fi
-  devkit_info "Warning: $agent may require a one-time human trust action for the devkit hook; $(devkit_hooks_trust_detail "$agent")."
+  devkit_info "Warning: $agent may require a one-time human trust action for the megabrain hook; $(devkit_hooks_trust_detail "$agent")."
 }
 
 devkit_hooks_codex_trust_note() {
   devkit_info ""
-  devkit_info "CODEX ACTION REQUIRED: the devkit hook needs one-time trust in Codex."
+  devkit_info "CODEX ACTION REQUIRED: the megabrain hook needs one-time trust in Codex."
   devkit_info "Open a plain terminal, run codex, and choose \"Trust all and continue\"."
   devkit_info "Opening Codex through Superset will not complete this step because Superset passes --dangerously-bypass-hook-trust."
 }
 
-devkit_hooks_write_config() {
+devkit_hooks_repair_config() {
   local agent="$1" path command tmp
   path="$(devkit_hooks_config_path "$agent")" || return 1
   command="$(devkit_hooks_command "$agent")" || return 1
@@ -107,7 +108,7 @@ devkit_hooks_write_config() {
     fi
   elif [ "$agent" = cursor ]; then
     if ! jq --arg command "$command" '
-      def devkit_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
+      def megabrain_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
       (.hooks // {}) as $hooks |
       if ($hooks | type) != "object" then error("hooks must be an object")
       elif (($hooks.afterAgentResponse // []) | type) != "array" then error("hooks.afterAgentResponse must be an array")
@@ -115,7 +116,7 @@ devkit_hooks_write_config() {
         .hooks = $hooks |
         .hooks.afterAgentResponse = (reduce (($hooks.afterAgentResponse // [])[]) as $entry
           ({seen: false, entries: []};
-            if ($entry | devkit_entry) then
+            if ($entry | megabrain_entry) then
               if .seen then . else .entries += [$entry + {command: $command, timeout: 10}] | .seen = true end
             else .entries += [$entry]
             end) | if .seen then .entries else .entries + [{command: $command, timeout: 10}] end) |
@@ -132,7 +133,7 @@ devkit_hooks_write_config() {
       return 1
     fi
   elif ! jq --arg command "$command" '
-    def devkit_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
+    def megabrain_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
     (.hooks // {}) as $hooks |
     if ($hooks | type) != "object" then error("hooks must be an object")
     elif (($hooks.Stop // []) | type) != "array" then error("hooks.Stop must be an array")
@@ -141,13 +142,13 @@ devkit_hooks_write_config() {
       .hooks.Stop = (reduce (($hooks.Stop // [])[]) as $group
         ({seen: false, entries: []};
           ($group.hooks // []) as $nested |
-          if ([ $nested[]? | select(devkit_entry) ] | length) == 0 then
+          if ([ $nested[]? | select(megabrain_entry) ] | length) == 0 then
             .entries += [$group]
           elif .seen then .
           else
             .entries += [($group | .hooks = (reduce ($nested[]) as $entry
               ({seen: false, entries: []};
-                if ($entry | devkit_entry) then
+                if ($entry | megabrain_entry) then
                   if .seen then . else .entries += [$entry + {type: "command", command: $command}] | .seen = true end
                 else .entries += [$entry]
                 end) | .entries))] |
@@ -222,7 +223,7 @@ module_orchestration_hooks_install() {
   local agent codex_present=false
   for agent in claude codex agy cursor; do
     devkit_hooks_agent_available "$agent" || continue
-    devkit_hooks_write_config "$agent" || return 1
+    devkit_hooks_repair_config "$agent" || return 1
     if [ "$agent" = codex ]; then
       codex_present=true
     else
