@@ -201,7 +201,11 @@ nudge_meta="$(devkit_dispatch_meta_read "$nudged_id")"
 devkit_parent_notify_dispatch "$nudge_meta"
 wait "$watch_pid"
 assert_equal "$(jq -r '.messages[0].text' "$watch_output")" 'nudge woke watcher'
-printf 'nudge mode: watch blocked and woke from pointer marker\n'
+# The follower never writes again after the wake line, so an unreaped one holds the
+# watch process in wait4 forever and the command never returns.
+assert_equal "$(pgrep -f "tail -n \+[0-9]* -f $state_dir/dispatches/$nudged_id/nudge.log" | wc -l | tr -d ' ')" 0
+assert_equal "$(ls -d "${TMPDIR:-/tmp}"/megabrain-wake.* 2>/dev/null | wc -l | tr -d ' ')" 0
+printf 'nudge mode: watch blocked, woke from pointer marker, and left no follower\n'
 
 outside_state_dir="$(mktemp -d /tmp/devkit-nudge-outside.XXXXXX)"
 outside_socket="d"

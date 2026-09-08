@@ -118,15 +118,27 @@ devkit_parent_notify_wake() {
 }
 
 devkit_parent_notify_wait_for_wake() {
-  local dispatch_id="$1" timeout="$2" path lines wake result
+  local dispatch_id="$1" timeout="$2" path lines wake result fifo_dir fifo tail_pid
   path="$(devkit_parent_notify_wake_path "$dispatch_id")" || return 1
   : >>"$path" || return 1
   lines="$(wc -l <"$path" | tr -d ' ')"
-  if IFS= read -r -t "$timeout" wake < <(tail -n +$((lines + 1)) -f "$path"); then
+  # WHY: the follower must be reaped by a pid this function owns. It writes nothing
+  # after the wake line, so it never takes SIGPIPE when the read side closes, and a
+  # process substitution does not give back a pid that $! reports reliably here.
+  fifo_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-wake.XXXXXX")" || return 1
+  fifo="$fifo_dir/wake"
+  mkfifo "$fifo" || { rm -rf "$fifo_dir"; return 1; }
+  tail -n +$((lines + 1)) -f "$path" >"$fifo" 2>/dev/null &
+  tail_pid=$!
+  # Opening read-write keeps the open from blocking on a writer that never arrives.
+  if IFS= read -r -t "$timeout" wake <>"$fifo"; then
     result=0
   else
     result=1
   fi
+  kill "$tail_pid" 2>/dev/null
+  wait "$tail_pid" 2>/dev/null
+  rm -rf "$fifo_dir"
   return "$result"
 }
 
