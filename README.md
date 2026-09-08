@@ -7,7 +7,7 @@ down when the work is done.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) ![Shell](https://img.shields.io/badge/shell-bash%203.2%2B-lightgrey.svg) ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue.svg) ![Agents](https://img.shields.io/badge/agents-codex%20%7C%20claude%20%7C%20agy-orange.svg)
 
-[Why](#why) · [Install](#install) · [Chains](#chains-choosing-who-does-the-work) · [Orchestration](#orchestration-the-conversation-that-outlives-the-terminal) · [Where it runs](#where-it-runs) · [Examples](#examples) · [Testing](#testing) · [Limits](#limits)
+[Why](#why) · [Install](#install) · [Chains](#chains-choosing-who-does-the-work) · [Orchestration](#orchestration-the-conversation-that-outlives-the-terminal) · [Where it runs](#where-it-runs) · [Devices](#devices-and-browsers) · [Examples](#examples) · [Testing](#testing) · [Limits](#limits)
 
 ## Why
 
@@ -40,8 +40,11 @@ It downloads the rest itself, asks what to configure, and links `megabrain` into
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/oguilhermelima/megabrain/main/install.sh \
-  | bash -s -- --agents claude,codex,agy --skill global --agents-md global --yes
+  | bash -s -- --agents codex --skill global --agents-md global --yes
 ```
+
+`--agents` names the agent CLIs you already have; the installer refuses one it cannot find on
+PATH rather than configuring something that is not there. Use `none` to configure no agent.
 
 Absent `--modules`, the installer takes the core set: orchestration, orchestration-hooks,
 worktree, and tmux-runtime when tmux is already on PATH.
@@ -163,6 +166,29 @@ megabrain worktree create --repo api --branch feat/rate-limit --json
 > `~/Workspaces/api`. A worktree nested inside its own repository confuses tooling that walks up
 > looking for a git root. `megabrain worktree adopt` registers a checkout that only one side knows
 > about, and `megabrain worktree finish` removes it from both.
+
+## Devices and browsers
+
+Beyond agents, megabrain installs and checks the prerequisites for the things agents need to
+drive. Each is a module, so you install only what you use and `doctor` tells you what is missing.
+
+```sh
+megabrain install simulator-native   # iOS and tvOS simulators, via Appium and XCUITest
+megabrain install simulator-tv       # the Apple TV simulator on the same toolchain
+megabrain install simulator-web      # Playwright MCP for browser testing
+megabrain install tv-adb             # Android TV over adb
+```
+
+```sh
+megabrain native appium start|status|stop   # one shared Appium server, not one per project
+megabrain tv connect 192.168.1.50           # pair an Android TV
+megabrain tv disconnect
+megabrain doctor simulator-native           # what is missing and how to get it
+```
+
+The simulator modules are macOS only and need the Xcode Simulator, Appium and the XCUITest
+driver. `tv-adb` needs Android platform-tools. `simulator-web` needs npx. `doctor` names the
+missing piece and the command that installs it rather than failing silently.
 
 ## Examples
 
