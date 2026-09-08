@@ -85,6 +85,18 @@ megabrain_iso_now() {
   date -u '+%Y-%m-%dT%H:%M:%SZ'
 }
 
+# WHY it lives here and not with the dispatch code: megabrain_session_id needs it, and
+# common.sh is the one file every entry point sources. Defined anywhere else, a caller
+# that loads only this file gets an unknown host instead of a tmux one, silently.
+
+# WHY it lives here and not with the dispatch code: megabrain_session_id needs it, and
+# common.sh is the one file every entry point sources. Defined anywhere else, a caller
+# that loads only this file gets an unknown host instead of a tmux one, silently.
+megabrain_dispatch_tmux_caller_session() {
+  [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] || return 1
+  tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null
+}
+
 megabrain_session_id() {
   local tmux_session
   MEGABRAIN_SESSION_ID=""

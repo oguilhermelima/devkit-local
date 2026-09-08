@@ -871,11 +871,6 @@ megabrain_dispatch_require_parent() {
   printf '%s\n' "$meta"
 }
 
-megabrain_dispatch_tmux_caller_session() {
-  [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] || return 1
-  tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null
-}
-
 megabrain_dispatch_find_child() {
   local tmux_session="" tmux_pane="" tmux_identity=false matches dispatch_id second direct_id direct_path
   MEGABRAIN_FOUND_DISPATCH=""

@@ -95,6 +95,15 @@ assert_not_contains "$child_screen" 'command not found'
 assert_not_contains "$child_screen" 'mosleep'
 printf 'launch: a stray keystroke is cleared and the command runs unmangled\n'
 
+# WHY sourcing only common.sh: it is the one file every entry point loads, and the tmux
+# identity is resolved there. While the helper it needs lived in another module, a caller
+# that loaded just this file got host unknown instead of tmux, with nothing to notice.
+identity="$(env -u SUPERSET_TERMINAL_ID -u ORCA_TERMINAL_HANDLE \
+  TMUX="$session_info" TMUX_PANE="$operator_pane" \
+  bash -c 'source "$1/lib/common.sh"; megabrain_session_id >/dev/null; printf "%s %s" "$MEGABRAIN_SESSION_HOST" "$MEGABRAIN_SESSION_ID"' _ "$root")"
+assert_equal "$identity" "tmux $session_name:$operator_pane"
+printf 'identity: common.sh alone resolves the pane to a tmux host\n'
+
 trap - EXIT
 cleanup
 printf 'ok: child pane focus and launch line hygiene\n'
