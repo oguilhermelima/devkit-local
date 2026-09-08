@@ -694,13 +694,7 @@ megabrain_dispatch_lock_acquire() {
 
 megabrain_dispatch_path_age_seconds() {
   local path="$1" mtime now
-  # WHY the output is validated instead of the exit status: GNU stat accepts -f and
-  # succeeds with filesystem information, so an || fallback never fires on Linux and the
-  # age comes back as a paragraph of text. Each form is tried and kept only if it produced
-  # a number.
-  mtime="$(stat -c %Y "$path" 2>/dev/null || true)"
-  [[ "$mtime" =~ ^[0-9]+$ ]] || mtime="$(stat -f %m "$path" 2>/dev/null || true)"
-  [[ "$mtime" =~ ^[0-9]+$ ]] || return 0
+  mtime="$(megabrain_path_mtime "$path")" || return 0
   now="$(date +%s)"
   printf '%s\n' $((now - mtime))
 }

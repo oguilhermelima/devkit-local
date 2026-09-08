@@ -557,7 +557,7 @@ megabrain_chain_codex_rollouts() {
   [ -d "$root" ] || return 1
   while IFS= read -r path; do
     [ -f "$path" ] || continue
-    mtime="$(stat -f '%m' "$path" 2>/dev/null || stat -c '%Y' "$path" 2>/dev/null || printf '0')"
+    mtime="$(megabrain_path_mtime "$path" || printf '')"
     case "$mtime" in
       ''|*[!0-9]*) continue ;;
     esac

@@ -81,6 +81,17 @@ megabrain_superset() {
   "$binary" "$@"
 }
 
+# WHY the output is validated instead of the exit status: GNU stat accepts -f and succeeds
+# with filesystem information, so an || fallback never fires on Linux and the answer comes
+# back as a paragraph of text. Each form is tried and kept only if it produced a number.
+megabrain_path_mtime() {
+  local path="$1" mtime
+  mtime="$(stat -c %Y "$path" 2>/dev/null || true)"
+  [[ "$mtime" =~ ^[0-9]+$ ]] || mtime="$(stat -f %m "$path" 2>/dev/null || true)"
+  [[ "$mtime" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$mtime"
+}
+
 megabrain_iso_now() {
   date -u '+%Y-%m-%dT%H:%M:%SZ'
 }
