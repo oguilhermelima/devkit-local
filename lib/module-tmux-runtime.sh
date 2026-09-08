@@ -11,9 +11,6 @@ MEGABRAIN_TMUX_CHILD_SPLIT_FLAG='-v'
 MEGABRAIN_TMUX_TUNE_START='# >>> megabrain tmux tuning >>>'
 MEGABRAIN_TMUX_TUNE_END='# <<< megabrain tmux tuning <<<'
 MEGABRAIN_TMUX_TUNE_SOURCE='source-file ~/.megabrain/tmux/megabrain.tmux.conf'
-# Keep these markers so migration and revert can find blocks written by older installs.
-MEGABRAIN_TMUX_TUNE_LEGACY_START='# >>> devkit tmux tuning >>>'
-MEGABRAIN_TMUX_TUNE_LEGACY_END='# <<< devkit tmux tuning <<<'
 MEGABRAIN_TMUX_WRAPPER_START='# >>> megabrain tmux wrapper >>>'
 MEGABRAIN_TMUX_WRAPPER_END='# <<< megabrain tmux wrapper <<<'
 # The login shell decides which twin is installed and which rc file sources it. zsh is the
@@ -34,8 +31,6 @@ megabrain_tmux_wrapper_source_line() {
   esac
 }
 MEGABRAIN_TMUX_WRAPPER_SOURCE="$(megabrain_tmux_wrapper_source_line 2>/dev/null || printf 'source ~/.megabrain/zsh/megabrain-agent-tmux.zsh')"
-MEGABRAIN_TMUX_WRAPPER_LEGACY_START='# >>> devkit tmux wrapper >>>'
-MEGABRAIN_TMUX_WRAPPER_LEGACY_END='# <<< devkit tmux wrapper <<<'
 
 megabrain_tmux_available() {
   megabrain_require_command tmux
@@ -318,7 +313,7 @@ megabrain_tmux_config_applied() {
   local session option value
   while IFS= read -r session; do
     [ -n "$session" ] || continue
-    case "$session" in megabrain-*|devkit-*) ;; *) continue ;; esac
+    case "$session" in megabrain-*) ;; *) continue ;; esac
     option="$(tmux show-options -t "$session" -v mouse 2>/dev/null || true)"
     [ "$option" = on ] || continue
     option="$(tmux show-options -t "$session" -v status 2>/dev/null || true)"
@@ -350,8 +345,8 @@ megabrain_tmux_tuning_validate_config() {
     megabrain_error "tmux config exists but is not a regular file: $config"
     return 1
   }
-  starts=$(( $(grep -Fxc "$MEGABRAIN_TMUX_TUNE_START" "$config" 2>/dev/null || true) + $(grep -Fxc "$MEGABRAIN_TMUX_TUNE_LEGACY_START" "$config" 2>/dev/null || true) ))
-  ends=$(( $(grep -Fxc "$MEGABRAIN_TMUX_TUNE_END" "$config" 2>/dev/null || true) + $(grep -Fxc "$MEGABRAIN_TMUX_TUNE_LEGACY_END" "$config" 2>/dev/null || true) ))
+  starts="$(grep -Fxc "$MEGABRAIN_TMUX_TUNE_START" "$config" 2>/dev/null || true)"
+  ends="$(grep -Fxc "$MEGABRAIN_TMUX_TUNE_END" "$config" 2>/dev/null || true)"
   if [ "$starts" -ne "$ends" ]; then
     megabrain_error "tmux config has an incomplete legacy tuning block: $config"
     return 1
@@ -359,14 +354,12 @@ megabrain_tmux_tuning_validate_config() {
 }
 
 megabrain_tmux_tuning_block_present() {
-  local config="$1" starts legacy_starts ends legacy_ends source_lines
+  local config="$1" starts ends source_lines
   [ -f "$config" ] || return 1
   starts="$(grep -Fxc "$MEGABRAIN_TMUX_TUNE_START" "$config" 2>/dev/null || true)"
-  legacy_starts="$(grep -Fxc "$MEGABRAIN_TMUX_TUNE_LEGACY_START" "$config" 2>/dev/null || true)"
   ends="$(grep -Fxc "$MEGABRAIN_TMUX_TUNE_END" "$config" 2>/dev/null || true)"
-  legacy_ends="$(grep -Fxc "$MEGABRAIN_TMUX_TUNE_LEGACY_END" "$config" 2>/dev/null || true)"
   source_lines="$(grep -Fxc "$MEGABRAIN_TMUX_TUNE_SOURCE" "$config" 2>/dev/null || true)"
-  [ $((starts + legacy_starts)) -eq 1 ] && [ $((ends + legacy_ends)) -eq 1 ] && [ "$source_lines" -eq 1 ]
+  [ "$starts" -eq 1 ] && [ "$ends" -eq 1 ] && [ "$source_lines" -eq 1 ]
 }
 
 megabrain_tmux_tuning_installed_current() {
@@ -388,7 +381,7 @@ megabrain_tmux_tuning_next_backup_path() {
 
 megabrain_tmux_tuning_backup_paths() {
   local path
-  for path in "$HOME"/.tmux.conf.megabrain-backup-* "$HOME"/.tmux.conf.devkit-backup-*; do
+  for path in "$HOME"/.tmux.conf.megabrain-backup-*; do
     [ -f "$path" ] || continue
     printf '%s\n' "$path"
   done
@@ -430,10 +423,8 @@ megabrain_tmux_tuning_write_config() {
   fi
   if ! awk -v start="$MEGABRAIN_TMUX_TUNE_START" \
     -v end="$MEGABRAIN_TMUX_TUNE_END" \
-    -v legacy_start="$MEGABRAIN_TMUX_TUNE_LEGACY_START" \
-    -v legacy_end="$MEGABRAIN_TMUX_TUNE_LEGACY_END" \
     -v source="$MEGABRAIN_TMUX_TUNE_SOURCE" '
-    $0 == start || $0 == legacy_start {
+    $0 == start {
       if (!replaced) {
         print start
         print source
@@ -443,7 +434,7 @@ megabrain_tmux_tuning_write_config() {
       in_block = 1
       next
     }
-    in_block && ($0 == end || $0 == legacy_end) { in_block = 0; next }
+    in_block && $0 == end { in_block = 0; next }
     !in_block { print }
     END {
       if (!replaced) {
@@ -465,10 +456,9 @@ megabrain_tmux_tuning_write_config() {
 megabrain_tmux_tuning_remove_block() {
   local config="$1" temp
   temp="$(mktemp "${config}.XXXXXX")" || return 1
-  if ! awk -v start="$MEGABRAIN_TMUX_TUNE_START" -v end="$MEGABRAIN_TMUX_TUNE_END" \
-    -v legacy_start="$MEGABRAIN_TMUX_TUNE_LEGACY_START" -v legacy_end="$MEGABRAIN_TMUX_TUNE_LEGACY_END" '
-    $0 == start || $0 == legacy_start { in_block = 1; next }
-    in_block && ($0 == end || $0 == legacy_end) { in_block = 0; next }
+  if ! awk -v start="$MEGABRAIN_TMUX_TUNE_START" -v end="$MEGABRAIN_TMUX_TUNE_END" '
+    $0 == start { in_block = 1; next }
+    in_block && $0 == end { in_block = 0; next }
     !in_block { print }
   ' "$config" >"$temp"; then
     rm -f "$temp"
@@ -671,14 +661,14 @@ megabrain_tmux_wrapper_config_path() {
 }
 
 megabrain_tmux_wrapper_validate_config() {
-  local config="$1" starts legacy_starts ends legacy_ends
+  local config="$1" starts ends
   [ -e "$config" ] || return 0
   [ -f "$config" ] || {
     megabrain_error "zsh config exists but is not a regular file: $config"
     return 1
   }
-  starts=$(( $(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_START" "$config" 2>/dev/null || true) + $(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_LEGACY_START" "$config" 2>/dev/null || true) ))
-  ends=$(( $(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_END" "$config" 2>/dev/null || true) + $(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_LEGACY_END" "$config" 2>/dev/null || true) ))
+  starts="$(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_START" "$config" 2>/dev/null || true)"
+  ends="$(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_END" "$config" 2>/dev/null || true)"
   if [ "$starts" -ne "$ends" ]; then
     megabrain_error "zsh config has an incomplete megabrain tmux wrapper block: $config"
     return 1
@@ -686,14 +676,12 @@ megabrain_tmux_wrapper_validate_config() {
 }
 
 megabrain_tmux_wrapper_block_present() {
-  local config="$1" starts legacy_starts ends legacy_ends source_lines
+  local config="$1" starts ends source_lines
   [ -f "$config" ] || return 1
   starts="$(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_START" "$config" 2>/dev/null || true)"
-  legacy_starts="$(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_LEGACY_START" "$config" 2>/dev/null || true)"
   ends="$(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_END" "$config" 2>/dev/null || true)"
-  legacy_ends="$(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_LEGACY_END" "$config" 2>/dev/null || true)"
   source_lines="$(grep -Fxc "$MEGABRAIN_TMUX_WRAPPER_SOURCE" "$config" 2>/dev/null || true)"
-  [ $((starts + legacy_starts)) -eq 1 ] && [ $((ends + legacy_ends)) -eq 1 ] && [ "$source_lines" -eq 1 ]
+  [ "$starts" -eq 1 ] && [ "$ends" -eq 1 ] && [ "$source_lines" -eq 1 ]
 }
 
 megabrain_tmux_wrapper_installed_current() {
@@ -714,7 +702,7 @@ megabrain_tmux_wrapper_next_backup_path() {
 
 megabrain_tmux_wrapper_backup_paths() {
   local path
-  for path in "$HOME"/.zshrc.megabrain-backup-* "$HOME"/.zshrc.devkit-backup-*; do
+  for path in "$HOME"/.zshrc.megabrain-backup-*; do
     [ -f "$path" ] || continue
     printf '%s\n' "$path"
   done
@@ -745,10 +733,8 @@ megabrain_tmux_wrapper_write_config() {
   fi
   if ! awk -v start="$MEGABRAIN_TMUX_WRAPPER_START" \
     -v end="$MEGABRAIN_TMUX_WRAPPER_END" \
-    -v legacy_start="$MEGABRAIN_TMUX_WRAPPER_LEGACY_START" \
-    -v legacy_end="$MEGABRAIN_TMUX_WRAPPER_LEGACY_END" \
     -v source="$MEGABRAIN_TMUX_WRAPPER_SOURCE" '
-    $0 == start || $0 == legacy_start {
+    $0 == start {
       if (!replaced) {
         print start
         print source
@@ -758,7 +744,7 @@ megabrain_tmux_wrapper_write_config() {
       in_block = 1
       next
     }
-    in_block && ($0 == end || $0 == legacy_end) { in_block = 0; next }
+    in_block && $0 == end { in_block = 0; next }
     !in_block { print }
     END {
       if (!replaced) {
@@ -780,10 +766,9 @@ megabrain_tmux_wrapper_write_config() {
 megabrain_tmux_wrapper_remove_block() {
   local config="$1" temp
   temp="$(mktemp "${config}.XXXXXX")" || return 1
-  if ! awk -v start="$MEGABRAIN_TMUX_WRAPPER_START" -v end="$MEGABRAIN_TMUX_WRAPPER_END" \
-    -v legacy_start="$MEGABRAIN_TMUX_WRAPPER_LEGACY_START" -v legacy_end="$MEGABRAIN_TMUX_WRAPPER_LEGACY_END" '
-    $0 == start || $0 == legacy_start { in_block = 1; next }
-    in_block && ($0 == end || $0 == legacy_end) { in_block = 0; next }
+  if ! awk -v start="$MEGABRAIN_TMUX_WRAPPER_START" -v end="$MEGABRAIN_TMUX_WRAPPER_END" '
+    $0 == start { in_block = 1; next }
+    in_block && $0 == end { in_block = 0; next }
     !in_block { print }
   ' "$config" >"$temp"; then
     rm -f "$temp"

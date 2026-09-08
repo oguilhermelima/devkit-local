@@ -154,13 +154,12 @@ megabrain_dispatch_terminal_id_exists() {
 
 megabrain_dispatch_terminal_identity_matches() {
   local records="$1" terminal_id="$2" dispatch_id="$3"
-  # Keep the legacy metadata key for terminal records written before the rename.
   printf '%s' "$records" | jq -e --arg id "$terminal_id" --arg dispatch "$dispatch_id" '
     def records: if type == "array" then . else (.result.terminals // .terminals // .sessions // .result.sessions // []) end;
     any(records[]?;
       (.handle // .terminalHandle // .terminalId // .sessionId // .id // "") == $id and
       (($id == $dispatch) or ([
-        .dispatchId, .metadata.dispatchId, .metadata.devkitDispatchId,
+        .dispatchId, .metadata.dispatchId,
         .env.MEGABRAIN_DISPATCH_ID, .environment.MEGABRAIN_DISPATCH_ID,
         .command, .title, .name
       ] | map(select(. != null) | tostring) | join(" ") | contains($dispatch)))

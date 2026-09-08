@@ -30,11 +30,10 @@ megabrain_hooks_command() {
 
 megabrain_hooks_config_has_entry() {
   local agent="$1" path="$2"
-  # Keep devkit entries so hook migration recognizes commands written before the rename.
   case "$agent" in
     cursor)
       jq -e '
-        def megabrain_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
+        def megabrain_entry: ((.command? // "") | test("(^|/)megabrain-turn-end[.]sh($|[[:space:]])"));
         (.hooks? | type == "object") and
         ((.hooks.afterAgentResponse? // []) | type == "array") and
         any(.hooks.afterAgentResponse[]?; megabrain_entry)
@@ -42,7 +41,7 @@ megabrain_hooks_config_has_entry() {
       ;;
     claude|codex|agy)
       jq -e '
-        def megabrain_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
+        def megabrain_entry: ((.command? // "") | test("(^|/)megabrain-turn-end[.]sh($|[[:space:]])"));
         (.hooks? | type == "object") and
         ((.hooks.Stop? // []) | type == "array") and
         any(.hooks.Stop[]?; (.hooks? | type == "array") and any(.hooks[]?; megabrain_entry))
@@ -101,7 +100,7 @@ megabrain_hooks_repair_config() {
     fi
   elif [ "$agent" = cursor ]; then
     if ! jq --arg command "$command" '
-      def megabrain_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
+      def megabrain_entry: ((.command? // "") | test("(^|/)megabrain-turn-end[.]sh($|[[:space:]])"));
       (.hooks // {}) as $hooks |
       if ($hooks | type) != "object" then error("hooks must be an object")
       elif (($hooks.afterAgentResponse // []) | type) != "array" then error("hooks.afterAgentResponse must be an array")
@@ -126,7 +125,7 @@ megabrain_hooks_repair_config() {
       return 1
     fi
   elif ! jq --arg command "$command" '
-    def megabrain_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
+    def megabrain_entry: ((.command? // "") | test("(^|/)megabrain-turn-end[.]sh($|[[:space:]])"));
     (.hooks // {}) as $hooks |
     if ($hooks | type) != "object" then error("hooks must be an object")
     elif (($hooks.Stop // []) | type) != "array" then error("hooks.Stop must be an array")

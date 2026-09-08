@@ -55,7 +55,7 @@ megabrain_parent_notify_context_matches() {
   dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty')"
   [ -n "$dispatch_id" ] || return 1
   dispatch_path="$(megabrain_dispatch_meta_path "$dispatch_id")" || return 1
-  # WHY: The dispatch path replaces the hardcoded ~/.devkit fallback and survives state renames.
+  # WHY: The dispatch path keeps ownership tied to the active state directory.
   owner="$(megabrain_parent_notify_canonical_dir "$(dirname "$(dirname "$(dirname "$dispatch_path")")")")" || return 1
   current="$(megabrain_parent_notify_canonical_dir "$MEGABRAIN_STATE_DIR")" || return 1
   [ "$owner" = "$current" ] || return 1

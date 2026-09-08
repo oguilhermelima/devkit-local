@@ -694,43 +694,6 @@ installer_copy_skill() {
   installer_summary "Claude Code skill $result at $destination"
 }
 
-# WHY: a machine installed before the rename keeps a devkit-local marketplace whose
-# source directory is usually gone, and that single broken entry makes the whole
-# plugin listing fail, so this cannot be gated on reading the listing first.
-# Removing the marketplace cascades to the plugin it published.
-installer_remove_stale_megabrain_plugin() {
-  local agent="$1" removed=false
-  case "$agent" in
-    claude)
-      claude plugin uninstall 'devkit@devkit-local' >/dev/null 2>&1 || true
-      claude plugin marketplace remove devkit-local >/dev/null 2>&1 && removed=true
-      ;;
-    codex)
-      codex plugin remove 'devkit@devkit-local' >/dev/null 2>&1 || true
-      codex plugin marketplace remove devkit-local >/dev/null 2>&1 && removed=true
-      ;;
-    agy)
-      # agy uninstall exits 0 and reports success for a name it never had, so the
-      # listing is the only way to know whether anything was actually removed.
-      agy plugin list 2>/dev/null | grep -q '"name"[[:space:]]*:[[:space:]]*"devkit"' || return 0
-      agy plugin uninstall devkit >/dev/null 2>&1 || true
-      removed=true
-      ;;
-    *) return 0 ;;
-  esac
-  [ "$removed" = true ] && installer_summary "$agent removed the pre-rename devkit-local marketplace"
-  return 0
-}
-
-installer_remove_stale_claude_skill() {
-  local stale="$HOME/.claude/skills/devkit" backup
-  if [ -e "$stale" ] || [ -L "$stale" ]; then
-    backup="$(installer_backup_path "$stale")"
-    mv "$stale" "$backup" || { installer_error "could not back up stale Claude skill directory: $stale"; return 1; }
-    installer_summary "backed up stale Claude skills-dir plugin from $stale to $backup"
-  fi
-}
-
 installer_verify_plugin() {
   local cli="$1"
   case "$cli" in
@@ -872,10 +835,8 @@ installer_install_plugin_command() {
 installer_install_claude() {
   case "$SKILL_MODE" in
     global)
-      installer_remove_stale_megabrain_plugin claude || return 1
       installer_reconcile_marketplace claude || return 1
       installer_install_plugin_command claude claude plugin install "megabrain@megabrain-local" || { installer_error "could not install megabrain from the Claude marketplace"; return 1; }
-      installer_remove_stale_claude_skill || return 1
       ;;
     project)
       installer_copy_skill "$PWD/.claude/skills/megabrain"
@@ -887,13 +848,11 @@ installer_install_claude() {
 }
 
 installer_install_codex() {
-  installer_remove_stale_megabrain_plugin codex || return 1
   installer_reconcile_marketplace codex || return 1
   installer_install_plugin_command codex codex plugin add "megabrain@megabrain-local" || { installer_error "could not install megabrain from the Codex marketplace"; return 1; }
 }
 
 installer_install_agy() {
-  installer_remove_stale_megabrain_plugin agy || return 1
   installer_install_plugin_command agy agy plugin install "$SOURCE_ROOT" || { installer_error "could not install the agy plugin from $SOURCE_ROOT"; return 1; }
 }
 
@@ -949,19 +908,10 @@ installer_pointer_paragraph() {
 }
 
 installer_append_pointer() {
-  local file="$1" paragraph="$2" replace_old="${3:-false}" temp
+  local file="$1" paragraph="$2"
   mkdir -p "$(dirname "$file")" || return 1
   if [ -f "$file" ] && grep -Fqx "$paragraph" "$file"; then
     installer_summary "AGENTS.md pointer already-current in $file"
-    return 0
-  fi
-  if [ "$replace_old" = true ] && [ -f "$file" ] && grep -Fq 'Workspaces/local/stack/local/devkit' "$file"; then
-    temp="$(mktemp "${file}.XXXXXX")" || return 1
-    awk -v old='Workspaces/local/stack/local/devkit' -v replacement="$paragraph" '
-      index($0, old) { if (!replaced) { print replacement; replaced = 1 } next }
-      { print }
-    ' "$file" >"$temp" && mv "$temp" "$file" || { rm -f "$temp"; return 1; }
-    installer_summary "AGENTS.md pointer updated in $file"
     return 0
   fi
   if [ -s "$file" ] && [ "$(tail -c 1 "$file" | wc -l | tr -d ' ')" -eq 0 ]; then
@@ -977,8 +927,8 @@ installer_install_agents() {
   [ -n "$paragraph" ] || { installer_error "could not read the AGENTS.md pointer paragraph"; return 1; }
   case "$AGENTS_MODE" in
     global)
-      installer_append_pointer "$HOME/.codex/AGENTS.md" "$paragraph" true || return 1
-      installer_append_pointer "$HOME/.agy/AGENTS.md" "$paragraph" true || return 1
+      installer_append_pointer "$HOME/.codex/AGENTS.md" "$paragraph" || return 1
+      installer_append_pointer "$HOME/.agy/AGENTS.md" "$paragraph" || return 1
       ;;
     project)
       installer_append_pointer "$PWD/AGENTS.md" "$paragraph" || return 1
