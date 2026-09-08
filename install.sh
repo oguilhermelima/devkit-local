@@ -570,8 +570,16 @@ installer_prompt_mode() {
 # tmux-runtime joins the default only when tmux is already on PATH, because the module
 # would otherwise install tmux without being asked.
 installer_default_modules() {
-  local defaults='orchestration,orchestration-hooks,worktree'
-  command -v tmux >/dev/null 2>&1 && defaults="$defaults,tmux-runtime"
+  # WHY tmux-runtime leads: the orchestration module treats orca and superset as optional only
+  # once the tmux runtime is enabled, so installing it last made the default install fail on its
+  # first module on any machine without an orchestrator.
+  # Each module joins the default set only when this machine can actually use it, so the
+  # default install finishes rather than stopping on a prerequisite the operator never had.
+  local defaults='orchestration,orchestration-hooks'
+  command -v tmux >/dev/null 2>&1 && defaults="tmux-runtime,$defaults"
+  if command -v superset >/dev/null 2>&1 || [ -x "$HOME/.superset/bin/superset" ]; then
+    defaults="$defaults,worktree"
+  fi
   printf '%s\n' "$defaults"
 }
 
