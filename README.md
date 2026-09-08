@@ -172,11 +172,16 @@ megabrain worktree create --repo api --branch feat/rate-limit --json
 Beyond agents, megabrain installs and checks the prerequisites for the things agents need to
 drive. Each is a module, so you install only what you use and `doctor` tells you what is missing.
 
+| Module | What it sets up | Platform |
+| --- | --- | --- |
+| `simulator-web` | Playwright MCP for browser testing | macOS, Linux |
+| `tv-adb` | Android TV over adb | macOS, Linux |
+| `simulator-native` | iOS and tvOS simulators, via Appium and XCUITest | **macOS only** |
+| `simulator-tv` | the Apple TV simulator on the same toolchain | **macOS only** |
+
 ```sh
-megabrain install simulator-native   # iOS and tvOS simulators, via Appium and XCUITest
-megabrain install simulator-tv       # the Apple TV simulator on the same toolchain
-megabrain install simulator-web      # Playwright MCP for browser testing
-megabrain install tv-adb             # Android TV over adb
+megabrain install simulator-web
+megabrain install tv-adb
 ```
 
 ```sh
@@ -186,9 +191,11 @@ megabrain tv disconnect
 megabrain doctor simulator-native           # what is missing and how to get it
 ```
 
-The simulator modules are macOS only and need the Xcode Simulator, Appium and the XCUITest
-driver. `tv-adb` needs Android platform-tools. `simulator-web` needs npx. `doctor` names the
-missing piece and the command that installs it rather than failing silently.
+The two simulator modules need the Xcode Simulator, Appium and the XCUITest driver, so they exist
+only on macOS; asked for elsewhere they report `unsupported: macOS only` rather than half
+installing. `tv-adb` needs Android platform-tools and `simulator-web` needs npx, and both work on
+Linux. `doctor` names the missing piece and the command that installs it rather than failing
+silently.
 
 ## Examples
 
