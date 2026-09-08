@@ -120,4 +120,17 @@ assert_equal "$(printf '%s' "$removed" | jq -r '.removed')" true
 assert_equal "$("$root/megabrain" fact list --json | jq 'length')" 2
 printf 'remove deletes only the requested fact\n'
 
+# WHY: a fact is a dated measurement, and the store is a file people commit. "when" was
+# only checked for being non-empty, so any word landed in the repository as the moment a
+# measurement was taken, and nothing downstream could compare or age it.
+before_bad="$("$root/megabrain" fact list --json | jq 'length')"
+if "$root/megabrain" fact add not-a-date --measurement m --who tester --when 'yesterday' --command 'echo' >/dev/null 2>&1; then
+  fail 'a fact was accepted with a when that is not a timestamp'
+fi
+assert_equal "$("$root/megabrain" fact list --json | jq 'length')" "$before_bad"
+
+"$root/megabrain" fact add proper-date --measurement m --who tester --when '2026-09-08T12:00:00Z' --command 'echo' >/dev/null
+assert_equal "$("$root/megabrain" fact list --json | jq -r 'map(select(.id == "proper-date")) | length')" 1
+printf 'when must be a timestamp, and a refused fact leaves the store alone\n'
+
 printf 'ok: fact provenance, commands, preamble scope, and size limits\n'
