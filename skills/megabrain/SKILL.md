@@ -1,67 +1,168 @@
 ---
 name: megabrain
 description: >-
-  Use megabrain to create and synchronize Git worktrees across Orca and Superset.sh, register
-  repositories and workspaces in both orchestrators, spawn coding agents and manage agent
-  terminals, control native iOS and tvOS simulators through Appium, connect Android TV devices
-  through adb, and install or use Playwright MCP for web browser testing. Use when the user asks
-  about shared worktrees, Orca/Superset orchestration, agent spawning, iOS or tvOS simulator
-  control, Android TV testing, adb, Appium, Playwright MCP, or browser testing.
+  Use megabrain to delegate work to other coding agents and supervise them, to create Git
+  worktrees that Orca and Superset.sh both see, to open agent terminals, to read agent usage
+  limits and pick a provider, and to drive iOS and tvOS simulators, Android TV over adb, and
+  Playwright MCP browser testing. Use when the user asks to hand work to another agent,
+  parallelize across agents, spawn or supervise a worker, check on a dispatch, create or finish
+  a shared worktree, choose between Codex, Claude and agy, or set up simulator or browser
+  testing. Also use when a chat needs to answer a question from an agent it started.
 ---
 
-- If you need to install or inspect megabrain modules, run: megabrain install
-- If you need to install one megabrain module, run: megabrain install <module-id>
-- If you need to check all module prerequisites, run: megabrain doctor
-- If you need to check one module prerequisite, run: megabrain doctor <module-id>
-- If you need to install the child turn-end safety hooks, run: megabrain install orchestration-hooks
-- If you need to check the child turn-end safety hooks, run: megabrain doctor orchestration-hooks
-- If you need to identify the current orchestration host, run: megabrain context --json
-- If you need to create a shared worktree, run: megabrain worktree create --repo <name-or-path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>]
-- If you need to finish a shared worktree, run: megabrain worktree finish <branch-or-path-or-slug> [--delete-branch] [--force]
-- If you need to list shared-root worktrees, run: megabrain worktree list [--repo <name|path>]
-- If you need to adopt an existing physical worktree, run: megabrain worktree adopt <path|branch>
-- If you need to spawn an agent in a shared worktree, run: megabrain orchestrate spawn --repo <name> --branch <branch> --agent <id> --model <model> --effort <level> --prompt <text> [--label <text>] [--base <ref>] [--name <slug>], or target an existing checkout with --worktree <path|branch>.
-- If you need to list managed dispatches, run: megabrain orchestrate list [--all|--orphans] [--json]
-- If you need to watch a Superset dispatch, run: megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]
-- If you need to acknowledge a delivery, run: megabrain orchestrate ack <dispatch-id> <delivery-id> [--json]
-- Spawn prompt budgets are 262144 bytes on argv paths and 12000 bytes on tmux paths.
-- If you need to reply to a Superset dispatch, run: megabrain orchestrate reply <dispatch-id> --text <answer> [--json]
-- If you need to close a Superset dispatch, run: megabrain orchestrate close <dispatch-id> [--json]
-- If you need to manage ordered child-agent chains, run: megabrain chain list|add|edit|delete|run ...
-- If you need to reconcile a dispatch without respawning it, run: megabrain orchestrate reconcile <dispatch-id> [--json]
-- If you need to override retained-terminal protection, run: megabrain orchestrate close <dispatch-id> --force-release [--json]
-- If you are a child session, send a question with megabrain ask "question" or completion with megabrain done "summary".
-- Parent ask, done, and stalled messages send a best-effort pointer nudge after queue persistence. The pointer never contains the message body; active watch waiters suppress terminal typing, and any failed or unsupported nudge leaves the queue available.
-- `megabrain orchestrate watch` waits on the nudge marker by default. Use `--wait-mode poll` or `--poll` for the explicit polling fallback.
-- Known limitation: Superset agy and gemini presets reject prompt launches; megabrain reports the preset error instead of creating a stuck dispatch.
-- If you need to open a titled terminal tab in the right orchestrator, run: megabrain terminal create [--command <cmd>] [--title <text>] [--worktree <path>] (omitting --command uses the worktree's .superset/config.json run script)
-- If you need to start the shared Appium server, run: megabrain native appium start
-- If you need to stop the shared Appium server, run: megabrain native appium stop
-- If you need to check the shared Appium server, run: megabrain native appium status
-- If you need to use native iOS or tvOS simulator support, run: megabrain doctor simulator-native (macOS only)
-- If you need to use Apple TV simulator support, run: megabrain doctor simulator-tv (macOS only)
-- If you need to connect an Android TV, run: megabrain tv connect <ip> [--port 5555]
-- If you need to disconnect an Android TV, run: megabrain tv disconnect [<ip>]
-- If you need to configure web browser testing through Playwright MCP, run: megabrain install simulator-web
+# megabrain
 
-Superset tabs are not titled; only Orca tabs are.
+One command surface for delegating to other coding agents and for the worktrees, terminals and
+device setups that work needs. Run `megabrain <command> --help` for the exact flags of any
+command; the help output is the authority, and the lines below are shortened for reading.
 
-Dispatch messages are append-only under $MEGABRAIN_STATE_DIR/dispatches/; direct-parent ownership is
-required for reply and close. Closing a Superset dispatch leaves its pane visible as Desconectado
-until the human dismisses it with the pane X because no CLI verb removes that pane.
+## Delegating work to another agent
 
-To fix tmux colours and match the default terminal, run `megabrain tmux tune`.
-To install the hand-typed agent tmux wrapper, run `megabrain tmux wrapper`.
+**Start here: `megabrain chain run --prompt <brief> [--worktree <path>]`.** Do not choose the
+agent, model or effort yourself. A chain is an ordered list of steps, and `chain run` picks the
+first step whose usage window still has room, so the choice follows real limits instead of a
+guess. It reports which step it chose and why the earlier ones were skipped, and it records
+that in the dispatch metadata.
 
-Chain names identify the parent agent they apply to, not the child they launch. The first use
-creates the `claude`, `codex`, and `agy` parent-agent chains. `run` selects an explicit name first,
-then the most-specific matching `parentAgent`, `parentModel`, and `parentEffort` selectors, and
-finally `defaultSteps`. Equal-specificity matches fail instead of choosing arbitrarily. Unknown
-parent values do not satisfy a selector.
+```
+megabrain chain run [name] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name|path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]
+```
+
+Reach for `orchestrate spawn` only when the user named a specific agent and model, or when you
+must bypass the chain deliberately. It takes the same worktree and prompt options and requires
+`--agent` and `--model`:
+
+```
+megabrain orchestrate spawn --repo <name|path> --branch <branch> --agent <id> --model <id> [--effort <level>] [--prompt <text>] [--worktree <path>] [--tmux true|false] [--json]
+```
+
+Either way: pass `--worktree <path>` to reuse a checkout that already exists, or `--repo` plus
+`--branch` to have one created. Prompt budgets are 262144 bytes through argv and 12000 bytes
+through tmux; over the limit is refused before anything is created, never truncated.
+
+## Supervising what you started
+
+```
+megabrain orchestrate list [--all|--orphans] [--json]
+megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--json]
+megabrain orchestrate ack <dispatch-id> <delivery-id> [--json]
+megabrain orchestrate reply <dispatch-id> --text <answer> [--json]
+megabrain orchestrate read <dispatch-id> [--lines <count>] [--json]
+megabrain orchestrate reconcile <dispatch-id> [--all] [--json]
+megabrain orchestrate close <dispatch-id> [--force-release] [--json]
+```
+
+`watch` returns a delivery that **replays until acked**, so nothing is lost if you read it and
+do not act. Ack it once you have acted; acking twice is safe and reports `duplicate`.
+
+**Do not assume you will be told.** When a child runs `ask` or `done`, megabrain tries to type a
+one-line pointer into the parent's terminal, but that nudge is best effort and is deliberately
+suppressed whenever the parent is busy or its liveness cannot be read. A parent that is mid-turn
+is busy by definition, which is exactly when a child usually reports, and a suppressed pointer is
+not retried. **The queue is the truth; the pointer is only a nudge.** If you are waiting on a
+worker, run `watch` yourself rather than waiting for the pointer to arrive.
+
+Reading the dispatch record is not reading the message. A failure's `reason` field is the
+symptom; the child's own message in the queue is usually the cause. Look at the messages before
+concluding anything about a failed dispatch.
+
+`close` refuses to close the pane it is running in, and `--force-release` does not override that.
+Close only dispatches you started, one at a time. Superset leaves the closed pane visible as
+`Desconectado` until the human dismisses it with the pane X, because no CLI verb removes it.
+
+## If you are the child
+
+```
+megabrain received                 confirm you got the prompt
+megabrain ask "question"           ask the coordinator and keep working only if told to
+megabrain check [--timeout <seconds>] [--poll-interval <seconds>] [--json]
+megabrain ack <delivery-id> [--json]
+megabrain done "summary"           report the outcome and what you verified
+```
+
+A reply reaches you only if you look for it. `ask` queues the question and returns; it does not
+block. Poll with `check` and do not proceed on a default when the answer would change the work.
+`done` is not optional: the task is not finished until the signal is sent.
+
+## Chains, limits and models
+
+```
+megabrain chain list [--json]
+megabrain chain limits [--json] [--enable <providers>] [--disable <providers>] [--notice-on|--notice-off] [--notice-interval <seconds>]
+megabrain chain add <name> --when <json> --steps <json> [--step <json>] [--allow-unknown-model] [--json]
+megabrain chain edit <name> [--allow-unknown-model] [--json]
+megabrain chain delete <name> [--json]
+megabrain chain repair <name> --step <number> --model <id> [--effort <level>] [--json]
+megabrain model list|add|refresh ...
+```
+
+A chain name identifies the **parent** agent it applies to, not the child it launches. First use
+creates the `claude`, `codex` and `agy` parent-agent chains. `run` prefers an explicit name, then
+the most specific matching `parentAgent`, `parentModel` and `parentEffort` selectors, then
+`defaultSteps`. Equal-specificity matches fail rather than choose arbitrarily, and an unknown
+parent value satisfies no selector.
 
 `run` delegates every launch to `orchestrate spawn`; it does not duplicate runtime or terminal
-creation. Each result reports the chain, step position, and skip reasons, and persists that choice
-in dispatch metadata. A limit condition may skip a step, while a launch failure always advances to
-the next one. Unknown limits are usable. Codex limits are read from the newest disk rollout; Claude
-and agy providers are currently unknown stubs. Provider implementations belong in
-`lib/module-chain.sh` through `megabrain_chain_limit_read`.
+creation. A limit condition may skip a step; a launch failure always advances to the next one.
+An unknown limit counts as usable. Codex limits come from the newest rollout on disk; Claude and
+agy are unknown stubs, so a chain that depends on their windows will always see them as usable.
+New providers belong in `lib/module-chain.sh` under `megabrain_chain_limit_read`.
+
+## Worktrees and terminals
+
+```
+megabrain worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--json]
+megabrain worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]
+megabrain worktree list [--repo <name|path>] [--json]
+megabrain worktree adopt <path|branch> [--json]
+megabrain terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]
+```
+
+`worktree create` does the git worktree add and registers the workspace so Orca and Superset both
+see it from the start. `adopt` registers the missing side of a worktree that exists on only one.
+`finish` refuses an unmerged branch unless `--force` is given. `terminal create` with no
+`--command` runs the worktree's `.superset/config.json` run script. Superset tabs come back
+untitled; only Orca tabs carry a title.
+
+## Setup and diagnosis
+
+```
+megabrain context [--json]           which orchestration host this session is in
+megabrain doctor [module-id] [--json]
+megabrain install [module-id] [--yes] [--revert]
+megabrain migrate
+megabrain fact list|add|edit|remove ...
+```
+
+`doctor --json` is machine readable for every module; operator advice goes to stderr so it stays
+out of the JSON. Install `orchestration-hooks` to get the child turn-end safety hook, which
+reports a child whose turn ended without `ask` or `done`.
+
+## Devices and browsers
+
+```
+megabrain native appium start|stop|status
+megabrain tv connect <ip> [--port <port>]
+megabrain tv disconnect [<ip>]
+megabrain doctor simulator-native      iOS and tvOS simulators, macOS only
+megabrain doctor simulator-tv          Apple TV simulator
+megabrain install simulator-web        Playwright MCP browser testing
+```
+
+## tmux
+
+```
+megabrain tmux tune [--yes] [--dry-run] [--revert] [--json]
+megabrain tmux wrapper [--yes] [--dry-run] [--revert] [--json]
+```
+
+`tune` fixes tmux colours to match the default terminal. `wrapper` installs the zsh wrapper for
+hand-typed agent commands. When the `tmux-runtime` module is installed a child opens as a split
+pane; otherwise it opens as a tab in the IDE that launched the session. Override per call with
+`--tmux true|false`.
+
+## Where state lives
+
+Dispatch messages are append-only under `$MEGABRAIN_STATE_DIR/dispatches/`, which defaults to
+`~/.megabrain`. Direct-parent ownership is required for `reply` and `close`. `DEVKIT_STATE_DIR`
+is still accepted with a deprecation notice; new work should use `MEGABRAIN_STATE_DIR`.

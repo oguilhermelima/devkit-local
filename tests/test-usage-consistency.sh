@@ -74,4 +74,45 @@ watch_error="$("$root/megabrain" orchestrate watch 2>&1 || true)"
 assert_contains "$watch_error" "Usage: megabrain $(megabrain_usage_line orchestrate-watch)" \
   "orchestrate watch error text drifted from its help text: $watch_error"
 
+# The skill is what a fresh agent session actually reads, and it is the piece that
+# went stale unnoticed: it documented chain list but never chain run, so sessions
+# picked an agent and model by hand. It may shorten a usage line for readability, but
+# it must never name a flag the command does not have.
+skill="$root/skills/megabrain/SKILL.md"
+[ -f "$skill" ] || fail "the skill is missing: $skill"
+
+skill_key() {
+  local first="$1" second="$2"
+  if [ -n "$second" ] && megabrain_usage_line "$first-$second" >/dev/null 2>&1; then
+    printf '%s-%s\n' "$first" "$second"
+  elif megabrain_usage_line "$first" >/dev/null 2>&1; then
+    printf '%s\n' "$first"
+  fi
+}
+
+skill_checked=0
+while IFS= read -r line; do
+  set -- $line
+  shift
+  key="$(skill_key "${1:-}" "${2:-}")"
+  [ -n "$key" ] || continue
+  canonical="$(megabrain_usage_line "$key")"
+  for flag in $(printf '%s\n' "$line" | grep -oE '\-\-[a-z][a-z-]*' | sort -u); do
+    case "$canonical" in
+      *"$flag"*) ;;
+      *) fail "the skill documents $flag for '$key', which its usage line does not have: $canonical" ;;
+    esac
+  done
+  skill_checked=$((skill_checked + 1))
+done < <(grep -oE '^megabrain [a-z][a-z-]*( [a-z][a-z-]*)?[^|]*' "$skill")
+
+[ "$skill_checked" -ge 25 ] || fail "expected at least 25 skill command lines, checked $skill_checked"
+
+case "$(cat "$skill")" in
+  *"megabrain chain run"*) ;;
+  *) fail 'the skill never mentions chain run, so a session has nothing telling it to let megabrain choose the agent' ;;
+esac
+
+printf 'ok: the skill names %s commands and invents no flags\n' "$skill_checked"
+
 printf 'ok: %s usage keys agree across help, errors, and AGENTS.md\n' "$checked"
