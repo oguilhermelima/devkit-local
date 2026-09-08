@@ -31,8 +31,8 @@ devkit_hooks_command() {
   if [ -z "$root" ]; then
     root="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd -P)" || return 1
   fi
-  [ -x "$root/hooks/devkit-turn-end.sh" ] || return 1
-  printf 'DEVKIT_HOOK_AGENT=%s %q\n' "$agent" "$root/hooks/devkit-turn-end.sh"
+  [ -x "$root/hooks/megabrain-turn-end.sh" ] || return 1
+  printf 'MEGABRAIN_HOOK_AGENT=%s %q\n' "$agent" "$root/hooks/megabrain-turn-end.sh"
 }
 
 devkit_hooks_config_has_entry() {
@@ -40,7 +40,7 @@ devkit_hooks_config_has_entry() {
   case "$agent" in
     cursor)
       jq -e '
-        def devkit_entry: ((.command? // "") | test("(^|/)devkit-turn-end[.]sh($|[[:space:]])"));
+        def devkit_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
         (.hooks? | type == "object") and
         ((.hooks.afterAgentResponse? // []) | type == "array") and
         any(.hooks.afterAgentResponse[]?; devkit_entry)
@@ -48,7 +48,7 @@ devkit_hooks_config_has_entry() {
       ;;
     claude|codex|agy)
       jq -e '
-        def devkit_entry: ((.command? // "") | test("(^|/)devkit-turn-end[.]sh($|[[:space:]])"));
+        def devkit_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
         (.hooks? | type == "object") and
         ((.hooks.Stop? // []) | type == "array") and
         any(.hooks.Stop[]?; (.hooks? | type == "array") and any(.hooks[]?; devkit_entry))
@@ -93,6 +93,12 @@ devkit_hooks_write_config() {
     devkit_error "$agent config is not valid JSON: $path"
     return 1
   fi
+  if [ -f "$path" ]; then
+    devkit_backup_file "$path" >/dev/null || {
+      devkit_error "could not back up $agent hooks: $path"
+      return 1
+    }
+  fi
   tmp="$(mktemp "${path}.XXXXXX")" || return 1
   if [ "$agent" = cursor ] && [ ! -f "$path" ]; then
     if ! jq -n --arg command "$command" '{hooks: {afterAgentResponse: [{command: $command, timeout: 10}]}, version: 1}' >"$tmp"; then
@@ -101,7 +107,7 @@ devkit_hooks_write_config() {
     fi
   elif [ "$agent" = cursor ]; then
     if ! jq --arg command "$command" '
-      def devkit_entry: ((.command? // "") | test("(^|/)devkit-turn-end[.]sh($|[[:space:]])"));
+      def devkit_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
       (.hooks // {}) as $hooks |
       if ($hooks | type) != "object" then error("hooks must be an object")
       elif (($hooks.afterAgentResponse // []) | type) != "array" then error("hooks.afterAgentResponse must be an array")
@@ -126,7 +132,7 @@ devkit_hooks_write_config() {
       return 1
     fi
   elif ! jq --arg command "$command" '
-    def devkit_entry: ((.command? // "") | test("(^|/)devkit-turn-end[.]sh($|[[:space:]])"));
+    def devkit_entry: ((.command? // "") | test("(^|/)(devkit|megabrain)-turn-end[.]sh($|[[:space:]])"));
     (.hooks // {}) as $hooks |
     if ($hooks | type) != "object" then error("hooks must be an object")
     elif (($hooks.Stop // []) | type) != "array" then error("hooks.Stop must be an array")
@@ -154,6 +160,18 @@ devkit_hooks_write_config() {
     return 1
   fi
   mv -f "$tmp" "$path"
+}
+
+devkit_hooks_revert_config() {
+  local agent="$1" path backup
+  path="$(devkit_hooks_config_path "$agent")" || return 1
+  backup="$(devkit_latest_backup "$path" 2>/dev/null || true)"
+  [ -n "$backup" ] || return 0
+  cp -p "$backup" "$path" || {
+    devkit_error "could not restore $agent hooks from $backup"
+    return 1
+  }
+  printf '%s hooks restored from %s\n' "$agent" "$backup"
 }
 
 devkit_hooks_agent_status() {
@@ -213,4 +231,12 @@ module_orchestration_hooks_install() {
   done
   [ "$codex_present" = true ] && devkit_hooks_codex_trust_note
   return 0
+}
+
+module_orchestration_hooks_revert() {
+  local agent
+  for agent in claude codex agy cursor; do
+    devkit_hooks_agent_available "$agent" || continue
+    devkit_hooks_revert_config "$agent" || return 1
+  done
 }

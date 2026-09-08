@@ -1,14 +1,14 @@
 {
-  "name": "devkit",
+  "name": "megabrain",
   "version": "0.1.0",
-  "description": "Shared tooling for Git worktrees, agent orchestration, native simulators, and browser testing.",
+  "description": "megabrain tooling for Git worktrees, agent orchestration, native simulators, and browser testing.",
   "author": {
     "name": "oguilhermelima"
   },
   "repository": "https://github.com/oguilhermelima/devkit-local",
   "license": "MIT",
   "keywords": [
-    "devkit",
+    "megabrain",
     "worktrees",
     "orchestration",
     "orca",

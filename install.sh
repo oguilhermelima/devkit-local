@@ -5,7 +5,7 @@ set -u
 REPOSITORY_URL="https://github.com/oguilhermelima/devkit-local"
 REPOSITORY_REF="main"
 TARBALL_URL="$REPOSITORY_URL/archive/refs/heads/$REPOSITORY_REF.tar.gz"
-INSTALL_ROOT="$HOME/.devkit-local"
+INSTALL_ROOT="$HOME/.megabrain-local"
 SKILL_MODE=""
 AGENTS_MODE=""
 AGENTS_REQUEST=""
@@ -401,24 +401,24 @@ installer_source_root() {
   if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
     script_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
   fi
-  if [ -n "$script_dir" ] && [ -x "$script_dir/devkit" ] && [ -d "$script_dir/lib" ]; then
+  if [ -n "$script_dir" ] && [ -x "$script_dir/megabrain" ] && [ -d "$script_dir/lib" ]; then
     SOURCE_ROOT="$script_dir"
     SOURCE_FROM_CHECKOUT=true
     return 0
   fi
-  if [ -x "$checkout_dir/devkit" ] && [ -d "$checkout_dir/lib" ]; then
+  if [ -x "$checkout_dir/megabrain" ] && [ -d "$checkout_dir/lib" ]; then
     SOURCE_ROOT="$checkout_dir"
     return 0
   fi
   command -v curl >/dev/null 2>&1 || { installer_error "curl is required to install from curl"; return 1; }
   command -v tar >/dev/null 2>&1 || { installer_error "tar is required to install from curl"; return 1; }
-  if [ -x "$checkout_dir/devkit" ] && [ -d "$checkout_dir/lib" ]; then
+  if [ -x "$checkout_dir/megabrain" ] && [ -d "$checkout_dir/lib" ]; then
     SOURCE_ROOT="$checkout_dir"
     return 0
   fi
-  [ ! -e "$checkout_dir" ] || { installer_error "install path exists but is not a devkit install: $checkout_dir"; return 1; }
-  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-local.XXXXXX")" || { installer_error "could not create a temporary directory"; return 1; }
-  archive="$temp_dir/devkit-local.tar.gz"
+  [ ! -e "$checkout_dir" ] || { installer_error "install path exists but is not a megabrain install: $checkout_dir"; return 1; }
+  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-local.XXXXXX")" || { installer_error "could not create a temporary directory"; return 1; }
+  archive="$temp_dir/megabrain-local.tar.gz"
   extract_dir="$temp_dir/extract"
   mkdir -p "$extract_dir" || { rm -rf "$temp_dir"; return 1; }
   if ! curl -fsSL -o "$archive" "$TARBALL_URL"; then
@@ -486,8 +486,8 @@ installer_update_from_tarball() {
   local temp_dir archive extract_dir payload staging backup
   command -v curl >/dev/null 2>&1 || { installer_error "curl is required to update from curl"; return 1; }
   command -v tar >/dev/null 2>&1 || { installer_error "tar is required to update from curl"; return 1; }
-  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-local-update.XXXXXX")" || return 1
-  archive="$temp_dir/devkit-local.tar.gz"
+  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-local-update.XXXXXX")" || return 1
+  archive="$temp_dir/megabrain-local.tar.gz"
   extract_dir="$temp_dir/extract"
   staging="$temp_dir/staging"
   mkdir -p "$extract_dir" "$staging" || { rm -rf "$temp_dir"; return 1; }
@@ -517,8 +517,8 @@ installer_update_from_tarball() {
 
 installer_write_manifest() {
   local version="1.0.0" temp status
-  if [ -x "$SOURCE_ROOT/devkit" ]; then
-    version="$($SOURCE_ROOT/devkit --version 2>/dev/null | awk '{print $2}' | head -n 1)"
+  if [ -x "$SOURCE_ROOT/megabrain" ]; then
+    version="$($SOURCE_ROOT/megabrain --version 2>/dev/null | awk '{print $2}' | head -n 1)"
     [ -n "$version" ] || version="1.0.0"
   fi
   mkdir -p "$INSTALL_ROOT" || { installer_error "could not create $INSTALL_ROOT for the install manifest"; return 1; }
@@ -560,7 +560,7 @@ installer_select_modules() {
   SELECTED_MODULES=""
   if [ -z "$raw" ]; then
     [ "$INSTALLER_INTERACTIVE" = true ] || return 0
-    installer_menu multi 'Select devkit modules to install' '' "${modules[@]}" || return $?
+    installer_menu multi 'Select megabrain modules to install' '' "${modules[@]}" || return $?
     raw="$INSTALLER_MENU_RESULT"
   fi
   [ -n "$raw" ] || return 0
@@ -593,29 +593,51 @@ installer_warn_path() {
   fi
 }
 
-installer_link_devkit() {
-  local bin_dir="$HOME/.local/bin" link="$HOME/.local/bin/devkit"
-  mkdir -p "$bin_dir" || { installer_error "could not create $bin_dir"; return 1; }
-  if [ -d "$link" ] && [ ! -L "$link" ]; then
-    installer_error "refusing to replace directory: $link"
-    return 1
-  fi
-  local link_status=installed link_target
+installer_backup_path() {
+  local path="$1" stamp suffix=1 backup
+  [ -e "$path" ] || [ -L "$path" ] || return 0
+  stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+  backup="${path}.megabrain-backup-${stamp}"
+  while [ -e "$backup" ] || [ -L "$backup" ]; do
+    backup="${path}.megabrain-backup-${stamp}-${suffix}"
+    suffix=$((suffix + 1))
+  done
+  printf '%s\n' "$backup"
+}
+
+installer_link_one() {
+  local link="$1" target="$2" link_status=installed backup link_target
   if [ -L "$link" ]; then
     link_target="$(readlink "$link")"
     case "$link_target" in
       /*) ;;
       *) link_target="$(dirname "$link")/$link_target" ;;
     esac
-    if [ "$(installer_canonical_path "$link_target")" = "$(installer_canonical_path "$SOURCE_ROOT/devkit")" ]; then
-      link_status=already-current
-    else
-      link_status=updated
+    if [ "$(installer_canonical_path "$link_target")" = "$(installer_canonical_path "$target")" ]; then
+      installer_summary "$(basename "$link") link already-current at $link"
+      return 0
+    fi
+  elif [ -e "$link" ]; then
+    if [ -d "$link" ]; then
+      installer_error "refusing to replace directory: $link"
+      return 1
     fi
   fi
-  rm -f "$link" || { installer_error "could not replace $link"; return 1; }
-  ln -s "$SOURCE_ROOT/devkit" "$link" || { installer_error "could not link $link"; return 1; }
-  installer_summary "devkit link $link_status at $link"
+  if [ -e "$link" ] || [ -L "$link" ]; then
+    backup="$(installer_backup_path "$link")"
+    mv "$link" "$backup" || { installer_error "could not back up $link to $backup"; return 1; }
+    installer_summary "backed up $link to $backup"
+    link_status=updated
+  fi
+  ln -s "$target" "$link" || { installer_error "could not link $link"; return 1; }
+  installer_summary "$(basename "$link") link $link_status at $link"
+}
+
+installer_link_devkit() {
+  local bin_dir="$HOME/.local/bin"
+  mkdir -p "$bin_dir" || { installer_error "could not create $bin_dir"; return 1; }
+  installer_link_one "$bin_dir/megabrain" "$SOURCE_ROOT/megabrain" || return 1
+  installer_link_one "$bin_dir/devkit" "$SOURCE_ROOT/devkit" || return 1
   installer_warn_path
 }
 
@@ -623,7 +645,7 @@ installer_copy_skill() {
   local destination="$1" existing="" result=""
   existing="$destination/SKILL.md"
   if [ -f "$existing" ]; then
-    if cmp -s "$SOURCE_ROOT/skills/devkit/SKILL.md" "$existing"; then
+    if cmp -s "$SOURCE_ROOT/skills/megabrain/SKILL.md" "$existing"; then
       result="already current"
     else
       result="updated differing existing skill"
@@ -632,12 +654,12 @@ installer_copy_skill() {
     result="installed"
   fi
   mkdir -p "$destination" || { installer_error "could not create $destination"; return 1; }
-  cp -R "$SOURCE_ROOT/skills/devkit/." "$destination/" || { installer_error "could not copy the Claude Code skill"; return 1; }
+  cp -R "$SOURCE_ROOT/skills/megabrain/." "$destination/" || { installer_error "could not copy the Claude Code skill"; return 1; }
   installer_summary "Claude Code skill $result at $destination"
 }
 
 installer_remove_stale_claude_skill() {
-  local stale="$HOME/.claude/skills/devkit"
+  local stale="$HOME/.claude/skills/megabrain"
   if [ -e "$stale" ] || [ -L "$stale" ]; then
     rm -rf "$stale" || { installer_error "could not remove stale Claude skill directory: $stale"; return 1; }
     installer_summary "removed stale Claude skills-dir plugin at $stale"
@@ -648,13 +670,13 @@ installer_verify_plugin() {
   local cli="$1"
   case "$cli" in
     claude)
-      claude plugin list 2>/dev/null | grep -Eq 'devkit@devkit-local|❯ devkit@devkit-local' || return 1
+      claude plugin list 2>/dev/null | grep -Eq 'megabrain@megabrain-local|❯ megabrain@megabrain-local' || return 1
       ;;
     codex)
-      codex plugin list 2>/dev/null | grep -Eq 'devkit@devkit-local[[:space:]]+installed, enabled' || return 1
+      codex plugin list 2>/dev/null | grep -Eq 'megabrain@megabrain-local[[:space:]]+installed, enabled' || return 1
       ;;
     agy)
-      agy plugin list 2>/dev/null | grep -Eq '"name"[[:space:]]*:[[:space:]]*"devkit"' || return 1
+      agy plugin list 2>/dev/null | grep -Eq '"name"[[:space:]]*:[[:space:]]*"megabrain"' || return 1
       ;;
   esac
 }
@@ -716,8 +738,8 @@ installer_reconcile_marketplace() {
     return 0
   fi
   case "$agent" in
-    claude) claude plugin marketplace remove devkit-local || { installer_error "could not remove the existing Claude marketplace"; return 1; } ;;
-    codex) codex plugin marketplace remove devkit-local || { installer_error "could not remove the existing Codex marketplace"; return 1; } ;;
+    claude) claude plugin marketplace remove megabrain-local || { installer_error "could not remove the existing Claude marketplace"; return 1; } ;;
+    codex) codex plugin marketplace remove megabrain-local || { installer_error "could not remove the existing Codex marketplace"; return 1; } ;;
   esac
   case "$agent" in
     claude) claude plugin marketplace add "$SOURCE_ROOT" || { installer_error "could not register the Claude marketplace"; return 1; } ;;
@@ -750,11 +772,11 @@ installer_install_claude() {
   case "$SKILL_MODE" in
     global)
       installer_reconcile_marketplace claude || return 1
-      installer_install_plugin_command claude claude plugin install "devkit@devkit-local" || { installer_error "could not install devkit from the Claude marketplace"; return 1; }
+      installer_install_plugin_command claude claude plugin install "megabrain@megabrain-local" || { installer_error "could not install megabrain from the Claude marketplace"; return 1; }
       installer_remove_stale_claude_skill || return 1
       ;;
     project)
-      installer_copy_skill "$PWD/.claude/skills/devkit"
+      installer_copy_skill "$PWD/.claude/skills/megabrain"
       ;;
     none)
       installer_summary "skipped Claude plugin installation (--skill none)"
@@ -764,7 +786,7 @@ installer_install_claude() {
 
 installer_install_codex() {
   installer_reconcile_marketplace codex || return 1
-  installer_install_plugin_command codex codex plugin add "devkit@devkit-local" || { installer_error "could not install devkit from the Codex marketplace"; return 1; }
+  installer_install_plugin_command codex codex plugin add "megabrain@megabrain-local" || { installer_error "could not install megabrain from the Codex marketplace"; return 1; }
 }
 
 installer_install_agy() {
@@ -787,7 +809,7 @@ installer_install_plugins() {
 installer_install_modules() {
   local module state_file state_tmp
   if ! installer_list_contains "$SELECTED_MODULES" tmux-runtime; then
-    state_file="$HOME/.devkit/state.json"
+    state_file="$HOME/.megabrain/state.json"
     if [ -f "$state_file" ] && jq empty "$state_file" >/dev/null 2>&1; then
       state_tmp="$(mktemp "${state_file}.XXXXXX")" || return 1
       if ! jq 'del(."tmux-runtime")' "$state_file" >"$state_tmp"; then
@@ -799,20 +821,20 @@ installer_install_modules() {
     fi
   fi
   if [ -z "$SELECTED_MODULES" ]; then
-    installer_summary "devkit modules skipped"
+    installer_summary "megabrain modules skipped"
     return 0
   fi
   IFS=',' read -r -a _installer_selected_modules <<<"$SELECTED_MODULES"
   for module in "${_installer_selected_modules[@]}"; do
     if [ "$ASSUME_YES" = true ]; then
-      "$SOURCE_ROOT/devkit" install "$module" --yes
+      "$SOURCE_ROOT/megabrain" install "$module" --yes
     else
-      "$SOURCE_ROOT/devkit" install "$module"
+      "$SOURCE_ROOT/megabrain" install "$module"
     fi
     if [ "$?" -eq 0 ]; then
-      installer_summary "devkit module $module installed"
+      installer_summary "megabrain module $module installed"
     else
-      installer_error "could not install devkit module $module"
+      installer_error "could not install megabrain module $module"
       return 1
     fi
   done
@@ -867,8 +889,8 @@ installer_main() {
   installer_resolve_input_source
   installer_init_style
   installer_source_root || return 1
-  [ -x "$SOURCE_ROOT/devkit" ] && [ -d "$SOURCE_ROOT/lib" ] || { installer_error "devkit checkout is incomplete: $SOURCE_ROOT"; return 1; }
-  [ -f "$SOURCE_ROOT/skills/devkit/SKILL.md" ] || { installer_error "devkit skill is missing from $SOURCE_ROOT"; return 1; }
+  [ -x "$SOURCE_ROOT/megabrain" ] && [ -d "$SOURCE_ROOT/lib" ] || { installer_error "megabrain checkout is incomplete: $SOURCE_ROOT"; return 1; }
+  [ -f "$SOURCE_ROOT/skills/megabrain/SKILL.md" ] || { installer_error "megabrain skill is missing from $SOURCE_ROOT"; return 1; }
   [ -f "$SOURCE_ROOT/AGENTS.md" ] || { installer_error "AGENTS.md is missing from $SOURCE_ROOT"; return 1; }
   [ -f "$SOURCE_ROOT/.claude-plugin/plugin.json" ] || { installer_error "Claude plugin manifest is missing from $SOURCE_ROOT"; return 1; }
   [ -f "$SOURCE_ROOT/.codex-plugin/plugin.json" ] || { installer_error "Codex plugin manifest is missing from $SOURCE_ROOT"; return 1; }

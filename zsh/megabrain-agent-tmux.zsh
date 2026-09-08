@@ -17,7 +17,7 @@ _devkit_tmux_wrap() {
   local -a parts=("$bin" "$@")
   # Join the quoted array so every argument stays in the child command.
   local cmd="${(j: :)${(@q)parts}}"
-  local session="devkit-${agent}-$$"
+  local session="megabrain-${agent}-$$"
   local pane cwd state_dir sessions_dir record_path temp host
   if ! tmux new-session -d -A -s "$session" -c "$PWD" "$cmd" \; set -g mouse on \; set -g status off; then
     command $agent "$@"
@@ -25,7 +25,7 @@ _devkit_tmux_wrap() {
   fi
   pane="$(tmux list-panes -t "$session" -F '#{pane_id}' 2>/dev/null | head -n 1)"
   cwd="$(pwd -P 2>/dev/null || true)"
-  state_dir="${DEVKIT_STATE_DIR:-$HOME/.devkit}"
+  state_dir="${MEGABRAIN_STATE_DIR:-${DEVKIT_STATE_DIR:-$HOME/.megabrain}}"
   sessions_dir="$state_dir/sessions"
   record_path="$sessions_dir/$session.json"
   host="$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)"

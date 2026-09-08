@@ -30,6 +30,14 @@ devkit_module_install() {
   esac
 }
 
+devkit_module_revert() {
+  local module="$1"
+  case "$module" in
+    orchestration-hooks) module_orchestration_hooks_revert ;;
+    *) devkit_error "module cannot be reverted: $module"; return "$DEVKIT_USAGE_ERROR" ;;
+  esac
+}
+
 devkit_install_one() {
   local module="$1"
   local assume_yes="${2:-false}" install_rc doctor_rc
@@ -103,13 +111,14 @@ devkit_interactive_modules() {
 }
 
 command_install() {
-  local module="" selected selected_modules rc=0 assume_yes=false arg
+  local module="" selected selected_modules rc=0 assume_yes=false revert=false arg
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --yes) assume_yes=true; shift ;;
+      --revert) revert=true; shift ;;
       -h|--help)
-        printf 'Usage: devkit install [module-id] [--yes]\n'
+        printf 'Usage: megabrain install [module-id] [--yes] [--revert]\n'
         return 0
         ;;
       *)
@@ -124,6 +133,10 @@ command_install() {
   done
   if [ -n "$module" ]; then
     devkit_validate_module "$module" || { devkit_error "unknown module: $module"; return "$DEVKIT_USAGE_ERROR"; }
+    if [ "$revert" = true ]; then
+      devkit_module_revert "$module"
+      return $?
+    fi
     devkit_install_one "$module" "$assume_yes"
     return $?
   fi

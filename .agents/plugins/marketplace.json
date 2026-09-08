@@ -1,11 +1,11 @@
 {
-  "name": "devkit-local",
+  "name": "megabrain-local",
   "interface": {
-    "displayName": "devkit (local)"
+    "displayName": "megabrain (local)"
   },
   "plugins": [
     {
-      "name": "devkit",
+      "name": "megabrain",
       "source": {
         "source": "local",
         "path": "."

@@ -8,12 +8,16 @@ DEVKIT_TMUX_ENTER_TIMEOUT_SECONDS="${DEVKIT_TMUX_ENTER_TIMEOUT_SECONDS:-30}"
 DEVKIT_TMUX_MAIN_PANE_PERCENT=50
 DEVKIT_TMUX_MAIN_SPLIT_FLAG='-h'
 DEVKIT_TMUX_CHILD_SPLIT_FLAG='-v'
-DEVKIT_TMUX_TUNE_START='# >>> devkit tmux tuning >>>'
-DEVKIT_TMUX_TUNE_END='# <<< devkit tmux tuning <<<'
-DEVKIT_TMUX_TUNE_SOURCE='source-file ~/.devkit/tmux/devkit.tmux.conf'
-DEVKIT_TMUX_WRAPPER_START='# >>> devkit tmux wrapper >>>'
-DEVKIT_TMUX_WRAPPER_END='# <<< devkit tmux wrapper <<<'
-DEVKIT_TMUX_WRAPPER_SOURCE='source ~/.devkit/zsh/devkit-agent-tmux.zsh'
+DEVKIT_TMUX_TUNE_START='# >>> megabrain tmux tuning >>>'
+DEVKIT_TMUX_TUNE_END='# <<< megabrain tmux tuning <<<'
+DEVKIT_TMUX_TUNE_SOURCE='source-file ~/.megabrain/tmux/megabrain.tmux.conf'
+DEVKIT_TMUX_TUNE_LEGACY_START='# >>> devkit tmux tuning >>>'
+DEVKIT_TMUX_TUNE_LEGACY_END='# <<< devkit tmux tuning <<<'
+DEVKIT_TMUX_WRAPPER_START='# >>> megabrain tmux wrapper >>>'
+DEVKIT_TMUX_WRAPPER_END='# <<< megabrain tmux wrapper <<<'
+DEVKIT_TMUX_WRAPPER_SOURCE='source ~/.megabrain/zsh/megabrain-agent-tmux.zsh'
+DEVKIT_TMUX_WRAPPER_LEGACY_START='# >>> devkit tmux wrapper >>>'
+DEVKIT_TMUX_WRAPPER_LEGACY_END='# <<< devkit tmux wrapper <<<'
 
 devkit_tmux_available() {
   devkit_require_command tmux
@@ -300,7 +304,7 @@ devkit_tmux_config_applied() {
   local session option value
   while IFS= read -r session; do
     [ -n "$session" ] || continue
-    case "$session" in devkit-*) ;; *) continue ;; esac
+    case "$session" in megabrain-*|devkit-*) ;; *) continue ;; esac
     option="$(tmux show-options -t "$session" -v mouse 2>/dev/null || true)"
     [ "$option" = on ] || continue
     option="$(tmux show-options -t "$session" -v status 2>/dev/null || true)"
@@ -314,11 +318,11 @@ devkit_tmux_config_applied() {
 }
 
 devkit_tmux_tuning_repo_path() {
-  printf '%s/tmux/devkit.tmux.conf\n' "$DEVKIT_ROOT"
+  printf '%s/tmux/megabrain.tmux.conf\n' "$DEVKIT_ROOT"
 }
 
 devkit_tmux_tuning_install_path() {
-  printf '%s/.devkit/tmux/devkit.tmux.conf\n' "$HOME"
+  printf '%s/.megabrain/tmux/megabrain.tmux.conf\n' "$HOME"
 }
 
 devkit_tmux_tuning_config_path() {
@@ -332,8 +336,8 @@ devkit_tmux_tuning_validate_config() {
     devkit_error "tmux config exists but is not a regular file: $config"
     return 1
   }
-  starts="$(grep -Fxc "$DEVKIT_TMUX_TUNE_START" "$config" 2>/dev/null || true)"
-  ends="$(grep -Fxc "$DEVKIT_TMUX_TUNE_END" "$config" 2>/dev/null || true)"
+  starts=$(( $(grep -Fxc "$DEVKIT_TMUX_TUNE_START" "$config" 2>/dev/null || true) + $(grep -Fxc "$DEVKIT_TMUX_TUNE_LEGACY_START" "$config" 2>/dev/null || true) ))
+  ends=$(( $(grep -Fxc "$DEVKIT_TMUX_TUNE_END" "$config" 2>/dev/null || true) + $(grep -Fxc "$DEVKIT_TMUX_TUNE_LEGACY_END" "$config" 2>/dev/null || true) ))
   if [ "$starts" -ne "$ends" ]; then
     devkit_error "tmux config has an incomplete devkit tuning block: $config"
     return 1
@@ -341,12 +345,14 @@ devkit_tmux_tuning_validate_config() {
 }
 
 devkit_tmux_tuning_block_present() {
-  local config="$1" starts ends source_lines
+  local config="$1" starts legacy_starts ends legacy_ends source_lines
   [ -f "$config" ] || return 1
   starts="$(grep -Fxc "$DEVKIT_TMUX_TUNE_START" "$config" 2>/dev/null || true)"
+  legacy_starts="$(grep -Fxc "$DEVKIT_TMUX_TUNE_LEGACY_START" "$config" 2>/dev/null || true)"
   ends="$(grep -Fxc "$DEVKIT_TMUX_TUNE_END" "$config" 2>/dev/null || true)"
+  legacy_ends="$(grep -Fxc "$DEVKIT_TMUX_TUNE_LEGACY_END" "$config" 2>/dev/null || true)"
   source_lines="$(grep -Fxc "$DEVKIT_TMUX_TUNE_SOURCE" "$config" 2>/dev/null || true)"
-  [ "$starts" -eq 1 ] && [ "$ends" -eq 1 ] && [ "$source_lines" -eq 1 ]
+  [ $((starts + legacy_starts)) -eq 1 ] && [ $((ends + legacy_ends)) -eq 1 ] && [ "$source_lines" -eq 1 ]
 }
 
 devkit_tmux_tuning_installed_current() {
@@ -357,10 +363,10 @@ devkit_tmux_tuning_next_backup_path() {
   local config="$1" stamp path suffix=1
   [ -f "$config" ] || return 0
   stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
-  path="${config}.devkit-backup-${stamp}"
+  path="${config}.megabrain-backup-${stamp}"
   # Never overwrite an existing backup from an earlier apply.
   while [ -e "$path" ]; do
-    path="${config}.devkit-backup-${stamp}-${suffix}"
+    path="${config}.megabrain-backup-${stamp}-${suffix}"
     suffix=$((suffix + 1))
   done
   printf '%s\n' "$path"
@@ -368,7 +374,7 @@ devkit_tmux_tuning_next_backup_path() {
 
 devkit_tmux_tuning_backup_paths() {
   local path
-  for path in "$HOME"/.tmux.conf.devkit-backup-*; do
+  for path in "$HOME"/.tmux.conf.megabrain-backup-* "$HOME"/.tmux.conf.devkit-backup-*; do
     [ -f "$path" ] || continue
     printf '%s\n' "$path"
   done
@@ -410,8 +416,10 @@ devkit_tmux_tuning_write_config() {
   fi
   if ! awk -v start="$DEVKIT_TMUX_TUNE_START" \
     -v end="$DEVKIT_TMUX_TUNE_END" \
+    -v legacy_start="$DEVKIT_TMUX_TUNE_LEGACY_START" \
+    -v legacy_end="$DEVKIT_TMUX_TUNE_LEGACY_END" \
     -v source="$DEVKIT_TMUX_TUNE_SOURCE" '
-    $0 == start {
+    $0 == start || $0 == legacy_start {
       if (!replaced) {
         print start
         print source
@@ -421,7 +429,7 @@ devkit_tmux_tuning_write_config() {
       in_block = 1
       next
     }
-    in_block && $0 == end { in_block = 0; next }
+    in_block && ($0 == end || $0 == legacy_end) { in_block = 0; next }
     !in_block { print }
     END {
       if (!replaced) {
@@ -443,9 +451,10 @@ devkit_tmux_tuning_write_config() {
 devkit_tmux_tuning_remove_block() {
   local config="$1" temp
   temp="$(mktemp "${config}.XXXXXX")" || return 1
-  if ! awk -v start="$DEVKIT_TMUX_TUNE_START" -v end="$DEVKIT_TMUX_TUNE_END" '
-    $0 == start { in_block = 1; next }
-    in_block && $0 == end { in_block = 0; next }
+  if ! awk -v start="$DEVKIT_TMUX_TUNE_START" -v end="$DEVKIT_TMUX_TUNE_END" \
+    -v legacy_start="$DEVKIT_TMUX_TUNE_LEGACY_START" -v legacy_end="$DEVKIT_TMUX_TUNE_LEGACY_END" '
+    $0 == start || $0 == legacy_start { in_block = 1; next }
+    in_block && ($0 == end || $0 == legacy_end) { in_block = 0; next }
     !in_block { print }
   ' "$config" >"$temp"; then
     rm -f "$temp"
@@ -627,11 +636,11 @@ devkit_tmux_tune() {
 }
 
 devkit_tmux_wrapper_repo_path() {
-  printf '%s/zsh/devkit-agent-tmux.zsh\n' "$DEVKIT_ROOT"
+  printf '%s/zsh/megabrain-agent-tmux.zsh\n' "$DEVKIT_ROOT"
 }
 
 devkit_tmux_wrapper_install_path() {
-  printf '%s/.devkit/zsh/devkit-agent-tmux.zsh\n' "$HOME"
+  printf '%s/.megabrain/zsh/megabrain-agent-tmux.zsh\n' "$HOME"
 }
 
 devkit_tmux_wrapper_config_path() {
@@ -639,14 +648,14 @@ devkit_tmux_wrapper_config_path() {
 }
 
 devkit_tmux_wrapper_validate_config() {
-  local config="$1" starts ends
+  local config="$1" starts legacy_starts ends legacy_ends
   [ -e "$config" ] || return 0
   [ -f "$config" ] || {
     devkit_error "zsh config exists but is not a regular file: $config"
     return 1
   }
-  starts="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_START" "$config" 2>/dev/null || true)"
-  ends="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_END" "$config" 2>/dev/null || true)"
+  starts=$(( $(grep -Fxc "$DEVKIT_TMUX_WRAPPER_START" "$config" 2>/dev/null || true) + $(grep -Fxc "$DEVKIT_TMUX_WRAPPER_LEGACY_START" "$config" 2>/dev/null || true) ))
+  ends=$(( $(grep -Fxc "$DEVKIT_TMUX_WRAPPER_END" "$config" 2>/dev/null || true) + $(grep -Fxc "$DEVKIT_TMUX_WRAPPER_LEGACY_END" "$config" 2>/dev/null || true) ))
   if [ "$starts" -ne "$ends" ]; then
     devkit_error "zsh config has an incomplete devkit tmux wrapper block: $config"
     return 1
@@ -654,12 +663,14 @@ devkit_tmux_wrapper_validate_config() {
 }
 
 devkit_tmux_wrapper_block_present() {
-  local config="$1" starts ends source_lines
+  local config="$1" starts legacy_starts ends legacy_ends source_lines
   [ -f "$config" ] || return 1
   starts="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_START" "$config" 2>/dev/null || true)"
+  legacy_starts="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_LEGACY_START" "$config" 2>/dev/null || true)"
   ends="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_END" "$config" 2>/dev/null || true)"
+  legacy_ends="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_LEGACY_END" "$config" 2>/dev/null || true)"
   source_lines="$(grep -Fxc "$DEVKIT_TMUX_WRAPPER_SOURCE" "$config" 2>/dev/null || true)"
-  [ "$starts" -eq 1 ] && [ "$ends" -eq 1 ] && [ "$source_lines" -eq 1 ]
+  [ $((starts + legacy_starts)) -eq 1 ] && [ $((ends + legacy_ends)) -eq 1 ] && [ "$source_lines" -eq 1 ]
 }
 
 devkit_tmux_wrapper_installed_current() {
@@ -670,9 +681,9 @@ devkit_tmux_wrapper_next_backup_path() {
   local config="$1" stamp path suffix=1
   [ -f "$config" ] || return 0
   stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
-  path="${config}.devkit-backup-${stamp}"
+  path="${config}.megabrain-backup-${stamp}"
   while [ -e "$path" ]; do
-    path="${config}.devkit-backup-${stamp}-${suffix}"
+    path="${config}.megabrain-backup-${stamp}-${suffix}"
     suffix=$((suffix + 1))
   done
   printf '%s\n' "$path"
@@ -680,7 +691,7 @@ devkit_tmux_wrapper_next_backup_path() {
 
 devkit_tmux_wrapper_backup_paths() {
   local path
-  for path in "$HOME"/.zshrc.devkit-backup-*; do
+  for path in "$HOME"/.zshrc.megabrain-backup-* "$HOME"/.zshrc.devkit-backup-*; do
     [ -f "$path" ] || continue
     printf '%s\n' "$path"
   done
@@ -711,8 +722,10 @@ devkit_tmux_wrapper_write_config() {
   fi
   if ! awk -v start="$DEVKIT_TMUX_WRAPPER_START" \
     -v end="$DEVKIT_TMUX_WRAPPER_END" \
+    -v legacy_start="$DEVKIT_TMUX_WRAPPER_LEGACY_START" \
+    -v legacy_end="$DEVKIT_TMUX_WRAPPER_LEGACY_END" \
     -v source="$DEVKIT_TMUX_WRAPPER_SOURCE" '
-    $0 == start {
+    $0 == start || $0 == legacy_start {
       if (!replaced) {
         print start
         print source
@@ -722,7 +735,7 @@ devkit_tmux_wrapper_write_config() {
       in_block = 1
       next
     }
-    in_block && $0 == end { in_block = 0; next }
+    in_block && ($0 == end || $0 == legacy_end) { in_block = 0; next }
     !in_block { print }
     END {
       if (!replaced) {
@@ -744,9 +757,10 @@ devkit_tmux_wrapper_write_config() {
 devkit_tmux_wrapper_remove_block() {
   local config="$1" temp
   temp="$(mktemp "${config}.XXXXXX")" || return 1
-  if ! awk -v start="$DEVKIT_TMUX_WRAPPER_START" -v end="$DEVKIT_TMUX_WRAPPER_END" '
-    $0 == start { in_block = 1; next }
-    in_block && $0 == end { in_block = 0; next }
+  if ! awk -v start="$DEVKIT_TMUX_WRAPPER_START" -v end="$DEVKIT_TMUX_WRAPPER_END" \
+    -v legacy_start="$DEVKIT_TMUX_WRAPPER_LEGACY_START" -v legacy_end="$DEVKIT_TMUX_WRAPPER_LEGACY_END" '
+    $0 == start || $0 == legacy_start { in_block = 1; next }
+    in_block && ($0 == end || $0 == legacy_end) { in_block = 0; next }
     !in_block { print }
   ' "$config" >"$temp"; then
     rm -f "$temp"
