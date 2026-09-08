@@ -290,10 +290,25 @@ megabrain_tmux_agent_output_clean() {
   esac
 }
 
+# WHY: a single Enter is lost often enough to matter. The agent launch path already
+# learned this and retries; this path, which carries every reply to a child and every
+# pointer to a parent, did not, so a reply could sit in the child's composer as an
+# unsent draft forever while the coordinator believed it had been delivered.
+# The check is deliberately coarse: a submit always redraws the composer region, so an
+# unchanged region means the key never landed. A busy agent redraws on its own, which
+# can end the loop early, but that only costs the retry, never the message.
 megabrain_tmux_send_text() {
-  local pane="$1" text="$2"
+  local pane="$1" text="$2" attempt=0 before after
   tmux send-keys -t "$pane" -l "$text" || return 1
-  tmux send-keys -t "$pane" Enter
+  before="$(tmux capture-pane -p -J -t "$pane" -S -4 2>/dev/null || true)"
+  while :; do
+    tmux send-keys -t "$pane" Enter || return 1
+    attempt=$((attempt + 1))
+    [ "$attempt" -ge "$MEGABRAIN_TMUX_ENTER_RETRIES" ] && return 0
+    sleep "$MEGABRAIN_TMUX_ENTER_WAIT"
+    after="$(tmux capture-pane -p -J -t "$pane" -S -4 2>/dev/null || true)"
+    [ "$after" = "$before" ] || return 0
+  done
 }
 
 megabrain_tmux_apply_config() {
