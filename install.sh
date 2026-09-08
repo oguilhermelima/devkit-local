@@ -535,7 +535,11 @@ installer_write_manifest() {
     --arg sourceRoot "$SOURCE_ROOT" \
     --arg agents "$SELECTED_AGENTS" \
     --arg modules "$SELECTED_MODULES" \
+    --arg skill "$SKILL_MODE" \
+    --arg agentsMd "$AGENTS_MODE" \
     '{version: $version, sourceRef: $sourceRef, installedAt: $installedAt, sourceRoot: $sourceRoot,
+      skill: (if $skill == "" then null else $skill end),
+      agentsMd: (if $agentsMd == "" then null else $agentsMd end),
       agents: (if $agents == "" then [] else ($agents | split(",")) end),
       modules: (if $modules == "" then [] else ($modules | split(",")) end),
       runtime: (if ($modules == "") then "host" elif (($modules | split(",")) | index("tmux-runtime")) then "tmux" else "host" end)}' >"$temp"; then
