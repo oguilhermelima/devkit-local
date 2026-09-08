@@ -1,7 +1,18 @@
 #!/usr/bin/env bash
 
 DEVKIT_USAGE_ERROR=2
-DEVKIT_STATE_DIR="${DEVKIT_STATE_DIR:-$HOME/.devkit}"
+DEVKIT_STATE_DIR_EXPLICIT=false
+MEGABRAIN_STATE_DIR_EXPLICIT=false
+DEVKIT_STATE_DIR_LEGACY="${DEVKIT_STATE_DIR:-}"
+if [ "${MEGABRAIN_STATE_DIR+x}" = x ]; then
+  MEGABRAIN_STATE_DIR_EXPLICIT=true
+  DEVKIT_STATE_DIR="$MEGABRAIN_STATE_DIR"
+elif [ "${DEVKIT_STATE_DIR+x}" = x ]; then
+  DEVKIT_STATE_DIR_EXPLICIT=true
+  printf 'DEVKIT_STATE_DIR is deprecated; use MEGABRAIN_STATE_DIR instead.\n' >&2
+else
+  DEVKIT_STATE_DIR="$HOME/.megabrain"
+fi
 DEVKIT_STATE_FILE="$DEVKIT_STATE_DIR/state.json"
 DEVKIT_CHAIN_FILE="$DEVKIT_STATE_DIR/chains.json"
 DEVKIT_DISPATCH_DIR="$DEVKIT_STATE_DIR/dispatches"
@@ -16,7 +27,7 @@ MODULE_UNCERTAIN_DISPATCHES=0
 MODULE_RETAINED_TERMINALS=0
 
 devkit_error() {
-  printf 'devkit: %s\n' "$*" >&2
+  printf 'megabrain: %s\n' "$*" >&2
 }
 
 devkit_info() {
@@ -157,4 +168,36 @@ devkit_module_ids() {
 devkit_runtime_enabled() {
   [ -f "$DEVKIT_STATE_FILE" ] || return 1
   jq -e '."tmux-runtime".installed == true' "$DEVKIT_STATE_FILE" >/dev/null 2>&1
+}
+
+devkit_backup_path() {
+  local path="$1" stamp suffix=1 backup
+  [ -f "$path" ] || return 0
+  stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+  backup="${path}.megabrain-backup-${stamp}"
+  while [ -e "$backup" ]; do
+    backup="${path}.megabrain-backup-${stamp}-${suffix}"
+    suffix=$((suffix + 1))
+  done
+  printf '%s\n' "$backup"
+}
+
+devkit_backup_file() {
+  local path="$1" backup
+  [ -f "$path" ] || return 0
+  backup="$(devkit_backup_path "$path")"
+  cp -p "$path" "$backup" || return 1
+  DEVKIT_LAST_BACKUP_PATH="$backup"
+  printf '%s\n' "$backup"
+}
+
+devkit_latest_backup() {
+  local path="$1" candidate latest=''
+  for candidate in "${path}.megabrain-backup-"*; do
+    [ -f "$candidate" ] || continue
+    [ -z "$latest" ] || [ "$candidate" ">" "$latest" ] || continue
+    latest="$candidate"
+  done
+  [ -n "$latest" ] || return 1
+  printf '%s\n' "$latest"
 }
