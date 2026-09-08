@@ -340,18 +340,33 @@ devkit_dispatch_has_recent_child_activity() {
   [ $((now - latest)) -le "$DEVKIT_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS" ]
 }
 
+devkit_dispatch_has_child_identity_proof() {
+  local dispatch_id="$1" messages_dir path
+  messages_dir="$(devkit_dispatch_messages_dir "$dispatch_id")" || return 1
+  for path in "$messages_dir"/*.json; do
+    [ -f "$path" ] || continue
+    jq -e '.from == "child" and (.type == "received" or .type == "ask" or .type == "done")' "$path" >/dev/null 2>&1 && return 0
+  done
+  return 1
+}
+
 devkit_dispatch_reconcile_one() {
   local dispatch_id="$1" meta state process_state terminal_status parent_status failure_count next_state next_process
-  local stage reason outcome terminal_state
+  local stage reason outcome terminal_state next_terminal
   DEVKIT_RECONCILE_OUTCOME=unchanged
   devkit_dispatch_meta_normalize "$dispatch_id" || return 1
   meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
   state="$(printf '%s' "$meta" | jq -r '.state')"
   process_state="$(printf '%s' "$meta" | jq -r '.processState')"
+  terminal_state="$(printf '%s' "$meta" | jq -r '.terminalState // "owned"')"
   [ "$state" != closed ] || return 0
   [ "$state" != circuit_broken ] || return 0
   devkit_dispatch_terminal_status "$meta"
   terminal_status="${DEVKIT_TERMINAL_STATUS:-unknown}"
+  if devkit_dispatch_has_child_identity_proof "$dispatch_id"; then
+    # WHY: A child message is direct identity proof, even when terminal inspection is inconclusive.
+    terminal_status=proven
+  fi
   case "$terminal_status" in
     missing)
       failure_count="$(printf '%s' "$meta" | jq -r '.failureCount // 0')"
