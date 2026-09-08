@@ -951,11 +951,6 @@ megabrain_worktree_create() {
   return 0
 }
 
-megabrain_git_worktree_info() {
-  local root="$1"
-  git -C "$root" worktree list --porcelain 2>/dev/null
-}
-
 megabrain_find_worktree_path() {
   local target="$1" shared_root="$2" path branch line current_path current_branch
   if [ -d "$target" ] && git -C "$target" rev-parse --show-toplevel >/dev/null 2>&1; then

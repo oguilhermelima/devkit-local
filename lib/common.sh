@@ -98,11 +98,6 @@ megabrain_session_id() {
   printf '%s\n' "$MEGABRAIN_SESSION_ID"
 }
 
-megabrain_json_value() {
-  local expression="$1"
-  jq -r "$expression // empty" 2>/dev/null
-}
-
 megabrain_state_init() {
   mkdir -p "$MEGABRAIN_STATE_DIR" || return 1
   if [ ! -f "$MEGABRAIN_STATE_FILE" ]; then
@@ -230,22 +225,6 @@ megabrain_trim() {
 
 megabrain_lower() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
-}
-
-megabrain_json_ok() {
-  jq -e '.ok == true' >/dev/null 2>&1
-}
-
-megabrain_json_result() {
-  jq -c '.result // .' 2>/dev/null
-}
-
-megabrain_orca_json() {
-  orca "$@" --json 2>/dev/null
-}
-
-megabrain_superset_json() {
-  megabrain_superset "$@" --json 2>/dev/null
 }
 
 megabrain_validate_module() {

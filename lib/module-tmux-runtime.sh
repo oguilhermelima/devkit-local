@@ -67,12 +67,6 @@ megabrain_tmux_settle_pane() {
   return 1
 }
 
-megabrain_tmux_session_registry_remove() {
-  local session="$1"
-  [ -n "$session" ] || return 1
-  rm -f "$MEGABRAIN_TMUX_SESSION_DIR/$session.json"
-}
-
 megabrain_tmux_session_registry_prune() {
   local record_path record session
   for record_path in "$MEGABRAIN_TMUX_SESSION_DIR"/*.json; do
@@ -121,23 +115,6 @@ megabrain_tmux_registry_main_pane_for_session() {
       printf '%s\n' "$pane"
       return 0
     fi
-  done
-  return 1
-}
-
-megabrain_tmux_registry_agent_for_session() {
-  local session="$1" record_path record agent role
-  megabrain_tmux_session_exists "$session" || return 1
-  megabrain_tmux_session_registry_prune
-  for record_path in "$MEGABRAIN_TMUX_SESSION_DIR"/*.json; do
-    [ -f "$record_path" ] || continue
-    record="$(cat "$record_path" 2>/dev/null || true)"
-    role="$(printf '%s' "$record" | jq -r '.role // empty' 2>/dev/null || true)"
-    [ "$role" = main ] || continue
-    agent="$(printf '%s' "$record" | jq -r --arg session "$session" 'select(.tmuxSession == $session) | .agent // empty' 2>/dev/null || true)"
-    [ -n "$agent" ] || continue
-    printf '%s\n' "$agent"
-    return 0
   done
   return 1
 }

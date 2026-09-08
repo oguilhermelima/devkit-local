@@ -18,14 +18,6 @@ megabrain_hooks_config_path() {
   esac
 }
 
-megabrain_hooks_event() {
-  case "$1" in
-    cursor) printf 'afterAgentResponse\n' ;;
-    claude|codex|agy) printf 'Stop\n' ;;
-    *) return 1 ;;
-  esac
-}
-
 megabrain_hooks_command() {
   local agent="$1" root="${MEGABRAIN_ROOT:-}"
   if [ -z "$root" ]; then

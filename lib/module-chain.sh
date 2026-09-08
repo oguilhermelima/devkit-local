@@ -552,14 +552,6 @@ MEGABRAIN_CHAIN_LIMIT_SOURCE=""
 MEGABRAIN_CHAIN_LIMIT_RESULT=""
 MEGABRAIN_CHAIN_LIMIT_FETCHED_AT=""
 
-megabrain_chain_limit_capability() {
-  case "$1" in
-    codex) printf 'disk\n' ;;
-    claude|agy) printf 'provider\n' ;;
-    *) printf 'unsupported\n' ;;
-  esac
-}
-
 megabrain_chain_codex_rollouts() {
   local root="$HOME/.codex/sessions" path mtime
   [ -d "$root" ] || return 1
@@ -571,10 +563,6 @@ megabrain_chain_codex_rollouts() {
     esac
     printf '%s\t%s\n' "$mtime" "$path"
   done < <(find "$root" -type f -name 'rollout-*.jsonl' -print 2>/dev/null)
-}
-
-megabrain_chain_latest_codex_rollout() {
-  megabrain_chain_codex_rollouts | LC_ALL=C sort -k1,1nr -k2,2r | cut -f2- | head -n 1
 }
 
 megabrain_chain_limit_unknown() {

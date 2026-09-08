@@ -70,24 +70,6 @@ MEGABRAIN_DISPATCH_LIST_SUPERSET_VALID=false
 MEGABRAIN_DISPATCH_LIST_SUPERSET_TERMINALS='[]'
 MEGABRAIN_DISPATCH_LIST_SUPERSET_IDS=''
 
-megabrain_dispatch_list_cache_reset() {
-  MEGABRAIN_DISPATCH_LIST_CACHE_ACTIVE=true
-  MEGABRAIN_DISPATCH_LIST_ORCA_PREPARED=false
-  MEGABRAIN_DISPATCH_LIST_ORCA_AVAILABLE=false
-  MEGABRAIN_DISPATCH_LIST_ORCA_VALID=false
-  MEGABRAIN_DISPATCH_LIST_ORCA_TERMINALS='[]'
-  MEGABRAIN_DISPATCH_LIST_ORCA_IDS=''
-  MEGABRAIN_DISPATCH_LIST_SUPERSET_PREPARED=false
-  MEGABRAIN_DISPATCH_LIST_SUPERSET_AVAILABLE=false
-  MEGABRAIN_DISPATCH_LIST_SUPERSET_VALID=false
-  MEGABRAIN_DISPATCH_LIST_SUPERSET_TERMINALS='[]'
-  MEGABRAIN_DISPATCH_LIST_SUPERSET_IDS=''
-}
-
-megabrain_dispatch_list_cache_disable() {
-  MEGABRAIN_DISPATCH_LIST_CACHE_ACTIVE=false
-}
-
 megabrain_dispatch_list_cache_prepare_host() {
   local host="$1" records
   case "$host" in
@@ -247,11 +229,6 @@ megabrain_dispatch_parent_status() {
       ;;
     *) ;;
   esac
-}
-
-megabrain_dispatch_parent_alive() {
-  megabrain_dispatch_parent_status "$1"
-  [ "${MEGABRAIN_PARENT_STATUS:-unknown}" = alive ]
 }
 
 megabrain_dispatch_terminal_status() {
