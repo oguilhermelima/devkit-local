@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+unset MEGABRAIN_STATE_DIR DEVKIT_STATE_DIR
+
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-rename.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
