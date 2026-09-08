@@ -29,6 +29,13 @@ assert_equal() {
   [ "$1" = "$2" ] || fail "expected '$2', got '$1'"
 }
 
+assert_contains() {
+  case "$1" in
+    *"$2"*) ;;
+    *) fail "expected '$1' to contain '$2'" ;;
+  esac
+}
+
 assert_failure() {
   if "$@" >/dev/null 2>&1; then
     fail "expected command to fail: $*"
@@ -60,6 +67,14 @@ assert_equal "$(jq -r '.promptDelivered' "$state_dir/dispatches/timeout-test/met
 assert_equal "$(jq -r '.promptDelivery' "$state_dir/dispatches/timeout-test/meta.json")" not-delivered
 assert_equal "$(jq -r '.promptDeliveryReason' "$state_dir/dispatches/timeout-test/meta.json")" prompt-receipt-timeout
 printf 'missing receipt cannot confirm delivery\n'
+
+create_dispatch stalled-report spawning
+devkit_dispatch_message_append stalled-report child stalled 'child could not run the dispatch command' child-terminal >/dev/null
+devkit_spawn_mark_prompt_failed stalled-report prompt-receipt-timeout
+failure_output="$(devkit_dispatch_failure_error stalled-report 'dispatch did not receive a prompt receipt' 2>&1)"
+assert_contains "$failure_output" 'child message: "child could not run the dispatch command"'
+assert_equal "$(jq -r '.state' "$state_dir/dispatches/stalled-report/meta.json")" failed
+printf 'failed dispatch reports the child stalled message\n'
 
 tmux() {
   [ "${1:-}" = send-keys ] && return 0
