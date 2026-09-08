@@ -76,9 +76,32 @@ assert_contains "$failure_output" 'child message: "child could not run the dispa
 assert_equal "$(jq -r '.state' "$state_dir/dispatches/stalled-report/meta.json")" failed
 printf 'failed dispatch reports the child stalled message\n'
 
+tmux_mode=unresponsive
+tmux_enter_count=0
+tmux_capture_file="$state_dir/tmux-captures"
+printf '0\n' >"$tmux_capture_file"
 tmux() {
-  [ "${1:-}" = send-keys ] && return 0
-  return 1
+  local command="${1:-}" count
+  case "$command" in
+    send-keys)
+      if [ "${4:-}" = Enter ]; then
+        tmux_enter_count=$((tmux_enter_count + 1))
+      fi
+      return 0
+      ;;
+    capture-pane)
+      count="$(cat "$tmux_capture_file")"
+      count=$((count + 1))
+      printf '%s\n' "$count" >"$tmux_capture_file"
+      if [ "$tmux_mode" = responsive ] && [ "$count" -ge 2 ]; then
+        printf 'submitted\n'
+      else
+        printf 'composer\n'
+      fi
+      return 0
+      ;;
+    *) return 1 ;;
+  esac
 }
 megabrain_tmux_session_exists() {
   return 0
@@ -89,6 +112,22 @@ assert_failure megabrain_dispatch_wait_for_prompt_receipt pane-activity-test
 megabrain_spawn_mark_prompt_failed pane-activity-test prompt-receipt-timeout
 assert_equal "$(jq -r '.promptDelivered' "$state_dir/dispatches/pane-activity-test/meta.json")" false
 printf 'pane activity without a queue receipt cannot confirm delivery\n'
+
+export MEGABRAIN_TMUX_ENTER_RETRIES=3
+export MEGABRAIN_TMUX_ENTER_WAIT=0
+tmux_mode=unresponsive
+tmux_enter_count=0
+printf '0\n' >"$tmux_capture_file"
+megabrain_tmux_send_text %1 'unresponsive message'
+assert_equal "$tmux_enter_count" 3
+printf 'message delivery: unresponsive pane receives bounded Enter retries\n'
+
+tmux_mode=responsive
+tmux_enter_count=0
+printf '0\n' >"$tmux_capture_file"
+megabrain_tmux_send_text %1 'responsive message'
+assert_equal "$tmux_enter_count" 1
+printf 'message delivery: responsive pane stops after the first Enter\n'
 
 create_dispatch running-reply running
 reply_result="$(megabrain_dispatch_reply running-reply --text 'Continue work' --json)"
