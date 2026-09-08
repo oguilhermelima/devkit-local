@@ -16,7 +16,24 @@ MEGABRAIN_TMUX_TUNE_LEGACY_START='# >>> devkit tmux tuning >>>'
 MEGABRAIN_TMUX_TUNE_LEGACY_END='# <<< devkit tmux tuning <<<'
 MEGABRAIN_TMUX_WRAPPER_START='# >>> megabrain tmux wrapper >>>'
 MEGABRAIN_TMUX_WRAPPER_END='# <<< megabrain tmux wrapper <<<'
-MEGABRAIN_TMUX_WRAPPER_SOURCE='source ~/.megabrain/zsh/megabrain-agent-tmux.zsh'
+# The login shell decides which twin is installed and which rc file sources it. zsh is the
+# default only because it is what macOS ships; a Linux box with no zsh gets the bash one.
+megabrain_tmux_wrapper_shell() {
+  case "${SHELL:-}" in
+    *zsh) printf 'zsh\n' ;;
+    *bash) printf 'bash\n' ;;
+    *) printf '%s\n' "${SHELL:-unknown}" ;;
+  esac
+}
+
+megabrain_tmux_wrapper_source_line() {
+  case "$(megabrain_tmux_wrapper_shell)" in
+    zsh) printf 'source ~/.megabrain/zsh/megabrain-agent-tmux.zsh\n' ;;
+    bash) printf 'source ~/.megabrain/bash/megabrain-agent-tmux.bash\n' ;;
+    *) return 1 ;;
+  esac
+}
+MEGABRAIN_TMUX_WRAPPER_SOURCE="$(megabrain_tmux_wrapper_source_line 2>/dev/null || printf 'source ~/.megabrain/zsh/megabrain-agent-tmux.zsh')"
 MEGABRAIN_TMUX_WRAPPER_LEGACY_START='# >>> devkit tmux wrapper >>>'
 MEGABRAIN_TMUX_WRAPPER_LEGACY_END='# <<< devkit tmux wrapper <<<'
 
@@ -633,15 +650,24 @@ megabrain_tmux_tune() {
 }
 
 megabrain_tmux_wrapper_repo_path() {
-  printf '%s/zsh/megabrain-agent-tmux.zsh\n' "$MEGABRAIN_ROOT"
+  case "$(megabrain_tmux_wrapper_shell)" in
+    bash) printf '%s/bash/megabrain-agent-tmux.bash\n' "$MEGABRAIN_ROOT" ;;
+    *) printf '%s/zsh/megabrain-agent-tmux.zsh\n' "$MEGABRAIN_ROOT" ;;
+  esac
 }
 
 megabrain_tmux_wrapper_install_path() {
-  printf '%s/.megabrain/zsh/megabrain-agent-tmux.zsh\n' "$HOME"
+  case "$(megabrain_tmux_wrapper_shell)" in
+    bash) printf '%s/.megabrain/bash/megabrain-agent-tmux.bash\n' "$HOME" ;;
+    *) printf '%s/.megabrain/zsh/megabrain-agent-tmux.zsh\n' "$HOME" ;;
+  esac
 }
 
 megabrain_tmux_wrapper_config_path() {
-  printf '%s/.zshrc\n' "$HOME"
+  case "$(megabrain_tmux_wrapper_shell)" in
+    bash) printf '%s/.bashrc\n' "$HOME" ;;
+    *) printf '%s/.zshrc\n' "$HOME" ;;
+  esac
 }
 
 megabrain_tmux_wrapper_validate_config() {
@@ -848,10 +874,10 @@ megabrain_tmux_wrapper() {
   # creating a .zshrc for them would be litter. Revert stays allowed, because a shell can
   # change after the wrapper was installed and the block still needs removing.
   if [ "$revert" != true ] && [ "$dry_run" != true ]; then
-    case "${SHELL:-}" in
-      *zsh) ;;
+    case "$(megabrain_tmux_wrapper_shell)" in
+      zsh|bash) ;;
       *)
-        megabrain_error "the agent wrapper is a zsh function and your login shell is ${SHELL:-unknown}; nothing was written"
+        megabrain_error "the agent wrapper ships for zsh and bash and your login shell is ${SHELL:-unknown}; nothing was written"
         return 1
         ;;
     esac

@@ -41,11 +41,12 @@ bash_output="$(run_wrapper "$bash_home" /bin/bash)"
 bash_status=$?
 set -e
 
-[ "$bash_status" -ne 0 ] || fail "the wrapper claimed success on a bash login shell: $bash_output"
-assert_contains "$bash_output" zsh
+[ "$bash_status" -eq 0 ] || fail "the wrapper refused a bash login shell: $bash_output"
 [ ! -f "$bash_home/.zshrc" ] || fail 'a .zshrc was created for a user whose shell is not zsh'
-[ "$(cat "$bash_home/.bashrc")" = '# a bash user' ] || fail 'the bash user'"'"'s own rc file was modified'
-printf 'a login shell it cannot serve is refused, and nothing is written\n'
+[ -f "$bash_home/.megabrain/bash/megabrain-agent-tmux.bash" ] || fail 'the bash wrapper file was not installed'
+grep -q megabrain "$bash_home/.bashrc" || fail 'the bash user rc file did not get the wrapper block'
+bash -n "$bash_home/.megabrain/bash/megabrain-agent-tmux.bash" || fail 'the installed bash wrapper is not valid bash'
+printf 'a bash login shell gets the bash wrapper and no stray zsh file\n'
 
 # WHY the other half: refusing has to stay narrow. A zsh user must still get the wrapper, or
 # the check above would pass just as well against a command that never works.
@@ -59,4 +60,16 @@ assert_contains "$zsh_output" applied
 grep -q megabrain "$zsh_home/.zshrc" || fail 'the zsh user rc file did not get the wrapper block'
 printf 'a zsh login shell still gets the wrapper\n'
 
-printf 'ok: the shell wrapper serves zsh and refuses what it cannot serve\n'
+# WHY a third shell: refusing has to stay narrow, and fish is the shape of every shell
+# the wrapper does not ship for.
+fish_home="$work_dir/fish-user"
+mkdir -p "$fish_home"
+set +e
+fish_output="$(run_wrapper "$fish_home" /usr/bin/fish)"
+fish_status=$?
+set -e
+[ "$fish_status" -ne 0 ] || fail "the wrapper claimed success on a shell it does not ship for: $fish_output"
+[ -z "$(find "$fish_home" -type f 2>/dev/null)" ] || fail 'a shell it cannot serve still had files written for it'
+printf 'a shell it does not ship for is refused, and nothing is written\n'
+
+printf 'ok: the shell wrapper serves zsh and bash, and refuses the rest\n'
