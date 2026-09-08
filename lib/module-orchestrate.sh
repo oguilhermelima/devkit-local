@@ -67,7 +67,7 @@ megabrain_validate_prompt_budget() {
   esac
   actual="$(megabrain_prompt_byte_length "$text")"
   if [ "$actual" -gt "$limit" ]; then
-    megabrain_error "$label is too large for $path delivery: $actual bytes (limit: $limit bytes)"
+    megabrain_error "$labelText is too large for $path delivery: $actual bytes (limit: $limit bytes)"
     return 1
   fi
 }
@@ -196,7 +196,7 @@ megabrain_dispatch_meta_write() {
     --arg parentHost "$parent_host" --arg childHost "$child_host" \
     --arg workspaceId "$workspace_id" --arg terminalId "$terminal_id" \
     --arg worktreePath "$worktree_path" --arg branch "$branch" \
-    --arg agent "$agent" --arg label "$label" --arg state "$state" \
+    --arg agent "$agent" --arg labelText "$label" --arg state "$state" \
     --arg model "$model" --arg agentId "$agent_id" --arg runtime "$runtime" \
     --arg tmuxSession "$tmux_session" --arg tmuxPane "$tmux_pane" --arg spawnRuntime "$spawn_runtime" \
     --arg parentTmuxSession "$parent_tmux_session" --arg parentTmuxPane "$parent_tmux_pane" --arg parentWorkspaceId "$parent_workspace_id" \
@@ -205,7 +205,7 @@ megabrain_dispatch_meta_write() {
     --argjson chainDefault "$(megabrain_bool_json "$chain_default")" \
     --argjson modelHonored "$(megabrain_bool_json "$model_honored")" \
     --arg now "$(megabrain_iso_now)" \
-    '{dispatchId: $dispatchId, parentSessionId: $parentSessionId, parentHost: $parentHost, parentWorkspaceId: (if $parentWorkspaceId == "" then null else $parentWorkspaceId end), parentTmuxSession: (if $parentTmuxSession == "" then null else $parentTmuxSession end), parentTmuxPane: (if $parentTmuxPane == "" then null else $parentTmuxPane end), childHost: $childHost, workspaceId: $workspaceId, terminalId: $terminalId, worktreePath: $worktreePath, branch: $branch, agent: $agent, agentId: $agentId, model: $model, modelHonored: $modelHonored, modelSubstitution: null, runtime: $runtime, spawnRuntime: $spawnRuntime, tmuxSession: (if $tmuxSession == "" then null else $tmuxSession end), tmuxPane: (if $tmuxPane == "" then null else $tmuxPane end), label: $label, chain: (if $chainName == "" then null else {name: $chainName, step: $chainStep, total: $chainTotal, reason: $chainReason, usedDefault: $chainDefault} end), state: $state, promptDelivered: false, promptDelivery: "pending", promptDeliveryReason: null, processState: (if $state == "spawning" then "starting" elif $state == "running" then "running" elif $state == "done" then "succeeded" elif $state == "failed" then "failed" elif $state == "closed" then "stopped" else "start-unproven" end), terminalState: "owned", terminalReason: null, failureCount: 0, stage: null, reason: null, reconcileOutcome: null, createdAt: $now, updatedAt: $now}' \
+    '{dispatchId: $dispatchId, parentSessionId: $parentSessionId, parentHost: $parentHost, parentWorkspaceId: (if $parentWorkspaceId == "" then null else $parentWorkspaceId end), parentTmuxSession: (if $parentTmuxSession == "" then null else $parentTmuxSession end), parentTmuxPane: (if $parentTmuxPane == "" then null else $parentTmuxPane end), childHost: $childHost, workspaceId: $workspaceId, terminalId: $terminalId, worktreePath: $worktreePath, branch: $branch, agent: $agent, agentId: $agentId, model: $model, modelHonored: $modelHonored, modelSubstitution: null, runtime: $runtime, spawnRuntime: $spawnRuntime, tmuxSession: (if $tmuxSession == "" then null else $tmuxSession end), tmuxPane: (if $tmuxPane == "" then null else $tmuxPane end), label: $labelText, chain: (if $chainName == "" then null else {name: $chainName, step: $chainStep, total: $chainTotal, reason: $chainReason, usedDefault: $chainDefault} end), state: $state, promptDelivered: false, promptDelivery: "pending", promptDeliveryReason: null, processState: (if $state == "spawning" then "starting" elif $state == "running" then "running" elif $state == "done" then "succeeded" elif $state == "failed" then "failed" elif $state == "closed" then "stopped" else "start-unproven" end), terminalState: "owned", terminalReason: null, failureCount: 0, stage: null, reason: null, reconcileOutcome: null, createdAt: $now, updatedAt: $now}' \
     >"$tmp"; then
     rm -f "$tmp"
     return 1
@@ -694,7 +694,12 @@ megabrain_dispatch_lock_acquire() {
 
 megabrain_dispatch_path_age_seconds() {
   local path="$1" mtime now
-  mtime="$(stat -f %m "$path" 2>/dev/null || stat -c %Y "$path" 2>/dev/null || true)"
+  # WHY the output is validated instead of the exit status: GNU stat accepts -f and
+  # succeeds with filesystem information, so an || fallback never fires on Linux and the
+  # age comes back as a paragraph of text. Each form is tried and kept only if it produced
+  # a number.
+  mtime="$(stat -c %Y "$path" 2>/dev/null || true)"
+  [[ "$mtime" =~ ^[0-9]+$ ]] || mtime="$(stat -f %m "$path" 2>/dev/null || true)"
   [[ "$mtime" =~ ^[0-9]+$ ]] || return 0
   now="$(date +%s)"
   printf '%s\n' $((now - mtime))

@@ -978,7 +978,7 @@ megabrain_find_worktree_path() {
 }
 
 megabrain_worktree_finish() {
-  local target="" delete_branch=false force=false json=false arg shared_root path workspace_id repo_path branch base merged
+  local target="" delete_branch=false force=false json=false arg shared_root path workspace_id="" repo_path branch base merged
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
