@@ -11,13 +11,13 @@ DEVKIT_TMUX_CHILD_SPLIT_FLAG='-v'
 DEVKIT_TMUX_TUNE_START='# >>> megabrain tmux tuning >>>'
 DEVKIT_TMUX_TUNE_END='# <<< megabrain tmux tuning <<<'
 DEVKIT_TMUX_TUNE_SOURCE='source-file ~/.megabrain/tmux/megabrain.tmux.conf'
-DEVKIT_TMUX_TUNE_LEGACY_START='# >>> devkit tmux tuning >>>'
-DEVKIT_TMUX_TUNE_LEGACY_END='# <<< devkit tmux tuning <<<'
+DEVKIT_TMUX_TUNE_LEGACY_START='# >>> megabrain tmux tuning >>>'
+DEVKIT_TMUX_TUNE_LEGACY_END='# <<< megabrain tmux tuning <<<'
 DEVKIT_TMUX_WRAPPER_START='# >>> megabrain tmux wrapper >>>'
 DEVKIT_TMUX_WRAPPER_END='# <<< megabrain tmux wrapper <<<'
 DEVKIT_TMUX_WRAPPER_SOURCE='source ~/.megabrain/zsh/megabrain-agent-tmux.zsh'
-DEVKIT_TMUX_WRAPPER_LEGACY_START='# >>> devkit tmux wrapper >>>'
-DEVKIT_TMUX_WRAPPER_LEGACY_END='# <<< devkit tmux wrapper <<<'
+DEVKIT_TMUX_WRAPPER_LEGACY_START='# >>> megabrain tmux wrapper >>>'
+DEVKIT_TMUX_WRAPPER_LEGACY_END='# <<< megabrain tmux wrapper <<<'
 
 devkit_tmux_available() {
   devkit_require_command tmux
@@ -541,7 +541,7 @@ devkit_tmux_tune() {
       --revert) revert=true; shift ;;
       --json) json=true; shift ;;
       -h|--help)
-        printf 'Usage: devkit tmux tune [--yes] [--dry-run] [--revert] [--json]\n'
+        printf 'Usage: megabrain tmux tune [--yes] [--dry-run] [--revert] [--json]\n'
         return 0
         ;;
       *)
@@ -600,7 +600,7 @@ devkit_tmux_tune() {
     elif [ -r /dev/tty ] && { : </dev/tty; } 2>/dev/null; then
       input=/dev/tty
     else
-      printf 'tmux tuning skipped (non-interactive); run: devkit tmux tune --yes\n'
+      printf 'tmux tuning skipped (non-interactive); run: megabrain tmux tune --yes\n'
       return 0
     fi
     devkit_tmux_tuning_print_plan "$config" "$backup_path"
@@ -608,7 +608,7 @@ devkit_tmux_tune() {
     read -r answer <"$input" || answer=''
     case "$answer" in
       y|Y|yes|YES|Yes) ;;
-      *) printf 'tmux tuning skipped; run: devkit tmux tune --yes\n'; return 0 ;;
+      *) printf 'tmux tuning skipped; run: megabrain tmux tune --yes\n'; return 0 ;;
     esac
   fi
   if ! devkit_tmux_tuning_apply "${backup_path:-}"; then
@@ -657,7 +657,7 @@ devkit_tmux_wrapper_validate_config() {
   starts=$(( $(grep -Fxc "$DEVKIT_TMUX_WRAPPER_START" "$config" 2>/dev/null || true) + $(grep -Fxc "$DEVKIT_TMUX_WRAPPER_LEGACY_START" "$config" 2>/dev/null || true) ))
   ends=$(( $(grep -Fxc "$DEVKIT_TMUX_WRAPPER_END" "$config" 2>/dev/null || true) + $(grep -Fxc "$DEVKIT_TMUX_WRAPPER_LEGACY_END" "$config" 2>/dev/null || true) ))
   if [ "$starts" -ne "$ends" ]; then
-    devkit_error "zsh config has an incomplete devkit tmux wrapper block: $config"
+    devkit_error "zsh config has an incomplete megabrain tmux wrapper block: $config"
     return 1
   fi
 }
@@ -807,7 +807,7 @@ devkit_tmux_wrapper_revert() {
   devkit_tmux_wrapper_validate_config "$config" || return 1
   devkit_tmux_wrapper_block_present "$config" || return 0
   devkit_tmux_wrapper_remove_block "$config" || {
-    devkit_error "could not remove the devkit tmux wrapper block from $config"
+    devkit_error "could not remove the megabrain tmux wrapper block from $config"
     return 1
   }
   DEVKIT_TMUX_WRAPPER_REVERTED=true
@@ -837,7 +837,7 @@ devkit_tmux_wrapper() {
       --revert) revert=true; shift ;;
       --json) json=true; shift ;;
       -h|--help)
-        printf 'Usage: devkit tmux wrapper [--yes] [--dry-run] [--revert] [--json]\n'
+        printf 'Usage: megabrain tmux wrapper [--yes] [--dry-run] [--revert] [--json]\n'
         return 0
         ;;
       *)
@@ -892,7 +892,7 @@ devkit_tmux_wrapper() {
     elif [ -r /dev/tty ] && { : </dev/tty; } 2>/dev/null; then
       input=/dev/tty
     else
-      printf 'tmux agent wrapper skipped (non-interactive); run: devkit tmux wrapper --yes\n'
+      printf 'tmux agent wrapper skipped (non-interactive); run: megabrain tmux wrapper --yes\n'
       return 0
     fi
     devkit_tmux_wrapper_print_plan "$config" "$backup_path"
@@ -900,7 +900,7 @@ devkit_tmux_wrapper() {
     read -r answer <"$input" || answer=''
     case "$answer" in
       y|Y|yes|YES|Yes) ;;
-      *) printf 'tmux agent wrapper skipped; run: devkit tmux wrapper --yes\n'; return 0 ;;
+      *) printf 'tmux agent wrapper skipped; run: megabrain tmux wrapper --yes\n'; return 0 ;;
     esac
   fi
   if ! devkit_tmux_wrapper_apply "${backup_path:-}"; then
@@ -928,8 +928,8 @@ command_tmux() {
     tune) devkit_tmux_tune "$@" ;;
     wrapper) devkit_tmux_wrapper "$@" ;;
     -h|--help|"")
-      printf 'Usage: devkit tmux tune [--yes] [--dry-run] [--revert] [--json]\n'
-      printf '       devkit tmux wrapper [--yes] [--dry-run] [--revert] [--json]\n'
+      printf 'Usage: megabrain tmux tune [--yes] [--dry-run] [--revert] [--json]\n'
+      printf '       megabrain tmux wrapper [--yes] [--dry-run] [--revert] [--json]\n'
       ;;
     *) devkit_error "unknown tmux command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
   esac
@@ -983,7 +983,7 @@ module_tmux_runtime_offer_tuning() {
   if [ -t 0 ] || { [ -r /dev/tty ] && { : </dev/tty; } 2>/dev/null; }; then
     devkit_tmux_tune
   else
-    printf 'tmux tuning skipped (non-interactive); run: devkit tmux tune --yes\n'
+    printf 'tmux tuning skipped (non-interactive); run: megabrain tmux tune --yes\n'
   fi
 }
 
@@ -996,7 +996,7 @@ module_tmux_runtime_offer_wrapper() {
   if [ -t 0 ] || { [ -r /dev/tty ] && { : </dev/tty; } 2>/dev/null; }; then
     devkit_tmux_wrapper
   else
-    printf 'tmux agent wrapper skipped (non-interactive); run: devkit tmux wrapper --yes\n'
+    printf 'tmux agent wrapper skipped (non-interactive); run: megabrain tmux wrapper --yes\n'
   fi
 }
 

@@ -74,7 +74,7 @@ devkit_appium_start() {
     return 0
   fi
   module_simulator_native_doctor >/dev/null || {
-    devkit_error "appium is not ready; run devkit install simulator-native"
+    devkit_error "appium is not ready; run megabrain install simulator-native"
     return 1
   }
   mkdir -p "$DEVKIT_STATE_DIR" || return 1
@@ -127,11 +127,11 @@ command_native() {
         start) devkit_appium_start ;;
         stop) devkit_appium_stop ;;
         status) devkit_appium_status ;;
-        -h|--help|"") printf 'Usage: devkit native appium start|stop|status\n' ;;
+        -h|--help|"") printf 'Usage: megabrain native appium start|stop|status\n' ;;
         *) devkit_error "unknown appium operation: $operation"; return "$DEVKIT_USAGE_ERROR" ;;
       esac
       ;;
-    -h|--help|"") printf 'Usage: devkit native appium start|stop|status\n' ;;
+    -h|--help|"") printf 'Usage: megabrain native appium start|stop|status\n' ;;
     *) devkit_error "unknown native command: $family"; return "$DEVKIT_USAGE_ERROR" ;;
   esac
 }

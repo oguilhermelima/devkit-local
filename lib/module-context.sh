@@ -22,7 +22,7 @@ command_context() {
   for arg in "$@"; do
     case "$arg" in
       --json) format="json" ;;
-      -h|--help) printf 'Usage: devkit context [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain context [--json]\n'; return 0 ;;
       *) devkit_error "unknown context option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
@@ -50,7 +50,7 @@ command_orchestrate() {
     reply) devkit_dispatch_reply "$@" ;;
     close) devkit_dispatch_close "$@" ;;
     -h|--help|"")
-      printf 'Usage: devkit orchestrate spawn ... | devkit orchestrate list [--all|--orphans] [--json]\n'
+      printf 'Usage: megabrain orchestrate spawn ... | devkit orchestrate list [--all|--orphans] [--json]\n'
       printf '       devkit orchestrate reconcile <dispatch-id> [--all] [--json]\n'
       printf '       devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--json]\n'
       printf '       devkit orchestrate read <dispatch-id> [--lines <count>] [--json]\n'
@@ -300,7 +300,7 @@ command_orchestrate_list() {
       --json) json=true ;;
       --all) all=true ;;
       --orphans) orphans=true ;;
-      -h|--help) printf 'Usage: devkit orchestrate list [--all|--orphans] [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain orchestrate list [--all|--orphans] [--json]\n'; return 0 ;;
       *) devkit_error "unknown orchestrate list option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done

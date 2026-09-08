@@ -173,7 +173,7 @@ devkit_fact_id_valid() {
 
 devkit_fact_command_add() {
   local id="${1:-}" measurement="" who="" when="" command="" scope_type=global repository="" json=false arg value store path fact updated
-  [ -n "$id" ] || { devkit_error 'Usage: devkit fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$id" ] || { devkit_error 'Usage: megabrain fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]'; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -185,7 +185,7 @@ devkit_fact_command_add() {
       --scope) value="${2:-}"; [ -n "$value" ] || { devkit_error '--scope requires a value'; return "$DEVKIT_USAGE_ERROR"; }; scope_type="$value"; shift 2 ;;
       --repository|--repo) value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$DEVKIT_USAGE_ERROR"; }; repository="$value"; scope_type=repository; shift 2 ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]\n'; return 0 ;;
       *) devkit_error "unknown fact add option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
@@ -223,7 +223,7 @@ devkit_fact_command_list() {
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit fact list [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain fact list [--json]\n'; return 0 ;;
       *) devkit_error "unknown fact list option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
@@ -242,13 +242,13 @@ devkit_fact_command_list() {
 
 devkit_fact_command_edit() {
   local id="${1:-}" json=false arg path store tmp editor edited
-  [ -n "$id" ] || { devkit_error 'Usage: devkit fact edit <id> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$id" ] || { devkit_error 'Usage: megabrain fact edit <id> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit fact edit <id> [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain fact edit <id> [--json]\n'; return 0 ;;
       *) devkit_error "unknown fact edit option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
@@ -284,13 +284,13 @@ devkit_fact_command_edit() {
 
 devkit_fact_command_remove() {
   local id="${1:-}" json=false arg path store updated
-  [ -n "$id" ] || { devkit_error 'Usage: devkit fact remove <id> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$id" ] || { devkit_error 'Usage: megabrain fact remove <id> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit fact remove <id> [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain fact remove <id> [--json]\n'; return 0 ;;
       *) devkit_error "unknown fact remove option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
@@ -319,7 +319,7 @@ command_fact() {
     edit) devkit_fact_command_edit "$@" ;;
     remove|delete) devkit_fact_command_remove "$@" ;;
     -h|--help|"")
-      printf 'Usage: devkit fact list|add|edit|remove ...\n'
+      printf 'Usage: megabrain fact list|add|edit|remove ...\n'
       ;;
     *) devkit_error "unknown fact command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
   esac

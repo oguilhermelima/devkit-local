@@ -160,7 +160,7 @@ command_doctor() {
     case "$arg" in
       --json) json=true; shift ;;
       -h|--help)
-        printf 'Usage: devkit doctor [module-id] [--json]\n'
+        printf 'Usage: megabrain doctor [module-id] [--json]\n'
         return 0
         ;;
       *)

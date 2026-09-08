@@ -547,7 +547,7 @@ ${prompt}"
     fi
     devkit_tmux_apply_config "$tmux_session" || {
       devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
-      devkit_error "could not apply devkit tmux configuration to $tmux_session"
+      devkit_error "could not apply megabrain tmux configuration to $tmux_session"
       return 1
     }
     if [ "${#passthrough_args[@]}" -gt 0 ]; then
@@ -734,7 +734,7 @@ devkit_terminal_create() {
       --title) title="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
       -h|--help)
-        printf 'Usage: devkit terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]\n'
+        printf 'Usage: megabrain terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]\n'
         printf 'Without --command, use the worktree .superset/config.json run script.\n'
         printf 'Superset tabs are not titled; only Orca tabs are.\n'
         return 0
@@ -775,7 +775,7 @@ devkit_terminal_create() {
       devkit_superset_available || { devkit_error "superset CLI is not available"; return 1; }
       workspace_id="$(devkit_workspace_id_for_target "$worktree_path")"
       if [ -z "$workspace_id" ]; then
-        devkit_error "no Superset workspace is registered for $worktree_path; run devkit worktree adopt $worktree_path first"
+        devkit_error "no Superset workspace is registered for $worktree_path; run megabrain worktree adopt $worktree_path first"
         return 1
       fi
       response="$(devkit_superset terminals create --workspace "$workspace_id" --command "$command_text" --json)" || return 1
@@ -819,7 +819,7 @@ devkit_worktree_create() {
       --orchestrate) orchestrate=true; shift ;;
       --json) json=true; shift ;;
       -h|--help)
-        printf 'Usage: devkit worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]\n'
+        printf 'Usage: megabrain worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]\n'
         return 0
         ;;
       *) devkit_error "unknown worktree create option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
@@ -876,7 +876,7 @@ devkit_worktree_create() {
     [ -n "$branch" ] || { devkit_error "cannot spawn in detached worktree: $worktree_path"; return 1; }
     workspace_id="$(devkit_workspace_id_for_target "$worktree_path" 2>/dev/null || true)"
     if [ "$host" = superset ] && [ -z "$workspace_id" ]; then
-      devkit_error "no Superset workspace is registered for $worktree_path; run devkit worktree adopt $worktree_path first"
+      devkit_error "no Superset workspace is registered for $worktree_path; run megabrain worktree adopt $worktree_path first"
       return 1
     fi
     repo_path="$(git -C "$worktree_path" rev-parse --show-toplevel)"
@@ -986,7 +986,7 @@ devkit_worktree_finish() {
       --json) json=true; shift ;;
       --delete-branch) delete_branch=true; shift ;;
       --force) force=true; shift ;;
-      -h|--help) printf 'Usage: devkit worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]\n'; return 0 ;;
       *)
         [ -z "$target" ] || { devkit_error "unknown worktree finish option: $arg"; return "$DEVKIT_USAGE_ERROR"; }
         target="$arg"
@@ -994,7 +994,7 @@ devkit_worktree_finish() {
         ;;
     esac
   done
-  [ -n "$target" ] || { devkit_error "Usage: devkit worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$target" ] || { devkit_error "Usage: megabrain worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
   shared_root="$(devkit_worktree_root 2>/dev/null || true)"
   path=""
   if devkit_superset_available; then
@@ -1064,7 +1064,7 @@ devkit_worktree_list() {
     case "$arg" in
       --repo) repo_selector="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit worktree list [--repo <name|path>] [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain worktree list [--repo <name|path>] [--json]\n'; return 0 ;;
       *) devkit_error "unknown worktree list option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
@@ -1113,7 +1113,7 @@ devkit_worktree_adopt() {
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit worktree adopt <path|branch> [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain worktree adopt <path|branch> [--json]\n'; return 0 ;;
       *)
         [ -z "$target" ] || { devkit_error "unknown worktree adopt option: $arg"; return "$DEVKIT_USAGE_ERROR"; }
         target="$arg"
@@ -1121,7 +1121,7 @@ devkit_worktree_adopt() {
         ;;
     esac
   done
-  [ -n "$target" ] || { devkit_error "Usage: devkit worktree adopt <path|branch> [--json]"; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$target" ] || { devkit_error "Usage: megabrain worktree adopt <path|branch> [--json]"; return "$DEVKIT_USAGE_ERROR"; }
   shared_root="$(devkit_worktree_root)" || return 1
   if [ -d "$target" ]; then
     path="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null || true)"
@@ -1160,7 +1160,7 @@ command_worktree() {
     list) devkit_worktree_list "$@" ;;
     adopt) devkit_worktree_adopt "$@" ;;
     -h|--help|"")
-      printf 'Usage: devkit worktree create|finish|list|adopt ...\n'
+      printf 'Usage: megabrain worktree create|finish|list|adopt ...\n'
       ;;
     *) devkit_error "unknown worktree command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
   esac
@@ -1172,7 +1172,7 @@ command_terminal() {
   case "$subcommand" in
     create) devkit_terminal_create "$@" ;;
     -h|--help|"")
-      printf 'Usage: devkit terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]\n'
+      printf 'Usage: megabrain terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]\n'
       printf 'Superset tabs are not titled; only Orca tabs are.\n'
       ;;
     *) devkit_error "unknown terminal command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;

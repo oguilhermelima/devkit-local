@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-DEVKIT_DISPATCH_PROTOCOL="This is a managed devkit dispatch. Before starting work, run ./devkit received to confirm that you received this prompt. If you need coordinator input, run ./devkit ask \"your question\" and stop until the coordinator replies. When the requested work is complete, run ./devkit done \"short outcome summary\". Do not print protocol markers and do not continue past an unanswered question."
+DEVKIT_DISPATCH_PROTOCOL="This is a managed megabrain dispatch. Before starting work, run ./megabrain received to confirm that you received this prompt. If you need coordinator input, run ./megabrain ask \"your question\" and stop until the coordinator replies. When the requested work is complete, run ./megabrain done \"short outcome summary\". Do not print protocol markers and do not continue past an unanswered question."
 DEVKIT_SUPERSET_PROTOCOL="$DEVKIT_DISPATCH_PROTOCOL"
 DEVKIT_LAST_DISPATCH=""
 DEVKIT_DISPATCH_CLOSE_LAST_PANE=false
@@ -429,7 +429,7 @@ devkit_dispatch_reconcile() {
     case "$arg" in
       --all) all=true; shift ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit orchestrate reconcile <dispatch-id> [--all] [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain orchestrate reconcile <dispatch-id> [--all] [--json]\n'; return 0 ;;
       *)
         [ -z "$dispatch_id" ] || { devkit_error "unknown reconcile option: $arg"; return "$DEVKIT_USAGE_ERROR"; }
         dispatch_id="$arg"
@@ -447,7 +447,7 @@ devkit_dispatch_reconcile() {
       entries="$(jq --argjson item "$meta" --arg outcome "$outcome" '. + [$item + {reconcileResult: $outcome}]' <<<"$entries")" || return 1
     done
   else
-    [ -n "$dispatch_id" ] || { devkit_error 'Usage: devkit orchestrate reconcile <dispatch-id> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+    [ -n "$dispatch_id" ] || { devkit_error 'Usage: megabrain orchestrate reconcile <dispatch-id> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
     devkit_dispatch_reconcile_one "$dispatch_id" || return 1
     meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
     outcome="${DEVKIT_RECONCILE_OUTCOME:-unchanged}"
@@ -795,14 +795,14 @@ devkit_dispatch_native_close() {
 
 devkit_dispatch_read() {
   local dispatch_id="${1:-}" lines=200 json=false arg meta runtime pane output
-  [ -n "$dispatch_id" ] || { devkit_error "Usage: devkit orchestrate read <dispatch-id> [--lines <count>] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate read <dispatch-id> [--lines <count>] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --lines) lines="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit orchestrate read <dispatch-id> [--lines <count>] [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain orchestrate read <dispatch-id> [--lines <count>] [--json]\n'; return 0 ;;
       *) devkit_error "unknown orchestrate read option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
@@ -836,7 +836,7 @@ devkit_dispatch_mailbox_watch() {
   shift
   if [ "$mailbox" = parent ]; then
     dispatch_id="${1:-}"
-    [ -n "$dispatch_id" ] || { devkit_error "Usage: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
+    [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
     shift
   else
     devkit_dispatch_find_child || return 1
@@ -854,9 +854,9 @@ devkit_dispatch_mailbox_watch() {
       --json) json=true; shift ;;
       -h|--help)
         if [ "$mailbox" = parent ]; then
-          printf 'Usage: devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--json]\n'
+          printf 'Usage: megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--json]\n'
         else
-          printf 'Usage: devkit check [--timeout <seconds>] [--poll-interval <seconds>] [--json]\n'
+          printf 'Usage: megabrain check [--timeout <seconds>] [--poll-interval <seconds>] [--json]\n'
         fi
         return 0
         ;;
@@ -1001,14 +1001,14 @@ devkit_dispatch_ack_for_owner() {
     dispatch_id="$DEVKIT_FOUND_DISPATCH"
     [ -n "$consumer" ] || consumer="$(devkit_dispatch_child_consumer)" || return 1
   fi
-  [ -n "$dispatch_id" ] && [ -n "$delivery_id" ] || { devkit_error "Usage: devkit orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>]"; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$dispatch_id" ] && [ -n "$delivery_id" ] || { devkit_error "Usage: megabrain orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>]"; return "$DEVKIT_USAGE_ERROR"; }
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --consumer) consumer="${2:-}"; shift 2 ;;
       --generation) generation="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json]\n'; return 0 ;;
       *) devkit_error "unknown orchestrate ack option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
@@ -1086,14 +1086,14 @@ devkit_dispatch_child_ack() {
 
 devkit_dispatch_reply() {
   local dispatch_id="${1:-}" answer="" json=false arg meta state idle status
-  [ -n "$dispatch_id" ] || { devkit_error "Usage: devkit orchestrate reply <dispatch-id> --text <answer> [--json]"; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate reply <dispatch-id> --text <answer> [--json]"; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --text) answer="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit orchestrate reply <dispatch-id> --text <answer> [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain orchestrate reply <dispatch-id> --text <answer> [--json]\n'; return 0 ;;
       *) devkit_error "unknown orchestrate reply option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
@@ -1122,14 +1122,14 @@ devkit_dispatch_reply() {
 
 devkit_dispatch_close() {
   local dispatch_id="${1:-}" json=false force_release=false arg meta runtime child_host terminal_state process_state
-  [ -n "$dispatch_id" ] || { devkit_error "Usage: devkit orchestrate close <dispatch-id> [--json]"; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate close <dispatch-id> [--json]"; return "$DEVKIT_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
       --force-release) force_release=true; shift ;;
-      -h|--help) printf 'Usage: devkit orchestrate close <dispatch-id> [--force-release] [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain orchestrate close <dispatch-id> [--force-release] [--json]\n'; return 0 ;;
       *) devkit_error "unknown orchestrate close option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
@@ -1211,17 +1211,17 @@ devkit_dispatch_child_message() {
 }
 
 command_ask() {
-  [ "$#" -eq 1 ] && [ -n "$1" ] || { devkit_error 'Usage: devkit ask "question"'; return "$DEVKIT_USAGE_ERROR"; }
+  [ "$#" -eq 1 ] && [ -n "$1" ] || { devkit_error 'Usage: megabrain ask "question"'; return "$DEVKIT_USAGE_ERROR"; }
   devkit_dispatch_child_message ask "$1"
 }
 
 command_received() {
-  [ "$#" -eq 0 ] || { devkit_error 'Usage: devkit received'; return "$DEVKIT_USAGE_ERROR"; }
+  [ "$#" -eq 0 ] || { devkit_error 'Usage: megabrain received'; return "$DEVKIT_USAGE_ERROR"; }
   devkit_dispatch_child_message received 'prompt received'
 }
 
 command_done() {
-  [ "$#" -eq 1 ] && [ -n "$1" ] || { devkit_error 'Usage: devkit done "summary"'; return "$DEVKIT_USAGE_ERROR"; }
+  [ "$#" -eq 1 ] && [ -n "$1" ] || { devkit_error 'Usage: megabrain done "summary"'; return "$DEVKIT_USAGE_ERROR"; }
   devkit_dispatch_child_message done "$1"
 }
 

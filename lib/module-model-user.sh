@@ -47,7 +47,7 @@ devkit_model_add() {
 
 command_model_add() {
   local agent="${1:-}" model="${2:-}" levels="" arg
-  [ "$#" -ge 2 ] || { devkit_error 'Usage: devkit model add <agent> <model> --reasoning <levels>'; return "$DEVKIT_USAGE_ERROR"; }
+  [ "$#" -ge 2 ] || { devkit_error 'Usage: megabrain model add <agent> <model> --reasoning <levels>'; return "$DEVKIT_USAGE_ERROR"; }
   shift 2
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -57,7 +57,7 @@ command_model_add() {
         [ -n "$levels" ] || { devkit_error "$arg requires a value"; return "$DEVKIT_USAGE_ERROR"; }
         shift 2
         ;;
-      -h|--help) printf 'Usage: devkit model add <agent> <model> --reasoning <levels>\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain model add <agent> <model> --reasoning <levels>\n'; return 0 ;;
       *) devkit_error "unknown model add option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done

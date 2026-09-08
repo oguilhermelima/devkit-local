@@ -60,7 +60,7 @@ command_model_list() {
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
-      -h|--help) printf 'Usage: devkit model list [--json]\n'; return 0 ;;
+      -h|--help) printf 'Usage: megabrain model list [--json]\n'; return 0 ;;
       *) devkit_error "unknown model list option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
     esac
   done
@@ -85,7 +85,7 @@ command_model() {
     list) command_model_list "$@" ;;
     add) command_model_add "$@" ;;
     refresh) command_model_refresh "$@" ;;
-    -h|--help|"") printf 'Usage: devkit model list|add|refresh ...\n' ;;
+    -h|--help|"") printf 'Usage: megabrain model list|add|refresh ...\n' ;;
     *) devkit_error "unknown model command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
   esac
 }
