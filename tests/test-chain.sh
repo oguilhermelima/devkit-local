@@ -107,9 +107,8 @@ assert_equal "$MEGABRAIN_CHAIN_LIMIT_USED" 97.0
 printf 'limit newest file without snapshot: older usable snapshot\n'
 
 seeded="$(MEGABRAIN_STATE_DIR="$MEGABRAIN_STATE_DIR" "$root/megabrain" chain list --json)"
-assert_equal "$(printf '%s' "$seeded" | jq '.chains | length')" 3
-assert_equal "$(printf '%s' "$seeded" | jq -r '[.chains[].when | keys[]] | unique | join(",")')" parentAgent
-printf 'seed and list: passed\n'
+assert_equal "$(printf '%s' "$seeded" | jq '.chains | length')" 0
+printf 'empty seed and list: passed\n'
 
 config='{"chains":{"parent":{"when":{"parentAgent":"codex"},"steps":[{"agent":"agy","model":"m","effort":"e"}]},"specific":{"when":{"parentAgent":"codex","parentEffort":"high"},"steps":[{"agent":"claude","model":"m","effort":"e"}]}},"defaultSteps":[{"agent":"codex","model":"m","effort":"e"}]}'
 megabrain_chain_select "$config" parent codex '' ''
