@@ -21,7 +21,6 @@ cleanup() {
 trap cleanup EXIT
 
 export MEGABRAIN_STATE_DIR="$state_dir"
-export MEGABRAIN_PARENT_NOTIFY_SETTLE_MS=10
 export ORCA_TERMINAL_HANDLE=parent-terminal
 unset SUPERSET_TERMINAL_ID
 
@@ -37,6 +36,10 @@ fail() {
 
 assert_equal() {
   [ "$1" = "$2" ] || fail "expected '$2', got '$1'"
+}
+
+assert_not_equal() {
+  [ "$1" != "$2" ] || fail "expected values to differ, both were '$1'"
 }
 
 assert_contains() {
@@ -81,14 +84,13 @@ export TMUX="$parent_tmux" TMUX_PANE="$parent_pane"
 register_parent "$parent_session" claude
 create_meta queueing-parent "$parent_session" "$parent_pane"
 queueing_meta="$(megabrain_dispatch_meta_read queueing-parent)"
-assert_equal "$(megabrain_parent_notify_tmux_is_idle "$queueing_meta")" false
 megabrain_parent_notify_dispatch "$queueing_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 queueing_capture="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 assert_contains "$queueing_capture" '[megabrain] mail available for dispatch queueing-parent'
-assert_contains "$(cat "$state_dir/dispatches/queueing-parent/nudge.log")" 'outcome=delivered reason=queueing-parent'
+assert_contains "$(cat "$state_dir/dispatches/queueing-parent/nudge.log")" 'outcome=delivered reason=parent-notified'
 assert_equal "$(wc -l <"$state_dir/dispatches/queueing-parent/nudge.log" | tr -d ' ')" 1
-printf 'queueing parent receives a notice while busy\n'
+printf 'busy parent receives a notice without liveness probing\n'
 
 tmux_cmd new-session -d -s "$unknown_session" "printf '%s' 'Working · esc to interrupt'; sleep 5"
 unknown_pane="$(tmux_cmd display-message -p -t "$unknown_session" '#{pane_id}')"
@@ -97,11 +99,12 @@ unknown_meta="$(megabrain_dispatch_meta_read unrecognised-parent)"
 unknown_before="$(tmux_cmd capture-pane -J -p -t "$unknown_pane" -S -20)"
 megabrain_parent_notify_dispatch "$unknown_meta"
 unknown_after="$(tmux_cmd capture-pane -J -p -t "$unknown_pane" -S -20)"
-assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" busy
-assert_equal "$unknown_before" "$unknown_after"
-assert_contains "$(cat "$state_dir/dispatches/unrecognised-parent/nudge.log")" 'outcome=suppressed reason=parent-busy'
+assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
+assert_contains "$unknown_after" '[megabrain] mail available for dispatch unrecognised-parent'
+assert_not_equal "$unknown_before" "$unknown_after"
+assert_contains "$(cat "$state_dir/dispatches/unrecognised-parent/nudge.log")" 'outcome=delivered reason=parent-notified'
 assert_equal "$(wc -l <"$state_dir/dispatches/unrecognised-parent/nudge.log" | tr -d ' ')" 1
-printf 'unrecognised busy parent remains suppressed\n'
+printf 'unrecognised busy parent receives a notice\n'
 
 tmux_cmd new-session -d -s "$failed_session" "printf '%s' 'Working · esc to interrupt'; sleep 5"
 failed_pane="$(tmux_cmd display-message -p -t "$failed_session" '#{pane_id}')"
@@ -117,7 +120,7 @@ assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" failed
 failed_log="$(cat "$state_dir/dispatches/failed-notice/nudge.log")"
 assert_contains "$failed_log" 'outcome=failed reason=simulated send failure'
 assert_equal "$(printf '%s\n' "$failed_log" | wc -l | tr -d ' ')" 1
-printf 'notify log records delivered, suppressed, and failed outcomes\n'
+printf 'notify log records delivered and failed outcomes\n'
 
 megabrain_parent_notify_dispatch() {
   return 1

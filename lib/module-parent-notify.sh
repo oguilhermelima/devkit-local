@@ -136,9 +136,8 @@ megabrain_parent_notify_tmux() {
 
 # WHY: .runtime says how the CHILD was launched. Reaching the PARENT is a property of
 # the parent, and the two are independent: a dispatch started in an IDE tab can have a
-# parent sitting in a tmux pane. Deciding by the child's runtime sent such a notice to
-# the host, whose terminals read answered "not active", which became liveness unknown
-# and silently suppressed the pointer while the tmux coordinates sat unused in the meta.
+# parent sitting in a tmux pane. The channel therefore follows the parent's own
+# coordinates when they identify a live tmux pane, regardless of the child's runtime.
 # tmux is checked with plain tmux commands so this module keeps working where the tmux
 # runtime module is not sourced.
 megabrain_parent_notify_channel() {

@@ -56,10 +56,8 @@ megabrain orchestrate close <dispatch-id> [--force-release] [--json]
 do not act. Ack it once you have acted; acking twice is safe and reports `duplicate`.
 
 **Do not assume you will be told.** When a child runs `ask` or `done`, megabrain tries to type a
-one-line pointer into the parent's terminal, but that nudge is best effort and is deliberately
-suppressed whenever the parent is busy or its liveness cannot be read. A parent that is mid-turn
-is busy by definition, which is exactly when a child usually reports, and a suppressed pointer is
-not retried. **The queue is the truth; the pointer is only a nudge.** If you are waiting on a
+one-line pointer into the parent's terminal, but that nudge is best effort and the transport can
+still fail. **The queue is the truth; the pointer is only a nudge.** If you are waiting on a
 worker, run `watch` yourself rather than waiting for the pointer to arrive.
 
 Reading the dispatch record is not reading the message. A failure's `reason` field is the

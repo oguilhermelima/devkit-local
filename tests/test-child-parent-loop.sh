@@ -142,26 +142,6 @@ prepare_tmux_parent() {
   sleep 0.1
 }
 
-assert_claude_idle_fixtures() {
-  local fixture_session fixture_pane fixture_meta
-  fixture_session="megabrain-loop-claude-$$"
-  tmux_cmd new-session -d -s "$fixture_session" "printf '%s' '  ⏵⏵ bypass permissions on · 1 shell · ← for agents'; sleep 2"
-  fixture_pane="$(tmux_cmd display-message -p -t "$fixture_session" '#{pane_id}')"
-  fixture_meta="$(jq -cn --arg session "$fixture_session" --arg pane "$fixture_pane" '{parentTmuxSession:$session,parentTmuxPane:$pane}')"
-  assert_equal "$(megabrain_parent_notify_tmux_is_idle "$fixture_meta")" true
-  tmux_cmd kill-session -t "$fixture_session"
-  tmux_cmd new-session -d -s "$fixture_session" "printf '%s' '  ✳ Working · esc to interrupt'; sleep 2"
-  fixture_pane="$(tmux_cmd display-message -p -t "$fixture_session" '#{pane_id}')"
-  fixture_meta="$(jq -cn --arg session "$fixture_session" --arg pane "$fixture_pane" '{parentTmuxSession:$session,parentTmuxPane:$pane}')"
-  assert_equal "$(megabrain_parent_notify_tmux_is_idle "$fixture_meta")" false
-  tmux_cmd kill-session -t "$fixture_session"
-  tmux_cmd new-session -d -s "$fixture_session" "printf '%s' '  unknown pane'; sleep 2"
-  fixture_pane="$(tmux_cmd display-message -p -t "$fixture_session" '#{pane_id}')"
-  fixture_meta="$(jq -cn --arg session "$fixture_session" --arg pane "$fixture_pane" '{parentTmuxSession:$session,parentTmuxPane:$pane}')"
-  assert_equal "$(megabrain_parent_notify_tmux_is_idle "$fixture_meta")" unknown
-  tmux_cmd kill-session -t "$fixture_session"
-}
-
 child_command() {
   local verb="$1" text="${2:-}"
   if [ "$MEGABRAIN_TEST_RUNTIME" = tmux ]; then
@@ -206,7 +186,7 @@ parent_ack() {
 run_flow() {
   local runtime="$1" chain_output dispatch_meta dispatch_id delivery replay delivery_id reply_result push_check push_ack
   local question_delivery question_delivery_id pull_result pull_delivery_id done_delivery done_delivery_id
-  local busy_pane busy_before busy_after
+  local busy_pane busy_before
   MEGABRAIN_TEST_RUNTIME="$runtime"
   fake_send_mode=ok
   fake_close=false
@@ -217,7 +197,6 @@ run_flow() {
     export ORCA_TERMINAL_HANDLE=parent-terminal
     unset SUPERSET_TERMINAL_ID
     prepare_tmux_parent
-    assert_claude_idle_fixtures
     spawn_choice=true
   else
     MEGABRAIN_TEST_CONTEXT=superset
@@ -285,11 +264,11 @@ run_flow() {
     fake_send_mode=fail
   fi
   pull_result="$(megabrain_dispatch_reply "$dispatch_id" --text "printf $runtime-pull-received" --json)"
-  assert_equal "$(jq -r '.status' <<<"$pull_result")" queued
   if [ "$runtime" = tmux ]; then
-    busy_after="$(tmux_cmd capture-pane -p -t "$busy_pane" -S -10)"
-    assert_equal "$busy_after" "$busy_before"
+    assert_equal "$(jq -r '.status' <<<"$pull_result")" replied
+    assert_contains "$busy_before" 'Working · esc to interrupt'
   else
+    assert_equal "$(jq -r '.status' <<<"$pull_result")" queued
     assert_not_contains "$(cat "$state_dir/fake-sends.log")" "$runtime-pull-received"
   fi
   pull_result="$(child_check)"
@@ -316,17 +295,8 @@ run_flow() {
   fi
   assert_equal "$(jq -r '.state' "$state_dir/dispatches/$dispatch_id/meta.json")" closed
   assert_equal "$(find "$state_dir/dispatches/$dispatch_id/deliveries" -name '*.json' -exec jq -r 'select(.status == "outstanding") | .id' {} \; | wc -l | tr -d ' ')" 0
-  printf '%s end-to-end: chain, queue, replay, push, pull, done, duplicate ack, and close\n' "$runtime"
+  printf '%s end-to-end: chain, queue, replay, push, busy reply, pull, done, duplicate ack, and close\n' "$runtime"
 }
-
-BREAK_BUSY_GUARD="${BREAK_BUSY_GUARD:-false}"
-BREAK_CLAUDE_IDLE="${BREAK_CLAUDE_IDLE:-false}"
-if [ "$BREAK_BUSY_GUARD" = true ]; then
-  megabrain_dispatch_child_is_idle() { printf 'true\n'; }
-fi
-if [ "$BREAK_CLAUDE_IDLE" = true ]; then
-  megabrain_parent_notify_tmux_is_idle() { printf 'unknown\n'; }
-fi
 
 run_flow tmux
 run_flow host

@@ -44,6 +44,10 @@ assert_equal() {
   [ "$1" = "$2" ] || fail "expected '$2', got '$1'"
 }
 
+assert_not_equal() {
+  [ "$1" != "$2" ] || fail "expected values to differ, both were '$1'"
+}
+
 assert_contains() {
   case "$1" in
     *"$2"*) ;;
@@ -84,14 +88,13 @@ sleep 0.1
 
 create_meta tmux-idle "$parent_pane"
 idle_meta="$(megabrain_dispatch_meta_read tmux-idle)"
-assert_equal "$(megabrain_parent_is_idle "$idle_meta")" true
 append_message tmux-idle 'body must remain in queue'
 megabrain_parent_notify_dispatch "$idle_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 idle_capture="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 assert_contains "$idle_capture" '[megabrain] mail available for dispatch tmux-idle'
 assert_not_contains "$idle_capture" 'body must remain in queue'
-printf 'tmux idle pointer: %s\n' "$(printf '%s\n' "$idle_capture" | grep -F '[megabrain] mail available for dispatch tmux-idle' | tail -n 1)"
+printf 'tmux parent pointer: %s\n' "$(printf '%s\n' "$idle_capture" | grep -F '[megabrain] mail available for dispatch tmux-idle' | tail -n 1)"
 
 delivery="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/megabrain" orchestrate watch tmux-idle --timeout 0 --poll-interval 0 --wait-mode poll --json)"
 assert_equal "$(jq -r '.messages | length' <<<"$delivery")" 1
@@ -111,18 +114,18 @@ busy_before="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 busy_meta="$(megabrain_dispatch_meta_read tmux-busy)"
 megabrain_parent_notify_dispatch "$busy_meta"
 busy_after="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
-assert_not_contains "$busy_after" '[megabrain] mail available for dispatch tmux-busy'
+assert_contains "$busy_after" '[megabrain] mail available for dispatch tmux-busy'
 assert_equal "$(find "$state_dir/dispatches/tmux-busy/messages" -name '*.json' | wc -l | tr -d ' ')" 1
-assert_equal "$busy_before" "$busy_after"
-printf 'tmux busy parent: no pointer typed and queue retained\n'
+assert_not_equal "$busy_before" "$busy_after"
+printf 'tmux busy parent: pointer typed and queue retained\n'
 sleep 2.1
 
 create_meta tmux-unknown '%999' tmux superset '%999'
 unknown_meta="$(megabrain_dispatch_meta_read tmux-unknown)"
-assert_equal "$(megabrain_parent_is_idle "$unknown_meta")" unknown
-megabrain_parent_notify_dispatch "$unknown_meta"
-assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" unknown
-printf 'unknown liveness: no typing\n'
+megabrain_parent_notify_dispatch "$unknown_meta" || true
+assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" failed
+assert_contains "$(cat "$state_dir/dispatches/tmux-unknown/nudge.log")" 'outcome=failed'
+printf 'missing tmux pane: host fallback attempted and failure logged\n'
 
 create_meta tmux-waiter "$parent_pane"
 waiter_meta="$(megabrain_dispatch_meta_read tmux-waiter)"
@@ -156,7 +159,7 @@ if broken_parent_notify; then
 else
   fail 'deliberately broken busy-parent path did not type'
 fi
-printf 'deliberate busy-parent break: failed as expected\n'
+printf 'direct busy-pane transport accepts the pointer\n'
 
 create_meta tmux-failure "$parent_pane"
 (
@@ -171,14 +174,10 @@ printf 'notify failure: child ask succeeded and queue retained\n'
 
 # WHY: the child's runtime and the parent's reachability are independent. This dispatch
 # was launched in an IDE tab, host runtime, but its parent sits in a live tmux pane, and
-# it must still be notified through that pane. Deciding by the child's runtime probed the
-# host instead, which answered that the terminal was not active, so liveness came back
-# unknown and the pointer was silently suppressed. Nothing here stubs the host client:
-# a stub always looks healthy, which is why the earlier IDE case could not catch this.
+# it must still be notified through that pane.
 create_meta host-runtime-tmux-parent "$parent_pane" host superset
 host_tmux_meta="$(megabrain_dispatch_meta_read host-runtime-tmux-parent)"
 assert_equal "$(megabrain_parent_notify_channel "$host_tmux_meta")" tmux
-assert_equal "$(megabrain_parent_is_idle "$host_tmux_meta")" true
 append_message host-runtime-tmux-parent 'host runtime body'
 megabrain_parent_notify_dispatch "$host_tmux_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
@@ -187,25 +186,21 @@ assert_contains "$host_tmux_capture" '[megabrain] mail available for dispatch ho
 assert_not_contains "$host_tmux_capture" 'host runtime body'
 printf 'host runtime with a live tmux parent still notifies through the pane\n'
 
-# The parent pane is deliberately one that does not exist, so this case really is the
-# host path. It used to pass the live pane and still reach the host only because the
-# channel ignored the parent's tmux coordinates entirely.
+# The parent pane is deliberately one that does not exist, so this case exercises the
+# host fallback selected by the channel.
 create_meta ide-dispatch '%999' host superset '%999'
 host_meta="$(megabrain_dispatch_meta_read ide-dispatch)"
 assert_equal "$(megabrain_parent_notify_channel "$host_meta")" superset
 superset_send_count=0
 megabrain_superset_available() { return 0; }
 megabrain_superset() {
-  if [ "$1" = terminals ] && [ "$2" = read ]; then
-    printf '{"text":"IDE READY"}\n'
-  elif [ "$1" = terminals ] && [ "$2" = send ]; then
+  if [ "$1" = terminals ] && [ "$2" = send ]; then
     superset_send_count=$((superset_send_count + 1))
     printf '{"ok":true}\n'
   else
     return 1
   fi
 }
-assert_equal "$(megabrain_parent_is_idle "$host_meta")" true
 megabrain_parent_notify_dispatch "$host_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 assert_equal "$superset_send_count" 1
@@ -214,7 +209,7 @@ megabrain_parent_notify_dispatch "$host_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" suppressed
 assert_equal "$superset_send_count" 1
 megabrain_parent_notify_waiter_unregister ide-dispatch
-printf 'Superset IDE: terminals read settled, terminals send submitted, waiter suppressed\n'
+printf 'Superset fallback: send submitted for missing pane, waiter suppressed\n'
 
 nudged_id=nudge-watch
 create_meta "$nudged_id" "$parent_pane"
@@ -278,7 +273,7 @@ create_meta no-context "$no_context_pane" tmux superset "$no_context_pane" "$no_
 no_context_meta="$(megabrain_dispatch_meta_read no-context)"
 megabrain_parent_notify_dispatch "$no_context_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
-assert_contains "$(cat "$state_dir/dispatches/no-context/nudge.log")" 'outcome=delivered reason=parent-idle'
+assert_contains "$(cat "$state_dir/dispatches/no-context/nudge.log")" 'outcome=delivered reason=parent-notified'
 printf 'tmux without state context delivers from the dispatch location\n'
 
 rename_home="$state_dir/rename-home"
@@ -298,7 +293,7 @@ MEGABRAIN_DISPATCH_DIR="$rename_new_state/dispatches"
 renamed_meta="$(megabrain_dispatch_meta_read renamed-context)"
 megabrain_parent_notify_dispatch "$renamed_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
-assert_contains "$(cat "$rename_new_state/dispatches/renamed-context/nudge.log")" 'outcome=delivered reason=parent-idle'
+assert_contains "$(cat "$rename_new_state/dispatches/renamed-context/nudge.log")" 'outcome=delivered reason=parent-notified'
 HOME="$saved_home"
 MEGABRAIN_STATE_DIR="$saved_state_dir"
 MEGABRAIN_DISPATCH_DIR="$saved_dispatch_dir"
