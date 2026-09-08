@@ -803,7 +803,8 @@ megabrain_terminal_create() {
 }
 
 megabrain_worktree_create() {
-  local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" prompt="" label="" worktree_selector="" orchestrate=false json=false reused=false
+  local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" chain_name="" prompt="" label="" worktree_selector="" orchestrate=false json=false reused=false
+  local model_explicit=false effort_explicit=false chain_selected=false chain_config=""
   local arg repo_path shared_root worktree_path project_id workspace_id dispatch="" host runtime="" tmux_choice=auto
   local -a agent_args=()
   while [ "$#" -gt 0 ]; do
@@ -814,8 +815,13 @@ megabrain_worktree_create() {
       --base) base="${2:-}"; shift 2 ;;
       --name) slug="${2:-}"; shift 2 ;;
       --agent) agent="${2:-}"; shift 2 ;;
-      --model) model="${2:-}"; shift 2 ;;
-      --effort) effort="${2:-}"; shift 2 ;;
+      --model) model="${2:-}"; model_explicit=true; shift 2 ;;
+      --effort) effort="${2:-}"; effort_explicit=true; shift 2 ;;
+      --chain)
+        [ "$#" -ge 2 ] && [ -n "${2:-}" ] || { megabrain_error '--chain requires a non-empty value'; return "$MEGABRAIN_USAGE_ERROR"; }
+        chain_name="$2"
+        shift 2
+        ;;
       --prompt) prompt="${2:-}"; shift 2 ;;
       --label) label="${2:-}"; shift 2 ;;
       --worktree) worktree_selector="${2:-}"; shift 2 ;;
@@ -842,6 +848,14 @@ megabrain_worktree_create() {
     megabrain_session_id >/dev/null
     [ -n "$MEGABRAIN_SESSION_ID" ] || { megabrain_error "cannot spawn a managed dispatch from an unmanaged shell"; return 1; }
   fi
+  if [ "$orchestrate" != true ] && [ -n "$chain_name" ]; then
+    megabrain_error '--chain is only supported by orchestrate spawn'
+    return "$MEGABRAIN_USAGE_ERROR"
+  fi
+  if [ "$orchestrate" = true ] && [ -n "$agent" ] && [ -n "$chain_name" ]; then
+    megabrain_error '--chain cannot be combined with --agent'
+    return "$MEGABRAIN_USAGE_ERROR"
+  fi
   if [ -n "$worktree_selector" ] && [ "$orchestrate" != true ]; then
     megabrain_error "--worktree is only supported by orchestrate spawn"
     return "$MEGABRAIN_USAGE_ERROR"
@@ -856,8 +870,36 @@ megabrain_worktree_create() {
   fi
   host="$(megabrain_context_detect)"
   if [ "$orchestrate" = true ]; then
-    [ -n "$agent" ] || { megabrain_error "--agent is required for orchestrate spawn"; return "$MEGABRAIN_USAGE_ERROR"; }
+    if [ -z "$agent" ]; then
+      if ! declare -F megabrain_chain_select_spawn_step >/dev/null 2>&1; then
+        # shellcheck source=local/megabrain/lib/module-chain.sh
+        source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/module-chain.sh" || return 1
+      fi
+      chain_config="$(megabrain_chain_read)" || return 1
+      megabrain_chain_validate_config "$chain_config" || return 1
+      if [ -n "$chain_name" ]; then
+        megabrain_chain_select_spawn_step "$chain_config" "$chain_name" "${SUPERSET_AGENT_ID:-}" "${SUPERSET_AGENT_MODEL:-}" "${SUPERSET_AGENT_EFFORT:-}" flag || return 1
+      else
+        megabrain_chain_select_spawn_step "$chain_config" '' "${SUPERSET_AGENT_ID:-}" "${SUPERSET_AGENT_MODEL:-}" "${SUPERSET_AGENT_EFFORT:-}" selector || return 1
+      fi
+      agent="$MEGABRAIN_CHAIN_SELECTED_AGENT"
+      [ "$model_explicit" = true ] || model="$MEGABRAIN_CHAIN_SELECTED_MODEL"
+      [ "$effort_explicit" = true ] || effort="$MEGABRAIN_CHAIN_SELECTED_EFFORT"
+      chain_selected=true
+      [ "$model_explicit" = true ] && MEGABRAIN_CHAIN_REASON="$MEGABRAIN_CHAIN_REASON; explicit --model override"
+      [ "$effort_explicit" = true ] && MEGABRAIN_CHAIN_REASON="$MEGABRAIN_CHAIN_REASON; explicit --effort override"
+    fi
+    [ -n "$agent" ] || { megabrain_error "no agent selected; add a chain with megabrain chain add or pass --agent"; return "$MEGABRAIN_USAGE_ERROR"; }
     [ -n "$model" ] || { megabrain_error "--model is required for orchestrate spawn"; return "$MEGABRAIN_USAGE_ERROR"; }
+    if [ "$chain_selected" = true ] && { [ "$model_explicit" = true ] || [ "$effort_explicit" = true ]; }; then
+      if ! megabrain_model_known "$agent" "$model"; then
+        megabrain_error "--model '$model' is not valid for chain-selected agent '$agent'; list models with megabrain model list"
+        return "$MEGABRAIN_USAGE_ERROR"
+      fi
+      if ! megabrain_model_validate_reasoning "$agent" "$model" "$effort"; then
+        return "$MEGABRAIN_USAGE_ERROR"
+      fi
+    fi
     if [ -z "$effort" ] && { ! megabrain_model_known "$agent" "$model" || megabrain_model_effort_separate "$agent" "$model"; }; then
       megabrain_error "--effort is required for orchestrate spawn"
       return "$MEGABRAIN_USAGE_ERROR"

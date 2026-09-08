@@ -61,15 +61,27 @@ megabrain context --json  # tmux, orca, or superset
 ## Chains: choosing who does the work
 
 A chain is an ordered list of steps. Each step names an agent, a model and an effort, and
-`chain run` takes the **first step whose usage window still has room**. You describe the
-preference once; the choice is made against reality every time.
+`orchestrate spawn` takes the first step from the selected chain. `chain run` remains available
+as the explicit form when you want chain-step fallback and usage-window decisions. You describe
+the preference once; the choice is made against reality every time.
+
+```sh
+megabrain orchestrate spawn --worktree ~/code/api --prompt "$(cat brief.md)" --json
+```
+
+```json
+{"ok":true,"dispatch":"dispatch-20260908-…","runtime":"tmux"}
+```
+
+The selected chain and step are recorded in the dispatch metadata. Use `chain run` when you
+want the explicit chain runner and its fallback across steps:
 
 ```sh
 megabrain chain run --worktree ~/code/api --prompt "$(cat brief.md)" --json
 ```
 
 ```json
-{"ok":true,"chain":"claude","step":1,"totalSteps":2,"agent":"codex",
+{"ok":true,"chain":"my-chain","step":1,"totalSteps":2,"agent":"codex",
  "reason":"no earlier steps skipped; selector match with 1 field(s)",
  "dispatch":{"dispatch":"dispatch-20260908-…","runtime":"tmux"}}
 ```
@@ -78,16 +90,23 @@ The result always says which step it took and why the earlier ones were skipped,
 is recorded in the dispatch. When your first choice is exhausted you get the second one with an
 explanation, instead of a failure you have to diagnose.
 
-**A chain is named after the parent that uses it, not the child it launches.** First use creates
-`claude`, `codex` and `agy`. `run` prefers an explicit name, then the most specific selector that
-matches your `parentAgent`, `parentModel` and `parentEffort`, then `defaultSteps`. Two selectors
+**Chains start empty and must be added.** A chain is named by the operator, not automatically
+after a parent or child agent. Add one with `chain add`, then `orchestrate spawn` prefers an
+explicit `--chain`, then the most specific selector matching `parentAgent`, `parentModel` and
+`parentEffort`, then `defaultSteps`. `chain run` follows the same selection order. Two selectors
 of equal specificity fail rather than pick arbitrarily.
 
 ```sh
+megabrain chain add my-chain --parent-agent codex \
+  --step '{"agent":"claude","model":"claude-sonnet-5","effort":"high"}'
 megabrain chain list --json      # the steps, in order, with their selectors
 megabrain chain limits --json    # what each provider window says right now
 megabrain chain repair <name> --step 2 --model <id> --effort high
 ```
+
+Pass `--chain <name>` to either spawn command to bypass selector matching. An explicit `--agent`
+on `orchestrate spawn` is the escape hatch and bypasses chains entirely; `--model` and `--effort`
+may override those fields when the agent comes from a chain.
 
 > [!NOTE]
 > A limit condition skips a step; a launch failure advances to the next one. An unknown limit

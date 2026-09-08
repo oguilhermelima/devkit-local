@@ -161,7 +161,7 @@ megabrain_usage_line() {
     worktree-list) printf 'worktree list [--repo <name|path>] [--json]' ;;
     worktree-adopt) printf 'worktree adopt <path|branch> [--json]' ;;
     terminal-create) printf 'terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]' ;;
-    orchestrate-spawn) printf 'orchestrate spawn --repo <name|path> --branch <branch> --agent <id> --model <id> [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
+    orchestrate-spawn) printf 'orchestrate spawn --repo <name|path> --branch <branch> [--agent <id>] [--chain <name>] [--model <id>] [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
     orchestrate-list) printf 'orchestrate list [--all|--orphans] [--json]' ;;
     orchestrate-prune) printf 'orchestrate prune [--older-than <days>] [--state <list>] [--archive|--delete] [--dry-run] [--json]' ;;
     orchestrate-reconcile) printf 'orchestrate reconcile <dispatch-id> [--all] [--json]' ;;
@@ -182,7 +182,7 @@ megabrain_usage_line() {
     chain-edit) printf 'chain edit <name> [--allow-unknown-model] [--json]' ;;
     chain-delete) printf 'chain delete <name> [--json]' ;;
     chain-repair) printf 'chain repair <name> --step <number> --model <id> [--effort <level>] [--json]' ;;
-    chain-run) printf 'chain run [name] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name|path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
+    chain-run) printf 'chain run [name] [--chain <name>] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name|path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
     model) printf 'model list|add|refresh ...' ;;
     model-list) printf 'model list [--json]' ;;
     model-add) printf 'model add <agent> <model> --reasoning <levels>' ;;

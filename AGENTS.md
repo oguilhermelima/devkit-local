@@ -9,7 +9,7 @@
 - Run megabrain worktree list [--repo <name|path>] [--json].
 - Run megabrain worktree adopt <path|branch> [--json].
 - Run megabrain terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json].
-- Run megabrain orchestrate spawn --repo <name|path> --branch <branch> --agent <id> --model <id> [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json].
+- Run megabrain orchestrate spawn --repo <name|path> --branch <branch> [--agent <id>] [--chain <name>] [--model <id>] [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json].
 - Run megabrain orchestrate list [--all|--orphans] [--json].
 - Run megabrain orchestrate prune [--older-than <days>] [--state <list>] [--archive|--delete] [--dry-run] [--json].
 - Run megabrain orchestrate reconcile <dispatch-id> [--all] [--json].
@@ -29,7 +29,7 @@
 - Run megabrain chain edit <name> [--allow-unknown-model] [--json].
 - Run megabrain chain delete <name> [--json].
 - Run megabrain chain repair <name> --step <number> --model <id> [--effort <level>] [--json].
-- Run megabrain chain run [name] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name|path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json].
+- Run megabrain chain run [name] [--chain <name>] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name|path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json].
 - Run megabrain model list [--json].
 - Run megabrain model add <agent> <model> --reasoning <levels>.
 - Run megabrain model refresh <agent>.

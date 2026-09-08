@@ -18,22 +18,21 @@ command; the help output is the authority, and the lines below are shortened for
 
 ## Delegating work to another agent
 
-**Start here: `megabrain chain run --prompt <brief> [--worktree <path>]`.** Do not choose the
-agent, model or effort yourself. A chain is an ordered list of steps, and `chain run` picks the
-first step whose usage window still has room, so the choice follows real limits instead of a
-guess. It reports which step it chose and why the earlier ones were skipped, and it records
-that in the dispatch metadata.
+**Start here: `megabrain orchestrate spawn --prompt <brief> [--worktree <path>]`.** When no
+`--agent` is supplied, spawn asks the chain module to choose the agent, model and effort. Chains
+start empty, so add one with `megabrain chain add <name> ...` first. Use `chain run` as the
+explicit chain runner when you want its ordered fallback across steps and usage-window checks.
 
 ```
-megabrain chain run [name] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name|path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]
+megabrain orchestrate spawn --repo <name|path> --branch <branch> [--agent <id>] [--chain <name>] [--model <id>] [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json]
 ```
 
-Reach for `orchestrate spawn` only when the user named a specific agent and model, or when you
-must bypass the chain deliberately. It takes the same worktree and prompt options and requires
-`--agent` and `--model`:
+`--chain <name>` bypasses selector matching on both commands. An explicit `--agent` wins over
+chain selection and works with no chain configured. Explicit `--model` and `--effort` override
+those fields when the chain supplies the agent:
 
 ```
-megabrain orchestrate spawn --repo <name|path> --branch <branch> --agent <id> --model <id> [--effort <level>] [--prompt <text>] [--worktree <path>] [--tmux true|false] [--json]
+megabrain chain run [name] [--chain <name>] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name|path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]
 ```
 
 Either way: pass `--worktree <path>` to reuse a checkout that already exists, or `--repo` plus
@@ -128,11 +127,10 @@ megabrain chain repair <name> --step <number> --model <id> [--effort <level>] [-
 megabrain model list|add|refresh ...
 ```
 
-A chain name identifies the **parent** agent it applies to, not the child it launches. First use
-creates the `claude`, `codex` and `agy` parent-agent chains. `run` prefers an explicit name, then
-the most specific matching `parentAgent`, `parentModel` and `parentEffort` selectors, then
-`defaultSteps`. Equal-specificity matches fail rather than choose arbitrarily, and an unknown
-parent value satisfies no selector.
+A chain name is chosen by the operator. Fresh state has no chains. `orchestrate spawn` and `run`
+prefer an explicit `--chain`, then the most specific matching `parentAgent`, `parentModel` and
+`parentEffort` selectors, then `defaultSteps`. Equal-specificity matches fail rather than choose
+arbitrarily, and an unknown parent value satisfies no selector.
 
 `run` delegates every launch to `orchestrate spawn`; it does not duplicate runtime or terminal
 creation. A limit condition may skip a step; a launch failure always advances to the next one.
