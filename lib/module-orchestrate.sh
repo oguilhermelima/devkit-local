@@ -397,11 +397,13 @@ devkit_dispatch_reconcile_one() {
         alive)
           next_state=__keep__
           next_process=__keep__
+          next_terminal=__keep__
           [ "$state" = spawning ] || [ "$state" = orphaned ] && next_state=running
           case "$process_state" in
             starting|start-unproven) next_process=running ;;
           esac
-          devkit_dispatch_meta_update_fields "$dispatch_id" "$next_state" "$next_process" __keep__ terminal-proven identity-proven adopted __keep__ __keep__ || return 1
+          [ "$terminal_state" = retained ] && next_terminal=owned
+          devkit_dispatch_meta_update_fields "$dispatch_id" "$next_state" "$next_process" "$next_terminal" terminal-proven identity-proven adopted __keep__ __keep__ || return 1
           DEVKIT_RECONCILE_OUTCOME=adopted
           ;;
         *)
