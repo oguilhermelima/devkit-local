@@ -67,7 +67,7 @@ printf 'state migration: contents preserved and second run is a no-op\n'
 explicit_old="$work/explicit-old"
 mkdir -p "$explicit_old"
 printf '{}\n' >"$explicit_old/state.json"
-old_env_output="$(HOME="$home" DEVKIT_STATE_DIR="$explicit_old" "$root/megabrain" status 2>&1 || true)"
+old_env_output="$(HOME="$home" DEVKIT_STATE_DIR="$explicit_old" bash -c 'source "$1/lib/common.sh"; printf "%s\n" "$DEVKIT_STATE_DIR"' _ "$root" 2>&1)"
 assert_contains "$old_env_output" 'DEVKIT_STATE_DIR is deprecated'
 assert_contains "$old_env_output" "$explicit_old"
 printf 'deprecated state override: honored with notice\n'
