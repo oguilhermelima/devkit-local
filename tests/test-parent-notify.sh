@@ -64,6 +64,7 @@ append_message() {
 tmux_cmd new-session -d -s "$session_name" -x 120 -y 30 bash
 parent_pane="$(tmux_cmd display-message -p -t "$session_name" '#{pane_id}')"
 tmux_info="$(tmux_cmd display-message -p -t "$parent_pane" '#{socket_path},#{pid},#{session_id}')"
+tmux_cmd set-environment -t "$session_name" DEVKIT_STATE_DIR "$state_dir"
 export TMUX="$tmux_info"
 export TMUX_PANE="$parent_pane"
 tmux_cmd send-keys -t "$parent_pane" -l "PS1='IDLE$ '; export PS1; printf 'parent-ready\\n'"
@@ -204,6 +205,7 @@ outside_state_dir="$(mktemp -d /tmp/devkit-nudge-outside.XXXXXX)"
 outside_socket="d"
 outside_session="out-$$"
 env DEVKIT_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" new-session -d -s "$outside_session" bash
+env DEVKIT_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" set-environment -t "$outside_session" DEVKIT_STATE_DIR "$outside_state_dir"
 outside_pane="$(tmux -L "$outside_socket" display-message -p -t "$outside_session" '#{pane_id}')"
 outside_tmux="$(tmux -L "$outside_socket" display-message -p -t "$outside_pane" '#{socket_path},#{pid},#{session_id}')"
 env DEVKIT_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" send-keys -t "$outside_pane" -l "PS1='OUTSIDE$ '; export PS1; printf 'outside-ready\\n'"

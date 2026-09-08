@@ -229,6 +229,9 @@ run_flow() {
   assert_equal "$(printf '%s' "$chain_output" | jq -r '.agent')" codex
   dispatch_id="$(printf '%s' "$chain_output" | jq -r '.dispatch.dispatch // empty')"
   [ -n "$dispatch_id" ] || fail "$runtime chain did not launch a dispatch"
+  if [ "$runtime" = tmux ]; then
+    assert_equal "$(tmux_cmd show-environment -t "$session_name" DEVKIT_STATE_DIR)" "DEVKIT_STATE_DIR=$state_dir"
+  fi
   dispatch_meta="$(devkit_dispatch_meta_read "$dispatch_id")"
   assert_equal "$(printf '%s' "$dispatch_meta" | jq -r '.promptDelivered')" true
   if [ "$runtime" = tmux ]; then
