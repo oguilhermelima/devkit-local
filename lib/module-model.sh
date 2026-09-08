@@ -8,7 +8,7 @@ else
   MEGABRAIN_MODEL_FILE="$MEGABRAIN_STATE_DIR/models.json"
 fi
 
-devkit_model_init() {
+megabrain_model_init() {
   local tmp
   if [ "$MEGABRAIN_MODEL_FILE_EXPLICIT" = false ]; then
     MEGABRAIN_MODEL_FILE="$MEGABRAIN_STATE_DIR/models.json"
@@ -16,7 +16,7 @@ devkit_model_init() {
   mkdir -p "$MEGABRAIN_STATE_DIR" || return 1
   if [ ! -f "$MEGABRAIN_MODEL_FILE" ]; then
     [ -f "$MEGABRAIN_MODEL_TEMPLATE_FILE" ] || {
-      devkit_error "model registry template is missing: $MEGABRAIN_MODEL_TEMPLATE_FILE"
+      megabrain_error "model registry template is missing: $MEGABRAIN_MODEL_TEMPLATE_FILE"
       return 1
     }
     tmp="$(mktemp "$MEGABRAIN_STATE_DIR/models.XXXXXX")" || return 1
@@ -27,31 +27,31 @@ devkit_model_init() {
     mv -f "$tmp" "$MEGABRAIN_MODEL_FILE"
   fi
   if ! jq -e '.version == 1 and (.models | type == "array")' "$MEGABRAIN_MODEL_FILE" >/dev/null 2>&1; then
-    devkit_error "model registry is not valid JSON: $MEGABRAIN_MODEL_FILE"
+    megabrain_error "model registry is not valid JSON: $MEGABRAIN_MODEL_FILE"
     return 1
   fi
 }
 
-devkit_model_read() {
-  devkit_model_init || return 1
+megabrain_model_read() {
+  megabrain_model_init || return 1
   cat "$MEGABRAIN_MODEL_FILE"
 }
 
-devkit_model_list_ids() {
+megabrain_model_list_ids() {
   local agent="$1" registry
-  registry="$(devkit_model_read)" || return 1
+  registry="$(megabrain_model_read)" || return 1
   printf '%s' "$registry" | jq -r --arg agent "$agent" '.models[] | select(.agent == $agent) | .model'
 }
 
-devkit_model_entry() {
+megabrain_model_entry() {
   local agent="$1" model="$2" registry
-  registry="$(devkit_model_read)" || return 1
+  registry="$(megabrain_model_read)" || return 1
   printf '%s' "$registry" | jq -c --arg agent "$agent" --arg model "$model" \
     '.models[] | select(.agent == $agent and .model == $model)' | head -n 1
 }
 
-devkit_model_known() {
-  [ -n "$(devkit_model_entry "$1" "$2")" ]
+megabrain_model_known() {
+  [ -n "$(megabrain_model_entry "$1" "$2")" ]
 }
 
 command_model_list() {
@@ -60,11 +60,11 @@ command_model_list() {
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
-      -h|--help) devkit_usage_show model-list; return 0 ;;
-      *) devkit_error "unknown model list option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
+      -h|--help) megabrain_usage_show model-list; return 0 ;;
+      *) megabrain_error "unknown model list option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
-  registry="$(devkit_model_read)" || return 1
+  registry="$(megabrain_model_read)" || return 1
   if [ "$json" = true ]; then
     printf '%s\n' "$registry"
   else
@@ -85,7 +85,7 @@ command_model() {
     list) command_model_list "$@" ;;
     add) command_model_add "$@" ;;
     refresh) command_model_refresh "$@" ;;
-    -h|--help|"") devkit_usage_show model ;;
-    *) devkit_error "unknown model command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;
+    -h|--help|"") megabrain_usage_show model ;;
+    *) megabrain_error "unknown model command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }

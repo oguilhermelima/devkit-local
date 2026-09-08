@@ -1,33 +1,33 @@
 #!/usr/bin/env bash
 
 module_tv_adb_doctor() {
-  if ! devkit_require_command adb; then
-    devkit_set_status missing "adb is not on PATH"
+  if ! megabrain_require_command adb; then
+    megabrain_set_status missing "adb is not on PATH"
     return 1
   fi
   if ! adb version >/dev/null 2>&1; then
-    devkit_set_status misconfigured "adb version failed"
+    megabrain_set_status misconfigured "adb version failed"
     return 1
   fi
-  devkit_set_status ok "adb is available"
+  megabrain_set_status ok "adb is available"
   return 0
 }
 
 module_tv_adb_install() {
-  if devkit_require_command adb; then
+  if megabrain_require_command adb; then
     module_tv_adb_doctor
     return $?
   fi
-  if devkit_require_command brew; then
-    devkit_notice "adb is missing. Install Android platform-tools with: brew install android-platform-tools"
+  if megabrain_require_command brew; then
+    megabrain_notice "adb is missing. Install Android platform-tools with: brew install android-platform-tools"
   else
-    devkit_notice "adb is missing. Install Android platform-tools with your OS package manager (for example: apt-get install adb)"
+    megabrain_notice "adb is missing. Install Android platform-tools with your OS package manager (for example: apt-get install adb)"
   fi
-  devkit_set_status missing "adb is not on PATH"
+  megabrain_set_status missing "adb is not on PATH"
   return 1
 }
 
-devkit_tv_device_state() {
+megabrain_tv_device_state() {
   local serial="$1"
   adb devices | awk -v serial="$serial" '$1 == serial {print $2; exit}'
 }
@@ -38,23 +38,23 @@ command_tv() {
   case "$operation" in
     connect)
       case "${1:-}" in
-        -h|--help) devkit_usage_show tv-connect; return 0 ;;
+        -h|--help) megabrain_usage_show tv-connect; return 0 ;;
       esac
       ip="${1:-}"
-      [ -n "$ip" ] || { devkit_usage_fail tv-connect; return "$MEGABRAIN_USAGE_ERROR"; }
+      [ -n "$ip" ] || { megabrain_usage_fail tv-connect; return "$MEGABRAIN_USAGE_ERROR"; }
       shift
       while [ "$#" -gt 0 ]; do
         arg="$1"
         case "$arg" in
           --port) port="${2:-}"; shift 2 ;;
-          -h|--help) devkit_usage_show tv-connect; return 0 ;;
-          *) devkit_error "unknown tv connect option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
+          -h|--help) megabrain_usage_show tv-connect; return 0 ;;
+          *) megabrain_error "unknown tv connect option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
         esac
       done
       module_tv_adb_doctor >/dev/null || return 1
       serial="$ip:$port"
       adb connect "$serial" >/dev/null 2>&1 || true
-      state="$(devkit_tv_device_state "$serial")"
+      state="$(megabrain_tv_device_state "$serial")"
       if [ "$state" = device ]; then
         printf 'tv: connected (%s)\n' "$serial"
         return 0
@@ -64,12 +64,12 @@ command_tv() {
       ;;
     disconnect)
       case "${1:-}" in
-        -h|--help) devkit_usage_show tv-disconnect; return 0 ;;
+        -h|--help) megabrain_usage_show tv-disconnect; return 0 ;;
       esac
       ip="${1:-}"
       if [ "$#" -gt 0 ]; then
         shift
-        [ "$#" -eq 0 ] || { devkit_usage_fail tv-disconnect; return "$MEGABRAIN_USAGE_ERROR"; }
+        [ "$#" -eq 0 ] || { megabrain_usage_fail tv-disconnect; return "$MEGABRAIN_USAGE_ERROR"; }
         module_tv_adb_doctor >/dev/null || return 1
         adb disconnect "$ip"
       else
@@ -77,7 +77,7 @@ command_tv() {
         adb disconnect
       fi
       ;;
-    -h|--help|"") devkit_usage_show tv-connect tv-disconnect ;;
-    *) devkit_error "unknown tv command: $operation"; return "$MEGABRAIN_USAGE_ERROR" ;;
+    -h|--help|"") megabrain_usage_show tv-connect tv-disconnect ;;
+    *) megabrain_error "unknown tv command: $operation"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }

@@ -3,13 +3,13 @@
 MEGABRAIN_PARENT_NOTIFY_TIMEOUT_MS="${MEGABRAIN_PARENT_NOTIFY_TIMEOUT_MS:-1000}"
 MEGABRAIN_PARENT_NOTIFY_SETTLE_MS="${MEGABRAIN_PARENT_NOTIFY_SETTLE_MS:-100}"
 
-devkit_parent_notify_waiter_path() {
-  printf '%s/waiter.json\n' "$(devkit_dispatch_dir "$1")"
+megabrain_parent_notify_waiter_path() {
+  printf '%s/waiter.json\n' "$(megabrain_dispatch_dir "$1")"
 }
 
-devkit_parent_notify_waiter_active() {
+megabrain_parent_notify_waiter_active() {
   local dispatch_id="$1" path pid
-  path="$(devkit_parent_notify_waiter_path "$dispatch_id")" || return 1
+  path="$(megabrain_parent_notify_waiter_path "$dispatch_id")" || return 1
   [ -f "$path" ] || return 1
   pid="$(jq -r '.pid // empty' "$path" 2>/dev/null || true)"
   if [[ ! "$pid" =~ ^[1-9][0-9]*$ ]] || ! kill -0 "$pid" 2>/dev/null; then
@@ -19,14 +19,14 @@ devkit_parent_notify_waiter_active() {
   return 0
 }
 
-devkit_parent_notify_waiter_register() {
+megabrain_parent_notify_waiter_register() {
   local dispatch_id="$1" meta="$2" path tmp lock
-  path="$(devkit_parent_notify_waiter_path "$dispatch_id")" || return 1
+  path="$(megabrain_parent_notify_waiter_path "$dispatch_id")" || return 1
   [ -d "$(dirname "$path")" ] || return 1
   lock="$(dirname "$path")/.waiter.lock"
   while ! mkdir "$lock" 2>/dev/null; do sleep 0.02; done
   tmp="$(mktemp "$(dirname "$path")/.waiter.XXXXXX")" || { rmdir "$lock"; return 1; }
-  if ! jq -n --argjson meta "$meta" --argjson pid "$$" --arg now "$(devkit_iso_now)" \
+  if ! jq -n --argjson meta "$meta" --argjson pid "$$" --arg now "$(megabrain_iso_now)" \
     '{pid: $pid, parentSessionId: $meta.parentSessionId, parentHost: $meta.parentHost, createdAt: $now}' >"$tmp"; then
     rm -f "$tmp"
     rmdir "$lock"
@@ -36,13 +36,13 @@ devkit_parent_notify_waiter_register() {
   rmdir "$lock"
 }
 
-devkit_parent_notify_waiter_unregister() {
+megabrain_parent_notify_waiter_unregister() {
   local dispatch_id="$1" path
-  path="$(devkit_parent_notify_waiter_path "$dispatch_id")" || return 1
+  path="$(megabrain_parent_notify_waiter_path "$dispatch_id")" || return 1
   rm -f "$path"
 }
 
-devkit_parent_notify_canonical_dir() {
+megabrain_parent_notify_canonical_dir() {
   local path="$1"
   [ -n "$path" ] || return 1
   if [ -d "$path" ]; then
@@ -52,15 +52,15 @@ devkit_parent_notify_canonical_dir() {
   fi
 }
 
-devkit_parent_notify_context_matches() {
+megabrain_parent_notify_context_matches() {
   local meta="$1" dispatch_id dispatch_path runtime owner current context session
   MEGABRAIN_PARENT_NOTIFY_STATE_REASON=state-directory-mismatch
   dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty')"
   [ -n "$dispatch_id" ] || return 1
-  dispatch_path="$(devkit_dispatch_meta_path "$dispatch_id")" || return 1
+  dispatch_path="$(megabrain_dispatch_meta_path "$dispatch_id")" || return 1
   # WHY: The dispatch path replaces the hardcoded ~/.devkit fallback and survives state renames.
-  owner="$(devkit_parent_notify_canonical_dir "$(dirname "$(dirname "$(dirname "$dispatch_path")")")")" || return 1
-  current="$(devkit_parent_notify_canonical_dir "$MEGABRAIN_STATE_DIR")" || return 1
+  owner="$(megabrain_parent_notify_canonical_dir "$(dirname "$(dirname "$(dirname "$dispatch_path")")")")" || return 1
+  current="$(megabrain_parent_notify_canonical_dir "$MEGABRAIN_STATE_DIR")" || return 1
   [ "$owner" = "$current" ] || return 1
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   if [ "$runtime" = tmux ]; then
@@ -70,37 +70,37 @@ devkit_parent_notify_context_matches() {
     if [ -z "$context" ]; then
       return 0
     fi
-    context="$(devkit_parent_notify_canonical_dir "$context")" || return 1
+    context="$(megabrain_parent_notify_canonical_dir "$context")" || return 1
     # WHY: The tmux server context is authoritative because a child may override its environment.
     [ "$owner" = "$context" ] || return 1
   fi
   return 0
 }
 
-devkit_parent_notify_pointer() {
+megabrain_parent_notify_pointer() {
   local dispatch_id="$1"
   # The pointer keeps message content in the durable queue and delivery path.
   printf '[devkit] mail available for dispatch %s; run megabrain orchestrate watch %s\n' "$dispatch_id" "$dispatch_id"
 }
 
-devkit_parent_notify_queues_input() {
+megabrain_parent_notify_queues_input() {
   local meta="$1" runtime session agent
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   [ "$runtime" = tmux ] || { printf 'false\n'; return 0; }
   session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
   [ -n "$session" ] || { printf 'false\n'; return 0; }
-  declare -F devkit_tmux_registry_agent_for_session >/dev/null 2>&1 || { printf 'false\n'; return 0; }
-  agent="$(devkit_tmux_registry_agent_for_session "$session" 2>/dev/null || true)"
+  declare -F megabrain_tmux_registry_agent_for_session >/dev/null 2>&1 || { printf 'false\n'; return 0; }
+  agent="$(megabrain_tmux_registry_agent_for_session "$session" 2>/dev/null || true)"
   [ "$agent" = claude ] && printf 'true\n' || printf 'false\n'
 }
 
-devkit_parent_notify_wake_path() {
-  printf '%s/nudge.log\n' "$(devkit_dispatch_dir "$1")"
+megabrain_parent_notify_wake_path() {
+  printf '%s/nudge.log\n' "$(megabrain_dispatch_dir "$1")"
 }
 
-devkit_parent_notify_wake() {
+megabrain_parent_notify_wake() {
   local dispatch_id="$1" pointer="$2" outcome="${3:-}" reason="${4:-}" path lock line
-  path="$(devkit_parent_notify_wake_path "$dispatch_id")" || return 1
+  path="$(megabrain_parent_notify_wake_path "$dispatch_id")" || return 1
   [ -d "$(dirname "$path")" ] || return 1
   line="$pointer"
   if [ -n "$outcome" ]; then
@@ -117,9 +117,9 @@ devkit_parent_notify_wake() {
   rmdir "$lock"
 }
 
-devkit_parent_notify_wait_for_wake() {
+megabrain_parent_notify_wait_for_wake() {
   local dispatch_id="$1" timeout="$2" path lines wake result fifo_dir fifo tail_pid
-  path="$(devkit_parent_notify_wake_path "$dispatch_id")" || return 1
+  path="$(megabrain_parent_notify_wake_path "$dispatch_id")" || return 1
   : >>"$path" || return 1
   lines="$(wc -l <"$path" | tr -d ' ')"
   # WHY: the follower must be reaped by a pid this function owns. It writes nothing
@@ -142,17 +142,17 @@ devkit_parent_notify_wait_for_wake() {
   return "$result"
 }
 
-devkit_parent_notify_tmux_is_idle() {
+megabrain_parent_notify_tmux_is_idle() {
   local meta="$1" session pane first second last_line
   session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
   pane="$(printf '%s' "$meta" | jq -r '.parentTmuxPane // empty')"
   [ -n "$session" ] && [ -n "$pane" ] || { printf 'unknown\n'; return 0; }
-  devkit_require_command tmux || { printf 'unknown\n'; return 0; }
-  devkit_tmux_session_exists "$session" || { printf 'unknown\n'; return 0; }
+  megabrain_require_command tmux || { printf 'unknown\n'; return 0; }
+  megabrain_tmux_session_exists "$session" || { printf 'unknown\n'; return 0; }
   tmux list-panes -t "$session" -F '#{pane_id}' 2>/dev/null | grep -Fx "$pane" >/dev/null 2>&1 || { printf 'unknown\n'; return 0; }
-  first="$(devkit_tmux_capture_pane "$pane" -40 2>/dev/null || true)"
+  first="$(megabrain_tmux_capture_pane "$pane" -40 2>/dev/null || true)"
   sleep "$(awk "BEGIN { printf \"%.3f\", $MEGABRAIN_PARENT_NOTIFY_SETTLE_MS / 1000 }")"
-  second="$(devkit_tmux_capture_pane "$pane" -40 2>/dev/null || true)"
+  second="$(megabrain_tmux_capture_pane "$pane" -40 2>/dev/null || true)"
   [ "$first" = "$second" ] || { printf 'unknown\n'; return 0; }
   last_line="$(printf '%s\n' "$second" | tail -n 1 | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
   case "$last_line" in
@@ -164,14 +164,14 @@ devkit_parent_notify_tmux_is_idle() {
   esac
 }
 
-devkit_parent_notify_tmux() {
+megabrain_parent_notify_tmux() {
   local meta="$1" pointer="$2" pane
   pane="$(printf '%s' "$meta" | jq -r '.parentTmuxPane // empty')"
   [ -n "$pane" ] || return 1
-  devkit_tmux_send_text "$pane" "$pointer"
+  megabrain_tmux_send_text "$pane" "$pointer"
 }
 
-devkit_parent_notify_terminal_text() {
+megabrain_parent_notify_terminal_text() {
   local response="$1"
   printf '%s' "$response" | jq -r '
     if type == "string" then .
@@ -181,12 +181,12 @@ devkit_parent_notify_terminal_text() {
   ' 2>/dev/null || true
 }
 
-devkit_parent_notify_orca_is_idle() {
+megabrain_parent_notify_orca_is_idle() {
   local meta="$1" terminal_id timeout_ms
   terminal_id="$(printf '%s' "$meta" | jq -r '.parentSessionId // empty')"
   timeout_ms="$MEGABRAIN_PARENT_NOTIFY_TIMEOUT_MS"
   [ -n "$terminal_id" ] || { printf 'unknown\n'; return 0; }
-  devkit_require_command orca || { printf 'unknown\n'; return 0; }
+  megabrain_require_command orca || { printf 'unknown\n'; return 0; }
   if orca terminal wait --terminal "$terminal_id" --for tui-idle --timeout-ms "$timeout_ms" >/dev/null 2>&1; then
     printf 'true\n'
   else
@@ -194,19 +194,19 @@ devkit_parent_notify_orca_is_idle() {
   fi
 }
 
-devkit_parent_notify_superset_is_idle() {
+megabrain_parent_notify_superset_is_idle() {
   local meta="$1" workspace_id terminal_id timeout_ms attempts attempt response rendered previous=""
   workspace_id="$(printf '%s' "$meta" | jq -r '.parentWorkspaceId // empty')"
   terminal_id="$(printf '%s' "$meta" | jq -r '.parentSessionId // empty')"
   timeout_ms="$MEGABRAIN_PARENT_NOTIFY_TIMEOUT_MS"
   [ -n "$workspace_id" ] && [ -n "$terminal_id" ] || { printf 'unknown\n'; return 0; }
-  devkit_superset_available || { printf 'unknown\n'; return 0; }
+  megabrain_superset_available || { printf 'unknown\n'; return 0; }
   attempts=$(( (timeout_ms + MEGABRAIN_PARENT_NOTIFY_SETTLE_MS - 1) / MEGABRAIN_PARENT_NOTIFY_SETTLE_MS ))
   [ "$attempts" -gt 0 ] || attempts=1
   for ((attempt = 1; attempt <= attempts; attempt++)); do
-    response="$(devkit_superset terminals read --workspace "$workspace_id" --terminal "$terminal_id" --json 2>/dev/null || true)"
+    response="$(megabrain_superset terminals read --workspace "$workspace_id" --terminal "$terminal_id" --json 2>/dev/null || true)"
     printf '%s' "$response" | jq -e . >/dev/null 2>&1 || { printf 'unknown\n'; return 0; }
-    rendered="$(devkit_parent_notify_terminal_text "$response")"
+    rendered="$(megabrain_parent_notify_terminal_text "$response")"
     if [ -n "$(printf '%s' "$rendered" | tr -d '[:space:]')" ] && [ "$rendered" = "$previous" ]; then
       printf 'true\n'
       return 0
@@ -217,26 +217,26 @@ devkit_parent_notify_superset_is_idle() {
   printf 'unknown\n'
 }
 
-devkit_parent_is_idle() {
+megabrain_parent_is_idle() {
   local meta="$1" runtime host
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   if [ "$runtime" = tmux ]; then
-    devkit_parent_notify_tmux_is_idle "$meta"
+    megabrain_parent_notify_tmux_is_idle "$meta"
     return 0
   fi
   host="$(printf '%s' "$meta" | jq -r '.parentHost // empty')"
   case "$host" in
-    orca) devkit_parent_notify_orca_is_idle "$meta" ;;
-    superset) devkit_parent_notify_superset_is_idle "$meta" ;;
+    orca) megabrain_parent_notify_orca_is_idle "$meta" ;;
+    superset) megabrain_parent_notify_superset_is_idle "$meta" ;;
     *) printf 'unknown\n' ;;
   esac
 }
 
-devkit_parent_notify() {
+megabrain_parent_notify() {
   local meta="$1" pointer="$2" runtime host workspace_id terminal_id
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   if [ "$runtime" = tmux ]; then
-    devkit_parent_notify_tmux "$meta" "$pointer"
+    megabrain_parent_notify_tmux "$meta" "$pointer"
     return $?
   fi
   host="$(printf '%s' "$meta" | jq -r '.parentHost // empty')"
@@ -244,72 +244,72 @@ devkit_parent_notify() {
   terminal_id="$(printf '%s' "$meta" | jq -r '.parentSessionId // empty')"
   case "$host" in
     orca) orca terminal send --terminal "$terminal_id" --text "$pointer" --enter --json >/dev/null ;;
-    superset) devkit_superset terminals send --workspace "$workspace_id" --terminal "$terminal_id" --text "$pointer" --json >/dev/null ;;
-    *) devkit_error "unsupported parent host: $host"; return 1 ;;
+    superset) megabrain_superset terminals send --workspace "$workspace_id" --terminal "$terminal_id" --text "$pointer" --json >/dev/null ;;
+    *) megabrain_error "unsupported parent host: $host"; return 1 ;;
   esac
 }
 
-devkit_parent_notify_dispatch() {
+megabrain_parent_notify_dispatch() {
   local meta="$1" dispatch_id idle pointer queueing notify_error notify_reason notify_error_path notify_status
   MEGABRAIN_PARENT_NOTIFY_RESULT=skipped
   dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty')"
   [ -n "$dispatch_id" ] || { MEGABRAIN_PARENT_NOTIFY_RESULT=failed; return 1; }
-  pointer="$(devkit_parent_notify_pointer "$dispatch_id")"
-  if ! devkit_parent_notify_context_matches "$meta"; then
+  pointer="$(megabrain_parent_notify_pointer "$dispatch_id")"
+  if ! megabrain_parent_notify_context_matches "$meta"; then
     MEGABRAIN_PARENT_NOTIFY_RESULT=suppressed
-    devkit_parent_notify_wake "$dispatch_id" "$pointer" suppressed "${MEGABRAIN_PARENT_NOTIFY_STATE_REASON:-state-directory-mismatch}" >/dev/null 2>&1 || true
+    megabrain_parent_notify_wake "$dispatch_id" "$pointer" suppressed "${MEGABRAIN_PARENT_NOTIFY_STATE_REASON:-state-directory-mismatch}" >/dev/null 2>&1 || true
     return 0
   fi
-  if devkit_parent_notify_waiter_active "$dispatch_id"; then
+  if megabrain_parent_notify_waiter_active "$dispatch_id"; then
     MEGABRAIN_PARENT_NOTIFY_RESULT=suppressed
-    devkit_parent_notify_wake "$dispatch_id" "$pointer" suppressed active-waiter >/dev/null 2>&1 || true
+    megabrain_parent_notify_wake "$dispatch_id" "$pointer" suppressed active-waiter >/dev/null 2>&1 || true
     return 0
   fi
-  queueing="$(devkit_parent_notify_queues_input "$meta")"
+  queueing="$(megabrain_parent_notify_queues_input "$meta")"
   # Claude Code's TUI queues input while busy.
   if [ "$queueing" != true ]; then
-    idle="$(devkit_parent_is_idle "$meta")"
+    idle="$(megabrain_parent_is_idle "$meta")"
     case "$idle" in
       true) ;;
       false)
         MEGABRAIN_PARENT_NOTIFY_RESULT=busy
-        devkit_parent_notify_wake "$dispatch_id" "$pointer" suppressed parent-busy >/dev/null 2>&1 || true
+        megabrain_parent_notify_wake "$dispatch_id" "$pointer" suppressed parent-busy >/dev/null 2>&1 || true
         return 0
         ;;
       *)
         MEGABRAIN_PARENT_NOTIFY_RESULT=unknown
-        devkit_parent_notify_wake "$dispatch_id" "$pointer" suppressed parent-liveness-unknown >/dev/null 2>&1 || true
+        megabrain_parent_notify_wake "$dispatch_id" "$pointer" suppressed parent-liveness-unknown >/dev/null 2>&1 || true
         return 0
         ;;
     esac
   fi
-  if devkit_parent_notify_waiter_active "$dispatch_id"; then
+  if megabrain_parent_notify_waiter_active "$dispatch_id"; then
     MEGABRAIN_PARENT_NOTIFY_RESULT=suppressed
-    devkit_parent_notify_wake "$dispatch_id" "$pointer" suppressed active-waiter >/dev/null 2>&1 || true
+    megabrain_parent_notify_wake "$dispatch_id" "$pointer" suppressed active-waiter >/dev/null 2>&1 || true
     return 0
   fi
-  notify_error_path="$(mktemp "$(devkit_dispatch_dir "$dispatch_id")/.notify-error.XXXXXX" 2>/dev/null || true)"
+  notify_error_path="$(mktemp "$(megabrain_dispatch_dir "$dispatch_id")/.notify-error.XXXXXX" 2>/dev/null || true)"
   notify_status=0
   if [ -n "$notify_error_path" ]; then
-    devkit_parent_notify "$meta" "$pointer" 2>"$notify_error_path" || notify_status=$?
+    megabrain_parent_notify "$meta" "$pointer" 2>"$notify_error_path" || notify_status=$?
     notify_error="$(cat "$notify_error_path" 2>/dev/null || true)"
     rm -f "$notify_error_path"
   else
-    devkit_parent_notify "$meta" "$pointer" || notify_status=$?
+    megabrain_parent_notify "$meta" "$pointer" || notify_status=$?
     notify_error=""
   fi
   if [ "$notify_status" -eq 0 ]; then
     MEGABRAIN_PARENT_NOTIFY_RESULT=delivered
     if [ "$queueing" = true ]; then
-      devkit_parent_notify_wake "$dispatch_id" "$pointer" delivered queueing-parent >/dev/null 2>&1 || true
+      megabrain_parent_notify_wake "$dispatch_id" "$pointer" delivered queueing-parent >/dev/null 2>&1 || true
     else
-      devkit_parent_notify_wake "$dispatch_id" "$pointer" delivered parent-idle >/dev/null 2>&1 || true
+      megabrain_parent_notify_wake "$dispatch_id" "$pointer" delivered parent-idle >/dev/null 2>&1 || true
     fi
     return 0
   fi
   MEGABRAIN_PARENT_NOTIFY_RESULT=failed
   notify_reason="$(printf '%s' "$notify_error" | tr '\r\n' '  ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')"
   [ -n "$notify_reason" ] || notify_reason=notify-failed
-  devkit_parent_notify_wake "$dispatch_id" "$pointer" failed "$notify_reason" >/dev/null 2>&1 || true
+  megabrain_parent_notify_wake "$dispatch_id" "$pointer" failed "$notify_reason" >/dev/null 2>&1 || true
   return 1
 }

@@ -38,7 +38,7 @@ assert_failure() {
 
 prompt='Inspect this prompt only after readiness'
 for agent in codex claude; do
-  command_text="$(devkit_agent_command "$agent" gpt-5 high --extra-flag 'value with spaces')"
+  command_text="$(megabrain_agent_command "$agent" gpt-5 high --extra-flag 'value with spaces')"
   printf '%s: %s\n' "$agent" "$command_text"
   assert_contains "$command_text" gpt-5
   assert_contains "$command_text" high
@@ -47,7 +47,7 @@ for agent in codex claude; do
   assert_not_contains "$command_text" "$prompt"
 done
 
-agy_command="$(devkit_agent_command agy gemini-3.8-flash high --extra-flag 'value with spaces')"
+agy_command="$(megabrain_agent_command agy gemini-3.8-flash high --extra-flag 'value with spaces')"
 printf 'agy: %s\n' "$agy_command"
 assert_contains "$agy_command" --model
 assert_contains "$agy_command" gemini-3.8-flash-high
@@ -55,18 +55,18 @@ assert_contains "$agy_command" 'value\ with\ spaces'
 assert_not_contains "$agy_command" --effort
 assert_not_contains "$agy_command" "$prompt"
 
-agy_low_command="$(devkit_agent_command agy gemini-3.8-flash-high low)"
+agy_low_command="$(megabrain_agent_command agy gemini-3.8-flash-high low)"
 assert_contains "$agy_low_command" gemini-3.8-flash-low
 assert_not_contains "$agy_low_command" --effort
 
-assert_failure devkit_agent_command agy claude-sonnet-4-6 high
-invalid_agy_error="$(devkit_agent_command agy claude-sonnet-4-6 high 2>&1 >/dev/null || true)"
+assert_failure megabrain_agent_command agy claude-sonnet-4-6 high
+invalid_agy_error="$(megabrain_agent_command agy claude-sonnet-4-6 high 2>&1 >/dev/null || true)"
 assert_contains "$invalid_agy_error" 'gemini-3.8-flash-high'
 assert_contains "$invalid_agy_error" 'gpt-oss-120b-medium'
 printf 'agy invalid effort: refused with valid model ids\n'
 
 for command_text in 'codex' 'MEGABRAIN_NO_TMUX=1 codex' 'env FOO=1 codex'; do
-  assembled="$(devkit_terminal_command_with_agent_permissions "$command_text")"
+  assembled="$(megabrain_terminal_command_with_agent_permissions "$command_text")"
   printf 'permissions: %s\n' "$assembled"
   assert_contains "$assembled" --dangerously-bypass-approvals-and-sandbox
   case "$command_text" in
@@ -76,7 +76,7 @@ for command_text in 'codex' 'MEGABRAIN_NO_TMUX=1 codex' 'env FOO=1 codex'; do
   esac
 done
 
-assert_equal "$(devkit_terminal_command_with_agent_permissions 'pnpm dev')" 'pnpm dev'
+assert_equal "$(megabrain_terminal_command_with_agent_permissions 'pnpm dev')" 'pnpm dev'
 printf 'permissions: pnpm dev\n'
 
 tmux_display_count_file="$(mktemp "${TMPDIR:-/tmp}/devkit-agent-command.XXXXXX")"
@@ -105,9 +105,9 @@ tmux() {
 
 export MEGABRAIN_TMUX_ENTER_TIMEOUT_SECONDS=2
 export MEGABRAIN_TMUX_ENTER_WAIT=0
-devkit_tmux_send_agent '%1' 'agy'
+megabrain_tmux_send_agent '%1' 'agy'
 printf 'tmux launch wait: delayed agent evidence accepted\n'
-substitution_report="$(devkit_tmux_model_substitution_report '%1')"
+substitution_report="$(megabrain_tmux_model_substitution_report '%1')"
 assert_contains "$substitution_report" 'not supported for model'
 assert_contains "$substitution_report" 'instead'
 printf 'model substitution: startup warning surfaced\n'

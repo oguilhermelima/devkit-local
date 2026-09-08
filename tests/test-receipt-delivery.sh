@@ -24,15 +24,15 @@ fail() {
 }
 
 create_dispatch() {
-  devkit_dispatch_meta_write receipt-retry parent-terminal orca orca "" child-terminal "$root" fix/prompt-delivery-proof codex label spawning gpt-5 true codex "" "" host ide >/dev/null
+  megabrain_dispatch_meta_write receipt-retry parent-terminal orca orca "" child-terminal "$root" fix/prompt-delivery-proof codex label spawning gpt-5 true codex "" "" host ide >/dev/null
 }
 
 create_dispatch
 (
   sleep 0.1
-  devkit_dispatch_message_append receipt-retry child received 'prompt received' child-terminal >/dev/null
+  megabrain_dispatch_message_append receipt-retry child received 'prompt received' child-terminal >/dev/null
 ) &
-devkit_dispatch_wait_for_prompt_receipt receipt-retry
+megabrain_dispatch_wait_for_prompt_receipt receipt-retry
 wait
 printf 'receipt wait observes a later queue confirmation\n'
 

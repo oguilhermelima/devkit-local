@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 
-devkit_context_detect() {
+megabrain_context_detect() {
   local current_json
-  devkit_session_id >/dev/null
+  megabrain_session_id >/dev/null
   if [ -n "${MEGABRAIN_SESSION_ID:-}" ]; then
     printf '%s\n' "$MEGABRAIN_SESSION_HOST"
     return 0
   fi
-  if devkit_require_command orca; then
+  if megabrain_require_command orca; then
     current_json="$(orca worktree current --json 2>/dev/null || true)"
     if printf '%s' "$current_json" | jq -e '.ok == true and (.result.worktree.path // .result.worktree.git.path) != null' >/dev/null 2>&1; then
       printf 'orca\n'
@@ -22,12 +22,12 @@ command_context() {
   for arg in "$@"; do
     case "$arg" in
       --json) format="json" ;;
-      -h|--help) devkit_usage_show context; return 0 ;;
-      *) devkit_error "unknown context option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
+      -h|--help) megabrain_usage_show context; return 0 ;;
+      *) megabrain_error "unknown context option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
-  host="$(devkit_context_detect)"
-  devkit_session_id >/dev/null
+  host="$(megabrain_context_detect)"
+  megabrain_session_id >/dev/null
   if [ "$format" = json ]; then
     jq -n --arg host "$host" --arg workspace "${SUPERSET_WORKSPACE_ID:-}" \
       --arg terminal "${MEGABRAIN_SESSION_ID:-}" --arg agent "${SUPERSET_AGENT_ID:-}" \
@@ -43,17 +43,17 @@ command_orchestrate() {
   case "$subcommand" in
     spawn) command_worktree create --orchestrate "$@" ;;
     list) command_orchestrate_list "$@" ;;
-    reconcile) devkit_dispatch_reconcile "$@" ;;
-    watch) devkit_dispatch_watch "$@" ;;
-    read) devkit_dispatch_read "$@" ;;
-    ack|acknowledge) devkit_dispatch_ack "$@" ;;
-    reply) devkit_dispatch_reply "$@" ;;
-    close) devkit_dispatch_close "$@" ;;
+    reconcile) megabrain_dispatch_reconcile "$@" ;;
+    watch) megabrain_dispatch_watch "$@" ;;
+    read) megabrain_dispatch_read "$@" ;;
+    ack|acknowledge) megabrain_dispatch_ack "$@" ;;
+    reply) megabrain_dispatch_reply "$@" ;;
+    close) megabrain_dispatch_close "$@" ;;
     -h|--help|"")
-      devkit_usage_show orchestrate-spawn orchestrate-list orchestrate-reconcile \
+      megabrain_usage_show orchestrate-spawn orchestrate-list orchestrate-reconcile \
         orchestrate-watch orchestrate-read orchestrate-ack orchestrate-reply orchestrate-close
       ;;
-    *) devkit_error "unknown orchestrate command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;
+    *) megabrain_error "unknown orchestrate command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }
 
@@ -69,7 +69,7 @@ MEGABRAIN_DISPATCH_LIST_SUPERSET_VALID=false
 MEGABRAIN_DISPATCH_LIST_SUPERSET_TERMINALS='[]'
 MEGABRAIN_DISPATCH_LIST_SUPERSET_IDS=''
 
-devkit_dispatch_list_cache_reset() {
+megabrain_dispatch_list_cache_reset() {
   MEGABRAIN_DISPATCH_LIST_CACHE_ACTIVE=true
   MEGABRAIN_DISPATCH_LIST_ORCA_PREPARED=false
   MEGABRAIN_DISPATCH_LIST_ORCA_AVAILABLE=false
@@ -83,17 +83,17 @@ devkit_dispatch_list_cache_reset() {
   MEGABRAIN_DISPATCH_LIST_SUPERSET_IDS=''
 }
 
-devkit_dispatch_list_cache_disable() {
+megabrain_dispatch_list_cache_disable() {
   MEGABRAIN_DISPATCH_LIST_CACHE_ACTIVE=false
 }
 
-devkit_dispatch_list_cache_prepare_host() {
+megabrain_dispatch_list_cache_prepare_host() {
   local host="$1" records
   case "$host" in
     orca)
       [ "$MEGABRAIN_DISPATCH_LIST_ORCA_PREPARED" = true ] && return 0
       MEGABRAIN_DISPATCH_LIST_ORCA_PREPARED=true
-      if ! devkit_require_command orca; then
+      if ! megabrain_require_command orca; then
         return 0
       fi
       MEGABRAIN_DISPATCH_LIST_ORCA_AVAILABLE=true
@@ -110,11 +110,11 @@ devkit_dispatch_list_cache_prepare_host() {
     superset)
       [ "$MEGABRAIN_DISPATCH_LIST_SUPERSET_PREPARED" = true ] && return 0
       MEGABRAIN_DISPATCH_LIST_SUPERSET_PREPARED=true
-      if ! devkit_superset_available; then
+      if ! megabrain_superset_available; then
         return 0
       fi
       MEGABRAIN_DISPATCH_LIST_SUPERSET_AVAILABLE=true
-      records="$(devkit_superset_terminals_json 2>/dev/null || true)"
+      records="$(megabrain_superset_terminals_json 2>/dev/null || true)"
       MEGABRAIN_DISPATCH_LIST_SUPERSET_TERMINALS="$records"
       if printf '%s' "$records" | jq -e . >/dev/null 2>&1; then
         MEGABRAIN_DISPATCH_LIST_SUPERSET_VALID=true
@@ -127,12 +127,12 @@ devkit_dispatch_list_cache_prepare_host() {
   esac
 }
 
-devkit_dispatch_host_terminal_records() {
+megabrain_dispatch_host_terminal_records() {
   local meta="$1" host workspace_id
   host="$(printf '%s' "$meta" | jq -r '.childHost // empty')"
   workspace_id="$(printf '%s' "$meta" | jq -r '.workspaceId // empty')"
   if [ "$MEGABRAIN_DISPATCH_LIST_CACHE_ACTIVE" = true ]; then
-    devkit_dispatch_list_cache_prepare_host "$host"
+    megabrain_dispatch_list_cache_prepare_host "$host"
     case "$host" in
       orca)
         [ "$MEGABRAIN_DISPATCH_LIST_ORCA_AVAILABLE" = true ] || return 1
@@ -149,19 +149,19 @@ devkit_dispatch_host_terminal_records() {
   fi
   case "$host" in
     orca)
-      devkit_require_command orca || return 1
+      megabrain_require_command orca || return 1
       orca terminal list --json 2>/dev/null
       ;;
     superset)
       [ -n "$workspace_id" ] || return 1
-      devkit_superset_available || return 1
-      devkit_superset terminals list --workspace "$workspace_id" --json 2>/dev/null
+      megabrain_superset_available || return 1
+      megabrain_superset terminals list --workspace "$workspace_id" --json 2>/dev/null
       ;;
     *) return 1 ;;
   esac
 }
 
-devkit_dispatch_terminal_id_exists() {
+megabrain_dispatch_terminal_id_exists() {
   local records="$1" terminal_id="$2"
   printf '%s' "$records" | jq -e --arg id "$terminal_id" '
     def records: if type == "array" then . else (.result.terminals // .terminals // .sessions // .result.sessions // []) end;
@@ -169,7 +169,7 @@ devkit_dispatch_terminal_id_exists() {
   ' >/dev/null 2>&1
 }
 
-devkit_dispatch_terminal_identity_matches() {
+megabrain_dispatch_terminal_identity_matches() {
   local records="$1" terminal_id="$2" dispatch_id="$3"
   printf '%s' "$records" | jq -e --arg id "$terminal_id" --arg dispatch "$dispatch_id" '
     def records: if type == "array" then . else (.result.terminals // .terminals // .sessions // .result.sessions // []) end;
@@ -184,7 +184,7 @@ devkit_dispatch_terminal_identity_matches() {
   ' >/dev/null 2>&1
 }
 
-devkit_dispatch_parent_status() {
+megabrain_dispatch_parent_status() {
   local meta="$1" host parent workspace_json workspace_id terminals queried=false
   MEGABRAIN_PARENT_STATUS=unknown
   host="$(printf '%s' "$meta" | jq -r '.parentHost // empty')"
@@ -192,7 +192,7 @@ devkit_dispatch_parent_status() {
   if [ "$MEGABRAIN_DISPATCH_LIST_CACHE_ACTIVE" = true ]; then
     case "$host" in
       orca)
-        devkit_dispatch_list_cache_prepare_host orca
+        megabrain_dispatch_list_cache_prepare_host orca
         [ "$MEGABRAIN_DISPATCH_LIST_ORCA_AVAILABLE" = true ] || return 0
         [ "$MEGABRAIN_DISPATCH_LIST_ORCA_VALID" = true ] || return 0
         if [ -n "$parent" ] && printf '%s\n' "$MEGABRAIN_DISPATCH_LIST_ORCA_IDS" | grep -Fx "$parent" >/dev/null 2>&1; then
@@ -203,7 +203,7 @@ devkit_dispatch_parent_status() {
         return 0
         ;;
       superset)
-        devkit_dispatch_list_cache_prepare_host superset
+        megabrain_dispatch_list_cache_prepare_host superset
         [ "$MEGABRAIN_DISPATCH_LIST_SUPERSET_AVAILABLE" = true ] || return 0
         [ "$MEGABRAIN_DISPATCH_LIST_SUPERSET_VALID" = true ] || return 0
         if [ -n "$parent" ] && printf '%s\n' "$MEGABRAIN_DISPATCH_LIST_SUPERSET_IDS" | grep -Fx "$parent" >/dev/null 2>&1; then
@@ -218,25 +218,25 @@ devkit_dispatch_parent_status() {
   fi
   case "$host" in
     orca)
-      devkit_require_command orca || return 0
+      megabrain_require_command orca || return 0
       terminals="$(orca terminal list --json 2>/dev/null || true)"
       printf '%s' "$terminals" | jq -e . >/dev/null 2>&1 || return 0
-      if devkit_dispatch_terminal_id_exists "$terminals" "$parent"; then
+      if megabrain_dispatch_terminal_id_exists "$terminals" "$parent"; then
         MEGABRAIN_PARENT_STATUS=alive
       else
         MEGABRAIN_PARENT_STATUS=gone
       fi
       ;;
     superset)
-      devkit_superset_available || return 0
-      workspace_json="$(devkit_superset workspaces list --local --json 2>/dev/null || true)"
+      megabrain_superset_available || return 0
+      workspace_json="$(megabrain_superset workspaces list --local --json 2>/dev/null || true)"
       printf '%s' "$workspace_json" | jq -e . >/dev/null 2>&1 || return 0
       while IFS= read -r workspace_id; do
         [ -n "$workspace_id" ] || continue
         queried=true
-        terminals="$(devkit_superset terminals list --workspace "$workspace_id" --json 2>/dev/null || true)"
+        terminals="$(megabrain_superset terminals list --workspace "$workspace_id" --json 2>/dev/null || true)"
         printf '%s' "$terminals" | jq -e . >/dev/null 2>&1 || { MEGABRAIN_PARENT_STATUS=unknown; return 0; }
-        if devkit_dispatch_terminal_id_exists "$terminals" "$parent"; then
+        if megabrain_dispatch_terminal_id_exists "$terminals" "$parent"; then
           MEGABRAIN_PARENT_STATUS=alive
           return 0
         fi
@@ -247,12 +247,12 @@ devkit_dispatch_parent_status() {
   esac
 }
 
-devkit_dispatch_parent_alive() {
-  devkit_dispatch_parent_status "$1"
+megabrain_dispatch_parent_alive() {
+  megabrain_dispatch_parent_status "$1"
   [ "${MEGABRAIN_PARENT_STATUS:-unknown}" = alive ]
 }
 
-devkit_dispatch_terminal_status() {
+megabrain_dispatch_terminal_status() {
   local meta="$1" dispatch_id terminal_id runtime records tmux_session tmux_pane pane_pid
   MEGABRAIN_TERMINAL_STATUS=unknown
   dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId')"
@@ -261,7 +261,7 @@ devkit_dispatch_terminal_status() {
   if [ "$runtime" = tmux ]; then
     tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
     tmux_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
-    if ! devkit_require_command tmux || ! devkit_tmux_session_exists "$tmux_session"; then
+    if ! megabrain_require_command tmux || ! megabrain_tmux_session_exists "$tmux_session"; then
       MEGABRAIN_TERMINAL_STATUS=missing
       return 0
     fi
@@ -275,13 +275,13 @@ devkit_dispatch_terminal_status() {
     fi
     return 0
   fi
-  records="$(devkit_dispatch_host_terminal_records "$meta" 2>/dev/null || true)"
+  records="$(megabrain_dispatch_host_terminal_records "$meta" 2>/dev/null || true)"
   printf '%s' "$records" | jq -e . >/dev/null 2>&1 || return 0
-  if ! devkit_dispatch_terminal_id_exists "$records" "$terminal_id"; then
+  if ! megabrain_dispatch_terminal_id_exists "$records" "$terminal_id"; then
     MEGABRAIN_TERMINAL_STATUS=missing
     return 0
   fi
-  if devkit_dispatch_terminal_identity_matches "$records" "$terminal_id" "$dispatch_id"; then
+  if megabrain_dispatch_terminal_identity_matches "$records" "$terminal_id" "$dispatch_id"; then
     MEGABRAIN_TERMINAL_STATUS=proven
   fi
 }
@@ -295,11 +295,11 @@ command_orchestrate_list() {
       --json) json=true ;;
       --all) all=true ;;
       --orphans) orphans=true ;;
-      -h|--help) devkit_usage_show orchestrate-list; return 0 ;;
-      *) devkit_error "unknown orchestrate list option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
+      -h|--help) megabrain_usage_show orchestrate-list; return 0 ;;
+      *) megabrain_error "unknown orchestrate list option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
-  devkit_session_id >/dev/null
+  megabrain_session_id >/dev/null
   caller_id="$MEGABRAIN_SESSION_ID"
   caller_host="$MEGABRAIN_SESSION_HOST"
   meta_paths=()
@@ -339,12 +339,12 @@ command_orchestrate_list() {
   done
 }
 
-devkit_superset_terminals_json() {
+megabrain_superset_terminals_json() {
   local workspaces workspace_id terminal_json
-  workspaces="$(devkit_superset workspaces list --local --json 2>/dev/null || printf '[]')"
+  workspaces="$(megabrain_superset workspaces list --local --json 2>/dev/null || printf '[]')"
   printf '%s\n' "$workspaces" | jq -r '(if type == "array" then . else (.result.workspaces? // .workspaces? // .result? // []) end)[]? | (.id // .workspaceId // .workspace.id // empty)' 2>/dev/null | while IFS= read -r workspace_id; do
     [ -n "$workspace_id" ] || continue
-    terminal_json="$(devkit_superset terminals list --workspace "$workspace_id" --json 2>/dev/null || printf '[]')"
+    terminal_json="$(megabrain_superset terminals list --workspace "$workspace_id" --json 2>/dev/null || printf '[]')"
     printf '%s\n' "$terminal_json" | jq -c '(.result.terminals // .terminals // .sessions // .result.sessions // [])[]?' 2>/dev/null
   done | jq -s '{result: {terminals: .}}'
 }

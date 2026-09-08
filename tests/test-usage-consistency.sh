@@ -31,7 +31,7 @@ assert_contains() {
 no_doc_entry=' worktree chain model fact native-appium '
 
 usage_keys() {
-  awk '/^devkit_usage_line\(\) \{/ { inside = 1; next }
+  awk '/^megabrain_usage_line\(\) \{/ { inside = 1; next }
        inside && /^\}/ { inside = 0 }
        inside' "$root/lib/common.sh" |
     sed -n 's/^    \([a-z][a-z-]*\)).*/\1/p'
@@ -42,7 +42,7 @@ checked=0
 
 while IFS= read -r key; do
   [ -n "$key" ] || continue
-  line="$(devkit_usage_line "$key")" || fail "no usage line for key: $key"
+  line="$(megabrain_usage_line "$key")" || fail "no usage line for key: $key"
 
   # Keys are the command path with spaces replaced by dashes.
   read -r -a argv <<<"$(printf '%s' "$key" | tr '-' ' ')"
@@ -67,11 +67,11 @@ done < <(usage_keys)
 # A missing argument must quote the same line the help prints, which is the drift
 # that put three different close usages in one file.
 close_error="$("$root/megabrain" orchestrate close 2>&1 || true)"
-assert_contains "$close_error" "Usage: megabrain $(devkit_usage_line orchestrate-close)" \
+assert_contains "$close_error" "Usage: megabrain $(megabrain_usage_line orchestrate-close)" \
   "orchestrate close error text drifted from its help text: $close_error"
 
 watch_error="$("$root/megabrain" orchestrate watch 2>&1 || true)"
-assert_contains "$watch_error" "Usage: megabrain $(devkit_usage_line orchestrate-watch)" \
+assert_contains "$watch_error" "Usage: megabrain $(megabrain_usage_line orchestrate-watch)" \
   "orchestrate watch error text drifted from its help text: $watch_error"
 
 printf 'ok: %s usage keys agree across help, errors, and AGENTS.md\n' "$checked"

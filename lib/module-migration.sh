@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-devkit_state_migration_source() {
+megabrain_state_migration_source() {
   if [ "${MEGABRAIN_STATE_DIR_LEGACY_EXPLICIT:-false}" = true ]; then
     printf '%s\n' "$MEGABRAIN_STATE_DIR_LEGACY"
   else
@@ -8,26 +8,26 @@ devkit_state_migration_source() {
   fi
 }
 
-devkit_state_migration_entries() {
+megabrain_state_migration_entries() {
   local source="$1"
   find "$source" -mindepth 1 -print 2>/dev/null | sort | sed "s#^${source%/}/##"
 }
 
-devkit_state_migration_verify() {
+megabrain_state_migration_verify() {
   local source="$1" target="$2"
   diff -qr "$source" "$target" >/dev/null 2>&1
 }
 
-devkit_state_migrate() {
+megabrain_state_migrate() {
   local source target staging entries count
-  source="$(devkit_state_migration_source)"
+  source="$(megabrain_state_migration_source)"
   if [ "${MEGABRAIN_STATE_DIR_LEGACY_EXPLICIT:-false}" = true ]; then
     target="$HOME/.megabrain"
   else
     target="$MEGABRAIN_STATE_DIR"
   fi
   [ "$source" != "$target" ] || {
-    devkit_error "migration source and target are the same directory: $source"
+    megabrain_error "migration source and target are the same directory: $source"
     return 1
   }
   if [ ! -e "$source" ]; then
@@ -35,25 +35,25 @@ devkit_state_migrate() {
     return 0
   fi
   [ -d "$source" ] || {
-    devkit_error "migration source is not a directory: $source"
+    megabrain_error "migration source is not a directory: $source"
     return 1
   }
   [ "$source" != / ] && [ "$source" != "$HOME" ] || {
-    devkit_error "refusing to migrate a broad directory: $source"
+    megabrain_error "refusing to migrate a broad directory: $source"
     return 1
   }
   if [ -e "$target" ]; then
     [ -d "$target" ] || {
-      devkit_error "migration target is not a directory: $target"
+      megabrain_error "migration target is not a directory: $target"
       return 1
     }
-    devkit_state_migration_verify "$source" "$target" || {
-      devkit_error "migration target is not identical to the source; nothing was removed: $target"
+    megabrain_state_migration_verify "$source" "$target" || {
+      megabrain_error "migration target is not identical to the source; nothing was removed: $target"
       return 1
     }
-    entries="$(devkit_state_migration_entries "$source")"
+    entries="$(megabrain_state_migration_entries "$source")"
     rm -rf "$source" || {
-      devkit_error "could not remove the verified old state directory: $source"
+      megabrain_error "could not remove the verified old state directory: $source"
       return 1
     }
     count="$(printf '%s\n' "$entries" | awk 'NF { count += 1 } END { print count + 0 }')"
@@ -64,32 +64,32 @@ devkit_state_migrate() {
   mkdir -p "$(dirname "$target")" || return 1
   staging="${target}.migration.$$"
   [ ! -e "$staging" ] || {
-    devkit_error "migration staging path already exists: $staging"
+    megabrain_error "migration staging path already exists: $staging"
     return 1
   }
   mkdir "$staging" || return 1
   if ! cp -Rp "$source/." "$staging/"; then
     rm -rf "$staging"
-    devkit_error "could not copy state to the migration staging path"
+    megabrain_error "could not copy state to the migration staging path"
     return 1
   fi
-  if ! devkit_state_migration_verify "$source" "$staging"; then
+  if ! megabrain_state_migration_verify "$source" "$staging"; then
     rm -rf "$staging"
-    devkit_error "copied state did not verify; the old state was left untouched"
+    megabrain_error "copied state did not verify; the old state was left untouched"
     return 1
   fi
   if ! mv "$staging" "$target"; then
     rm -rf "$staging"
-    devkit_error "could not activate the verified migrated state; the old state was left untouched"
+    megabrain_error "could not activate the verified migrated state; the old state was left untouched"
     return 1
   fi
-  if ! devkit_state_migration_verify "$source" "$target"; then
-    devkit_error "activated state did not verify; the old state was left untouched"
+  if ! megabrain_state_migration_verify "$source" "$target"; then
+    megabrain_error "activated state did not verify; the old state was left untouched"
     return 1
   fi
-  entries="$(devkit_state_migration_entries "$source")"
+  entries="$(megabrain_state_migration_entries "$source")"
   rm -rf "$source" || {
-    devkit_error "could not remove the verified old state directory: $source"
+    megabrain_error "could not remove the verified old state directory: $source"
     return 1
   }
   count="$(printf '%s\n' "$entries" | awk 'NF { count += 1 } END { print count + 0 }')"
@@ -102,16 +102,16 @@ command_migrate() {
   case "$arg" in
     ''|--json)
       [ -z "$arg" ] || {
-        devkit_error 'JSON migration output is not supported yet'
+        megabrain_error 'JSON migration output is not supported yet'
         return "$MEGABRAIN_USAGE_ERROR"
       }
-      devkit_state_migrate
+      megabrain_state_migrate
       ;;
     -h|--help)
-      devkit_usage_show migrate
+      megabrain_usage_show migrate
       ;;
     *)
-      devkit_error "unknown migrate option: $arg"
+      megabrain_error "unknown migrate option: $arg"
       return "$MEGABRAIN_USAGE_ERROR"
       ;;
   esac

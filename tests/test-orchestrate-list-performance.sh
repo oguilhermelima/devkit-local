@@ -48,7 +48,7 @@ source "$root/lib/common.sh"
 source "$root/lib/module-context.sh"
 source "$root/lib/module-orchestrate.sh"
 
-devkit_dispatch_parent_status() {
+megabrain_dispatch_parent_status() {
   MEGABRAIN_PARENT_STATUS=unknown
 }
 

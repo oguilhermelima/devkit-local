@@ -3,11 +3,11 @@
 MEGABRAIN_PLAYWRIGHT_NAME="playwright"
 MEGABRAIN_PLAYWRIGHT_COMMAND="@playwright/mcp@latest"
 
-devkit_playwright_ready() {
+megabrain_playwright_ready() {
   npx -y "$MEGABRAIN_PLAYWRIGHT_COMMAND" --version >/dev/null 2>&1
 }
 
-devkit_agent_mcp_registered() {
+megabrain_agent_mcp_registered() {
   local agent="$1"
   case "$agent" in
     claude)
@@ -23,34 +23,34 @@ devkit_agent_mcp_registered() {
   esac
 }
 
-devkit_present_agents() {
+megabrain_present_agents() {
   local agent
   for agent in claude codex agy; do
-    devkit_require_command "$agent" && printf '%s\n' "$agent"
+    megabrain_require_command "$agent" && printf '%s\n' "$agent"
   done
 }
 
 module_simulator_web_doctor() {
   local agent missing=0
-  if ! devkit_require_command npx; then
-    devkit_set_status missing "npx is not on PATH"
+  if ! megabrain_require_command npx; then
+    megabrain_set_status missing "npx is not on PATH"
     return 1
   fi
-  if ! devkit_playwright_ready; then
-    devkit_set_status missing "@playwright/mcp could not be executed by npx"
+  if ! megabrain_playwright_ready; then
+    megabrain_set_status missing "@playwright/mcp could not be executed by npx"
     return 1
   fi
-  for agent in $(devkit_present_agents); do
+  for agent in $(megabrain_present_agents); do
     case "$agent" in
       codex)
-        if ! devkit_agent_mcp_registered "$agent"; then
-          devkit_set_status misconfigured "playwright MCP is not registered with codex"
+        if ! megabrain_agent_mcp_registered "$agent"; then
+          megabrain_set_status misconfigured "playwright MCP is not registered with codex"
           missing=1
         fi
         ;;
       *)
-        if ! devkit_agent_mcp_registered "$agent"; then
-          devkit_set_status misconfigured "playwright MCP is not registered with $agent"
+        if ! megabrain_agent_mcp_registered "$agent"; then
+          megabrain_set_status misconfigured "playwright MCP is not registered with $agent"
           missing=1
         fi
         ;;
@@ -59,14 +59,14 @@ module_simulator_web_doctor() {
   if [ "$missing" -ne 0 ]; then
     return 1
   fi
-  devkit_set_status ok "Playwright MCP is runnable and registered with installed agent CLIs"
+  megabrain_set_status ok "Playwright MCP is runnable and registered with installed agent CLIs"
   return 0
 }
 
-devkit_register_playwright() {
+megabrain_register_playwright() {
   local agent="$1"
-  if devkit_agent_mcp_registered "$agent"; then
-    devkit_info "$agent: playwright MCP already registered"
+  if megabrain_agent_mcp_registered "$agent"; then
+    megabrain_info "$agent: playwright MCP already registered"
     return 0
   fi
   case "$agent" in
@@ -85,13 +85,13 @@ devkit_register_playwright() {
 
 module_simulator_web_install() {
   local agent rc=0 doctor_rc
-  if ! devkit_playwright_ready; then
-    devkit_error "@playwright/mcp could not be executed by npx"
-    devkit_set_status missing "@playwright/mcp could not be executed by npx"
+  if ! megabrain_playwright_ready; then
+    megabrain_error "@playwright/mcp could not be executed by npx"
+    megabrain_set_status missing "@playwright/mcp could not be executed by npx"
     return 1
   fi
-  for agent in $(devkit_present_agents); do
-    devkit_register_playwright "$agent" || rc=1
+  for agent in $(megabrain_present_agents); do
+    megabrain_register_playwright "$agent" || rc=1
   done
   module_simulator_web_doctor
   doctor_rc=$?

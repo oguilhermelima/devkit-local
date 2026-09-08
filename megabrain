@@ -17,13 +17,13 @@ MEGABRAIN_LIB_DIR="$MEGABRAIN_ROOT/lib"
 
 # shellcheck source=local/devkit/lib/common.sh
 source "$MEGABRAIN_LIB_DIR/common.sh"
-for devkit_module in "$MEGABRAIN_LIB_DIR"/module-*.sh; do
-  [ -f "$devkit_module" ] || continue
+for megabrain_module in "$MEGABRAIN_LIB_DIR"/module-*.sh; do
+  [ -f "$megabrain_module" ] || continue
   # shellcheck disable=SC1090
-  source "$devkit_module"
+  source "$megabrain_module"
 done
 
-devkit_usage() {
+megabrain_usage() {
   cat <<'EOF'
 Usage: megabrain <command> [options]
 
@@ -61,7 +61,7 @@ Commands:
 EOF
 }
 
-devkit_main() {
+megabrain_main() {
   local command="${1:-help}"
   shift || true
 
@@ -84,10 +84,10 @@ devkit_main() {
     native) command_native "$@" ;;
     tv) command_tv "$@" ;;
     tmux) command_tmux "$@" ;;
-    help|-h|--help) devkit_usage ;;
-    version|-V|--version) devkit_version ;;
-    *) devkit_error "unknown command: $command"; devkit_usage >&2; return "$MEGABRAIN_USAGE_ERROR" ;;
+    help|-h|--help) megabrain_usage ;;
+    version|-V|--version) megabrain_version ;;
+    *) megabrain_error "unknown command: $command"; megabrain_usage >&2; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }
 
-devkit_main "$@"
+megabrain_main "$@"

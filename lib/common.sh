@@ -33,33 +33,33 @@ MODULE_DETAILS=""
 MODULE_UNCERTAIN_DISPATCHES=0
 MODULE_RETAINED_TERMINALS=0
 
-devkit_error() {
+megabrain_error() {
   printf 'megabrain: %s\n' "$*" >&2
 }
 
-devkit_info() {
+megabrain_info() {
   printf '%s\n' "$*"
 }
 
 # WHY: advice is not a result. Keeping it off stdout is what lets --json callers
 # capture a module's output without a human sentence landing inside the JSON.
-devkit_notice() {
+megabrain_notice() {
   printf '%s\n' "$*" >&2
 }
 
-devkit_require_command() {
+megabrain_require_command() {
   command -v "$1" >/dev/null 2>&1
 }
 
 # WHY: the plugin manifest is the version the marketplaces publish, and it ships
 # next to this script, so reading it keeps one number instead of two that drift.
-devkit_version() {
+megabrain_version() {
   local manifest="${MEGABRAIN_ROOT:-}/.claude-plugin/plugin.json" version=''
   [ -f "$manifest" ] && version="$(jq -r '.version // empty' "$manifest" 2>/dev/null || true)"
   printf 'megabrain %s\n' "${version:-unknown}"
 }
 
-devkit_superset_binary() {
+megabrain_superset_binary() {
   local path
   path="$(type -P superset 2>/dev/null || true)"
   if [ -n "$path" ]; then
@@ -69,22 +69,22 @@ devkit_superset_binary() {
   fi
 }
 
-devkit_superset_available() {
-  [ -n "$(devkit_superset_binary)" ]
+megabrain_superset_available() {
+  [ -n "$(megabrain_superset_binary)" ]
 }
 
-devkit_superset() {
+megabrain_superset() {
   local binary
-  binary="$(devkit_superset_binary)"
+  binary="$(megabrain_superset_binary)"
   [ -n "$binary" ] || return 127
   "$binary" "$@"
 }
 
-devkit_iso_now() {
+megabrain_iso_now() {
   date -u '+%Y-%m-%dT%H:%M:%SZ'
 }
 
-devkit_session_id() {
+megabrain_session_id() {
   MEGABRAIN_SESSION_ID=""
   MEGABRAIN_SESSION_HOST="unknown"
   if [ -n "${SUPERSET_TERMINAL_ID:-}" ]; then
@@ -97,30 +97,30 @@ devkit_session_id() {
   printf '%s\n' "$MEGABRAIN_SESSION_ID"
 }
 
-devkit_json_value() {
+megabrain_json_value() {
   local expression="$1"
   jq -r "$expression // empty" 2>/dev/null
 }
 
-devkit_state_init() {
+megabrain_state_init() {
   mkdir -p "$MEGABRAIN_STATE_DIR" || return 1
   if [ ! -f "$MEGABRAIN_STATE_FILE" ]; then
     printf '{}\n' >"$MEGABRAIN_STATE_FILE"
   elif ! jq empty "$MEGABRAIN_STATE_FILE" >/dev/null 2>&1; then
-    devkit_error "state file is not valid JSON: $MEGABRAIN_STATE_FILE"
+    megabrain_error "state file is not valid JSON: $MEGABRAIN_STATE_FILE"
     return 1
   fi
 }
 
-devkit_state_set() {
+megabrain_state_set() {
   local module="$1"
   local installed="$2"
   local details="$3"
   local configured_at
   local tmp
 
-  devkit_state_init || return 1
-  configured_at="$(devkit_iso_now)"
+  megabrain_state_init || return 1
+  configured_at="$(megabrain_iso_now)"
   tmp="$(mktemp "$MEGABRAIN_STATE_DIR/state.XXXXXX")" || return 1
   if ! jq --arg module "$module" \
     --argjson installed "$installed" \
@@ -137,7 +137,7 @@ devkit_state_set() {
 # WHY: one string per command. Help output, group listings and missing-argument
 # errors all read from here, so the three cannot drift apart the way they did while
 # each site carried its own copy.
-devkit_usage_line() {
+megabrain_usage_line() {
   case "$1" in
     install) printf 'install [module-id] [--yes] [--revert]' ;;
     doctor) printf 'doctor [module-id] [--json]' ;;
@@ -188,81 +188,81 @@ devkit_usage_line() {
   esac
 }
 
-devkit_usage_show() {
+megabrain_usage_show() {
   local key first=true
   for key in "$@"; do
     if [ "$first" = true ]; then
-      printf 'Usage: megabrain %s\n' "$(devkit_usage_line "$key")"
+      printf 'Usage: megabrain %s\n' "$(megabrain_usage_line "$key")"
       first=false
     else
-      printf '       megabrain %s\n' "$(devkit_usage_line "$key")"
+      printf '       megabrain %s\n' "$(megabrain_usage_line "$key")"
     fi
   done
 }
 
-devkit_usage_fail() {
-  devkit_error "Usage: megabrain $(devkit_usage_line "$1")"
+megabrain_usage_fail() {
+  megabrain_error "Usage: megabrain $(megabrain_usage_line "$1")"
   return "$MEGABRAIN_USAGE_ERROR"
 }
 
-devkit_set_status() {
+megabrain_set_status() {
   MODULE_STATUS="$1"
   MODULE_REASON="$2"
   MODULE_DETAILS="${3:-$2}"
 }
 
-devkit_status_line() {
+megabrain_status_line() {
   printf '%-18s %s: %s\n' "$1" "$2" "$3"
 }
 
-devkit_bool_json() {
+megabrain_bool_json() {
   case "$1" in
     true|1|yes) printf 'true\n' ;;
     *) printf 'false\n' ;;
   esac
 }
 
-devkit_trim() {
+megabrain_trim() {
   awk '{$1=$1; print}'
 }
 
-devkit_lower() {
+megabrain_lower() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
 }
 
-devkit_json_ok() {
+megabrain_json_ok() {
   jq -e '.ok == true' >/dev/null 2>&1
 }
 
-devkit_json_result() {
+megabrain_json_result() {
   jq -c '.result // .' 2>/dev/null
 }
 
-devkit_orca_json() {
+megabrain_orca_json() {
   orca "$@" --json 2>/dev/null
 }
 
-devkit_superset_json() {
-  devkit_superset "$@" --json 2>/dev/null
+megabrain_superset_json() {
+  megabrain_superset "$@" --json 2>/dev/null
 }
 
-devkit_validate_module() {
+megabrain_validate_module() {
   case "$1" in
     orchestration|orchestration-hooks|worktree|simulator-web|simulator-native|simulator-tv|tv-adb|tmux-runtime) return 0 ;;
     *) return 1 ;;
   esac
 }
 
-devkit_module_ids() {
+megabrain_module_ids() {
   printf '%s\n' orchestration orchestration-hooks worktree simulator-web simulator-native simulator-tv tv-adb tmux-runtime
 }
 
-devkit_runtime_enabled() {
+megabrain_runtime_enabled() {
   [ -f "$MEGABRAIN_STATE_FILE" ] || return 1
   jq -e '."tmux-runtime".installed == true' "$MEGABRAIN_STATE_FILE" >/dev/null 2>&1
 }
 
-devkit_backup_path() {
+megabrain_backup_path() {
   local path="$1" stamp suffix=1 backup
   [ -f "$path" ] || return 0
   stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
@@ -274,16 +274,16 @@ devkit_backup_path() {
   printf '%s\n' "$backup"
 }
 
-devkit_backup_file() {
+megabrain_backup_file() {
   local path="$1" backup
   [ -f "$path" ] || return 0
-  backup="$(devkit_backup_path "$path")"
+  backup="$(megabrain_backup_path "$path")"
   cp -p "$path" "$backup" || return 1
   MEGABRAIN_LAST_BACKUP_PATH="$backup"
   printf '%s\n' "$backup"
 }
 
-devkit_latest_backup() {
+megabrain_latest_backup() {
   local path="$1" candidate latest=''
   for candidate in "${path}.megabrain-backup-"*; do
     [ -f "$candidate" ] || continue

@@ -51,13 +51,13 @@ write_state() {
   jq -n --argjson installed "$1" '{"tmux-runtime": {installed: $installed}}' >"$MEGABRAIN_STATE_FILE"
 }
 
-devkit_tmux_available() {
+megabrain_tmux_available() {
   [ "${TEST_TMUX_AVAILABLE:-true}" = true ]
 }
 
 assert_runtime() {
   local expected="$1" requested="$2"
-  devkit_resolve_spawn_runtime "$requested"
+  megabrain_resolve_spawn_runtime "$requested"
   assert_equal "$MEGABRAIN_SPAWN_RUNTIME" "$expected"
 }
 
@@ -78,7 +78,7 @@ printf 'disabled/--tmux true -> resolved runtime: tmux\n'
 TEST_TMUX_AVAILABLE=false
 before_files="$(find "$state_dir" -type f -print 2>/dev/null | sort)"
 before_worktrees="$(git -C "$root" worktree list --porcelain)"
-assert_failure devkit_resolve_spawn_runtime true
+assert_failure megabrain_resolve_spawn_runtime true
 after_files="$(find "$state_dir" -type f -print 2>/dev/null | sort)"
 assert_equal "$after_files" "$before_files"
 after_worktrees="$(git -C "$root" worktree list --porcelain)"
@@ -90,7 +90,7 @@ unset ORCA_TERMINAL_HANDLE
 TEST_TMUX_AVAILABLE=true
 before_files="$(find "$state_dir" -type f -print 2>/dev/null | sort)"
 before_worktrees="$(git -C "$root" worktree list --porcelain)"
-assert_failure devkit_resolve_spawn_runtime false
+assert_failure megabrain_resolve_spawn_runtime false
 after_files="$(find "$state_dir" -type f -print 2>/dev/null | sort)"
 assert_equal "$after_files" "$before_files"
 after_worktrees="$(git -C "$root" worktree list --porcelain)"
@@ -99,15 +99,15 @@ printf 'IDE from unmanaged shell -> clear failure, nothing created\n'
 
 export SUPERSET_TERMINAL_ID=parent-terminal
 spawn_agent_arg_count=0
-devkit_workspace_id_for_target() {
+megabrain_workspace_id_for_target() {
   printf 'workspace-test\n'
 }
-devkit_launch_agent() {
+megabrain_launch_agent() {
   spawn_agent_arg_count="$#"
   MEGABRAIN_LAST_DISPATCH=spawn-no-agent-arg
   MEGABRAIN_LAST_SPAWN_RUNTIME=host
 }
-devkit_worktree_create --worktree "$root" --agent codex --model gpt-5 --effort medium \
+megabrain_worktree_create --worktree "$root" --agent codex --model gpt-5 --effort medium \
   --prompt spawn-without-agent-arg --tmux false --orchestrate --json >/dev/null
 assert_equal "$spawn_agent_arg_count" 7
 spawn_gate_passed=true

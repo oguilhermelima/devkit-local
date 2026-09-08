@@ -71,7 +71,7 @@ orca() {
       fi
     done
     session="${command_text##* -s }"
-    tmux_cmd new-session -d -s "$session" "$(devkit_agent_command)"
+    tmux_cmd new-session -d -s "$session" "$(megabrain_agent_command)"
     printf '{"result":{"terminal":{"handle":"child-terminal"}}}\n'
   elif [ "${1:-}" = terminal ] && [ "${2:-}" = close ]; then
     fake_close=true
@@ -89,23 +89,23 @@ source "$root/lib/module-tmux-runtime.sh"
 source "$root/lib/module-worktree.sh"
 source "$root/lib/module-chain.sh"
 
-devkit_context_detect() {
+megabrain_context_detect() {
   printf '%s\n' "$MEGABRAIN_TEST_CONTEXT"
 }
 
-devkit_workspace_id_for_target() {
+megabrain_workspace_id_for_target() {
   printf 'workspace-test\n'
 }
 
-devkit_agent_command() {
+megabrain_agent_command() {
   printf '%s\n' "awk 'BEGIN { print \"READY\"; print \"CHILD$\"; fflush() } { print \"agent-response:\" \$0; print \"CHILD$\"; fflush() }'"
 }
 
-devkit_superset_available() {
+megabrain_superset_available() {
   return 0
 }
 
-devkit_superset() {
+megabrain_superset() {
   if [ "${1:-}" = terminals ] && [ "${2:-}" = create ]; then
     printf '{"terminalId":"child-terminal"}\n'
   elif [ "${1:-}" = terminals ] && [ "${2:-}" = read ]; then
@@ -122,11 +122,11 @@ devkit_superset() {
   fi
 }
 
-devkit_tmux_available() {
+megabrain_tmux_available() {
   return 0
 }
 
-devkit_dispatch_wait_for_prompt_receipt() {
+megabrain_dispatch_wait_for_prompt_receipt() {
   return 0
 }
 
@@ -148,17 +148,17 @@ assert_claude_idle_fixtures() {
   tmux_cmd new-session -d -s "$fixture_session" "printf '%s' '  ⏵⏵ bypass permissions on · 1 shell · ← for agents'; sleep 2"
   fixture_pane="$(tmux_cmd display-message -p -t "$fixture_session" '#{pane_id}')"
   fixture_meta="$(jq -cn --arg session "$fixture_session" --arg pane "$fixture_pane" '{parentTmuxSession:$session,parentTmuxPane:$pane}')"
-  assert_equal "$(devkit_parent_notify_tmux_is_idle "$fixture_meta")" true
+  assert_equal "$(megabrain_parent_notify_tmux_is_idle "$fixture_meta")" true
   tmux_cmd kill-session -t "$fixture_session"
   tmux_cmd new-session -d -s "$fixture_session" "printf '%s' '  ✳ Working · esc to interrupt'; sleep 2"
   fixture_pane="$(tmux_cmd display-message -p -t "$fixture_session" '#{pane_id}')"
   fixture_meta="$(jq -cn --arg session "$fixture_session" --arg pane "$fixture_pane" '{parentTmuxSession:$session,parentTmuxPane:$pane}')"
-  assert_equal "$(devkit_parent_notify_tmux_is_idle "$fixture_meta")" false
+  assert_equal "$(megabrain_parent_notify_tmux_is_idle "$fixture_meta")" false
   tmux_cmd kill-session -t "$fixture_session"
   tmux_cmd new-session -d -s "$fixture_session" "printf '%s' '  unknown pane'; sleep 2"
   fixture_pane="$(tmux_cmd display-message -p -t "$fixture_session" '#{pane_id}')"
   fixture_meta="$(jq -cn --arg session "$fixture_session" --arg pane "$fixture_pane" '{parentTmuxSession:$session,parentTmuxPane:$pane}')"
-  assert_equal "$(devkit_parent_notify_tmux_is_idle "$fixture_meta")" unknown
+  assert_equal "$(megabrain_parent_notify_tmux_is_idle "$fixture_meta")" unknown
   tmux_cmd kill-session -t "$fixture_session"
 }
 
@@ -196,11 +196,11 @@ child_ack() {
 }
 
 parent_watch() {
-  devkit_dispatch_watch "$dispatch_id" --timeout 0 --poll-interval 0 --wait-mode poll --json
+  megabrain_dispatch_watch "$dispatch_id" --timeout 0 --poll-interval 0 --wait-mode poll --json
 }
 
 parent_ack() {
-  devkit_dispatch_ack "$dispatch_id" "$1" --json
+  megabrain_dispatch_ack "$dispatch_id" "$1" --json
 }
 
 run_flow() {
@@ -233,7 +233,7 @@ run_flow() {
   if [ "$runtime" = tmux ]; then
     assert_equal "$(tmux_cmd show-environment -t "$session_name" MEGABRAIN_STATE_DIR)" "MEGABRAIN_STATE_DIR=$state_dir"
   fi
-  dispatch_meta="$(devkit_dispatch_meta_read "$dispatch_id")"
+  dispatch_meta="$(megabrain_dispatch_meta_read "$dispatch_id")"
   assert_equal "$(printf '%s' "$dispatch_meta" | jq -r '.promptDelivered')" true
   if [ "$runtime" = tmux ]; then
     child_session="$(printf '%s' "$dispatch_meta" | jq -r '.tmuxSession')"
@@ -259,7 +259,7 @@ run_flow() {
   assert_equal "$(jq -r '.replayed' <<<"$replay")" true
   assert_equal "$(jq -r '.deliveryId' <<<"$replay")" "$delivery_id"
   parent_ack "$delivery_id" >/dev/null
-  reply_result="$(devkit_dispatch_reply "$dispatch_id" --text "printf $runtime-push-received" --json)"
+  reply_result="$(megabrain_dispatch_reply "$dispatch_id" --text "printf $runtime-push-received" --json)"
   assert_equal "$(jq -r '.status' <<<"$reply_result")" replied
   if [ "$runtime" = tmux ]; then
     assert_contains "$(tmux_cmd capture-pane -p -t "$child_pane" -S -30)" "agent-response:printf $runtime-push-received"
@@ -284,7 +284,7 @@ run_flow() {
   else
     fake_send_mode=fail
   fi
-  pull_result="$(devkit_dispatch_reply "$dispatch_id" --text "printf $runtime-pull-received" --json)"
+  pull_result="$(megabrain_dispatch_reply "$dispatch_id" --text "printf $runtime-pull-received" --json)"
   assert_equal "$(jq -r '.status' <<<"$pull_result")" queued
   if [ "$runtime" = tmux ]; then
     busy_after="$(tmux_cmd capture-pane -p -t "$busy_pane" -S -10)"
@@ -309,10 +309,10 @@ run_flow() {
   assert_contains "$queue_types" 'child/done'
   if [ "$runtime" = tmux ]; then
     tmux_cmd kill-pane -t "$(printf '%s' "$dispatch_meta" | jq -r '.tmuxPane')"
-    devkit_dispatch_close "$dispatch_id" --json >/dev/null
+    megabrain_dispatch_close "$dispatch_id" --json >/dev/null
     assert_equal "$(tmux_cmd has-session -t "$child_session" >/dev/null 2>&1; printf '%s' "$?")" 1
   else
-    devkit_dispatch_close "$dispatch_id" --json >/dev/null
+    megabrain_dispatch_close "$dispatch_id" --json >/dev/null
   fi
   assert_equal "$(jq -r '.state' "$state_dir/dispatches/$dispatch_id/meta.json")" closed
   assert_equal "$(find "$state_dir/dispatches/$dispatch_id/deliveries" -name '*.json' -exec jq -r 'select(.status == "outstanding") | .id' {} \; | wc -l | tr -d ' ')" 0
@@ -322,10 +322,10 @@ run_flow() {
 BREAK_BUSY_GUARD="${BREAK_BUSY_GUARD:-false}"
 BREAK_CLAUDE_IDLE="${BREAK_CLAUDE_IDLE:-false}"
 if [ "$BREAK_BUSY_GUARD" = true ]; then
-  devkit_dispatch_child_is_idle() { printf 'true\n'; }
+  megabrain_dispatch_child_is_idle() { printf 'true\n'; }
 fi
 if [ "$BREAK_CLAUDE_IDLE" = true ]; then
-  devkit_parent_notify_tmux_is_idle() { printf 'unknown\n'; }
+  megabrain_parent_notify_tmux_is_idle() { printf 'unknown\n'; }
 fi
 
 run_flow tmux

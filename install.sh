@@ -671,7 +671,7 @@ installer_copy_skill() {
 # source directory is usually gone, and that single broken entry makes the whole
 # plugin listing fail, so this cannot be gated on reading the listing first.
 # Removing the marketplace cascades to the plugin it published.
-installer_remove_stale_devkit_plugin() {
+installer_remove_stale_megabrain_plugin() {
   local agent="$1" removed=false
   case "$agent" in
     claude)
@@ -811,7 +811,7 @@ installer_install_plugin_command() {
 installer_install_claude() {
   case "$SKILL_MODE" in
     global)
-      installer_remove_stale_devkit_plugin claude || return 1
+      installer_remove_stale_megabrain_plugin claude || return 1
       installer_reconcile_marketplace claude || return 1
       installer_install_plugin_command claude claude plugin install "megabrain@megabrain-local" || { installer_error "could not install megabrain from the Claude marketplace"; return 1; }
       installer_remove_stale_claude_skill || return 1
@@ -826,13 +826,13 @@ installer_install_claude() {
 }
 
 installer_install_codex() {
-  installer_remove_stale_devkit_plugin codex || return 1
+  installer_remove_stale_megabrain_plugin codex || return 1
   installer_reconcile_marketplace codex || return 1
   installer_install_plugin_command codex codex plugin add "megabrain@megabrain-local" || { installer_error "could not install megabrain from the Codex marketplace"; return 1; }
 }
 
 installer_install_agy() {
-  installer_remove_stale_devkit_plugin agy || return 1
+  installer_remove_stale_megabrain_plugin agy || return 1
   installer_install_plugin_command agy agy plugin install "$SOURCE_ROOT" || { installer_error "could not install the agy plugin from $SOURCE_ROOT"; return 1; }
 }
 

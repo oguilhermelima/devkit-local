@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 
-devkit_model_refresh_agy() {
+megabrain_model_refresh_agy() {
   local raw ids registry models tmp id levels_json
-  devkit_model_init || return 1
+  megabrain_model_init || return 1
   raw="$(agy models 2>&1)" || {
-    devkit_error "could not refresh agy models: agy models failed"
+    megabrain_error "could not refresh agy models: agy models failed"
     return 1
   }
   ids="$(printf '%s\n' "$raw" | awk '{for (i = 1; i <= NF; i++) { gsub(/[^[:alnum:]_.-]/, "", $i); if ($i ~ /^(gemini|claude|gpt-oss)-[[:alnum:]_.-]+$/) print $i }}' | sort -u)"
-  [ -n "$ids" ] || { devkit_error "could not refresh agy models: agy models returned no model ids"; return 1; }
+  [ -n "$ids" ] || { megabrain_error "could not refresh agy models: agy models returned no model ids"; return 1; }
   models='[]'
   while IFS= read -r id; do
     [ -n "$id" ] || continue
@@ -19,12 +19,12 @@ devkit_model_refresh_agy() {
       *) levels_json='["none"]' ;;
     esac
     models="$(printf '%s' "$models" | jq --arg model "$id" --argjson levels "$levels_json" \
-      --arg obtainedAt "$(devkit_iso_now)" \
+      --arg obtainedAt "$(megabrain_iso_now)" \
       '. + [{agent: "agy", model: $model, reasoning: {separateAxis: false, levels: $levels}, provenance: {kind: "live", command: "agy models", obtainedAt: $obtainedAt}}]')"
   done <<EOF
 $ids
 EOF
-  registry="$(devkit_model_read)" || return 1
+  registry="$(megabrain_model_read)" || return 1
   tmp="$(mktemp "$MEGABRAIN_STATE_DIR/models.XXXXXX")" || return 1
   if ! printf '%s' "$registry" | jq --argjson models "$models" '.models = ([.models[] | select(.agent != "agy")] + $models)' >"$tmp"; then
     rm -f "$tmp"
@@ -37,21 +37,21 @@ EOF
 command_model_refresh() {
   local agent="${1:-}" arg
   case "$agent" in
-    -h|--help) devkit_usage_show model-refresh; return 0 ;;
+    -h|--help) megabrain_usage_show model-refresh; return 0 ;;
   esac
-  [ -n "$agent" ] || { devkit_usage_fail model-refresh; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ -n "$agent" ] || { megabrain_usage_fail model-refresh; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) shift ;;
-      -h|--help) devkit_usage_show model-refresh; return 0 ;;
-      *) devkit_error "unknown model refresh option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
+      -h|--help) megabrain_usage_show model-refresh; return 0 ;;
+      *) megabrain_error "unknown model refresh option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
   case "$agent" in
-    agy) devkit_model_refresh_agy ;;
-    codex|claude) devkit_error "$agent has no live model listing; its registry entries remain manually curated"; return 1 ;;
-    *) devkit_error "unknown agent: $agent"; return 1 ;;
+    agy) megabrain_model_refresh_agy ;;
+    codex|claude) megabrain_error "$agent has no live model listing; its registry entries remain manually curated"; return 1 ;;
+    *) megabrain_error "unknown agent: $agent"; return 1 ;;
   esac
 }

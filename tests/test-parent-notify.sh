@@ -64,12 +64,12 @@ tmux_cmd() {
 
 create_meta() {
   local dispatch_id="$1" pane="$2" runtime="${3:-tmux}" host="${4:-superset}" parent_target="${5:-$parent_pane}" parent_session="${6:-$session_name}"
-  devkit_dispatch_meta_write "$dispatch_id" "$parent_id" "$host" "$host" "$workspace_id" "$dispatch_id-child" "$root" main codex label running gpt-5 true codex "$session_name" "$pane" "$runtime" "$runtime" "$parent_session" "$parent_target" "$workspace_id" >/dev/null
+  megabrain_dispatch_meta_write "$dispatch_id" "$parent_id" "$host" "$host" "$workspace_id" "$dispatch_id-child" "$root" main codex label running gpt-5 true codex "$session_name" "$pane" "$runtime" "$runtime" "$parent_session" "$parent_target" "$workspace_id" >/dev/null
 }
 
 append_message() {
   local dispatch_id="$1" text="$2"
-  devkit_dispatch_message_append "$dispatch_id" child ask "$text" "$dispatch_id-child" >/dev/null
+  megabrain_dispatch_message_append "$dispatch_id" child ask "$text" "$dispatch_id-child" >/dev/null
 }
 
 tmux_cmd new-session -d -s "$session_name" -x 120 -y 30 bash
@@ -83,10 +83,10 @@ tmux_cmd send-keys -t "$parent_pane" Enter
 sleep 0.1
 
 create_meta tmux-idle "$parent_pane"
-idle_meta="$(devkit_dispatch_meta_read tmux-idle)"
-assert_equal "$(devkit_parent_is_idle "$idle_meta")" true
+idle_meta="$(megabrain_dispatch_meta_read tmux-idle)"
+assert_equal "$(megabrain_parent_is_idle "$idle_meta")" true
 append_message tmux-idle 'body must remain in queue'
-devkit_parent_notify_dispatch "$idle_meta"
+megabrain_parent_notify_dispatch "$idle_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 idle_capture="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
 assert_contains "$idle_capture" '[devkit] mail available for dispatch tmux-idle'
@@ -108,8 +108,8 @@ sleep 0.1
 create_meta tmux-busy "$parent_pane"
 append_message tmux-busy 'busy body'
 busy_before="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
-busy_meta="$(devkit_dispatch_meta_read tmux-busy)"
-devkit_parent_notify_dispatch "$busy_meta"
+busy_meta="$(megabrain_dispatch_meta_read tmux-busy)"
+megabrain_parent_notify_dispatch "$busy_meta"
 busy_after="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
 assert_not_contains "$busy_after" '[devkit] mail available for dispatch tmux-busy'
 assert_equal "$(find "$state_dir/dispatches/tmux-busy/messages" -name '*.json' | wc -l | tr -d ' ')" 1
@@ -118,22 +118,22 @@ printf 'tmux busy parent: no pointer typed and queue retained\n'
 sleep 2.1
 
 create_meta tmux-unknown '%999' tmux superset '%999'
-unknown_meta="$(devkit_dispatch_meta_read tmux-unknown)"
-assert_equal "$(devkit_parent_is_idle "$unknown_meta")" unknown
-devkit_parent_notify_dispatch "$unknown_meta"
+unknown_meta="$(megabrain_dispatch_meta_read tmux-unknown)"
+assert_equal "$(megabrain_parent_is_idle "$unknown_meta")" unknown
+megabrain_parent_notify_dispatch "$unknown_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" unknown
 printf 'unknown liveness: no typing\n'
 
 create_meta tmux-waiter "$parent_pane"
-waiter_meta="$(devkit_dispatch_meta_read tmux-waiter)"
-devkit_parent_notify_waiter_register tmux-waiter "$waiter_meta"
+waiter_meta="$(megabrain_dispatch_meta_read tmux-waiter)"
+megabrain_parent_notify_waiter_register tmux-waiter "$waiter_meta"
 append_message tmux-waiter 'waiter body'
 waiter_before="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
-devkit_parent_notify_dispatch "$waiter_meta"
+megabrain_parent_notify_dispatch "$waiter_meta"
 waiter_after="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" suppressed
 assert_equal "$waiter_before" "$waiter_after"
-devkit_parent_notify_waiter_unregister tmux-waiter
+megabrain_parent_notify_waiter_unregister tmux-waiter
 waiter_delivery="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/devkit" orchestrate watch tmux-waiter --timeout 0 --poll-interval 0 --wait-mode poll --json)"
 assert_equal "$(jq -r '.messages[0].text' <<<"$waiter_delivery")" 'waiter body'
 printf 'active waiter: nudge suppressed and delivery remained readable\n'
@@ -142,11 +142,11 @@ create_meta tmux-broken "$parent_pane"
 tmux_cmd send-keys -t "$parent_pane" -l "PS1='BUSY$ '; export PS1; printf 'busy-marker\\n'"
 tmux_cmd send-keys -t "$parent_pane" Enter
 sleep 0.1
-broken_meta="$(devkit_dispatch_meta_read tmux-broken)"
-broken_pointer="$(devkit_parent_notify_pointer tmux-broken)"
+broken_meta="$(megabrain_dispatch_meta_read tmux-broken)"
+broken_pointer="$(megabrain_parent_notify_pointer tmux-broken)"
 broken_before="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
 broken_parent_notify() {
-  devkit_parent_notify_tmux "$broken_meta" "$broken_pointer"
+  megabrain_parent_notify_tmux "$broken_meta" "$broken_pointer"
 }
 if broken_parent_notify; then
   broken_after="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
@@ -162,18 +162,18 @@ create_meta tmux-failure "$parent_pane"
 (
   unset TMUX TMUX_PANE
   export SUPERSET_TERMINAL_ID=tmux-failure-child
-  devkit_parent_notify_dispatch() { return 1; }
-  devkit_dispatch_child_message ask 'failure body retained'
+  megabrain_parent_notify_dispatch() { return 1; }
+  megabrain_dispatch_child_message ask 'failure body retained'
 ) >/dev/null
 assert_equal "$(find "$state_dir/dispatches/tmux-failure/messages" -name '*.json' | wc -l | tr -d ' ')" 1
 assert_equal "$(jq -r '.text' "$state_dir/dispatches/tmux-failure/messages"/*.json)" 'failure body retained'
 printf 'notify failure: child ask succeeded and queue retained\n'
 
 create_meta ide-dispatch "$parent_pane" host superset
-host_meta="$(devkit_dispatch_meta_read ide-dispatch)"
+host_meta="$(megabrain_dispatch_meta_read ide-dispatch)"
 superset_send_count=0
-devkit_superset_available() { return 0; }
-devkit_superset() {
+megabrain_superset_available() { return 0; }
+megabrain_superset() {
   if [ "$1" = terminals ] && [ "$2" = read ]; then
     printf '{"text":"IDE READY"}\n'
   elif [ "$1" = terminals ] && [ "$2" = send ]; then
@@ -183,15 +183,15 @@ devkit_superset() {
     return 1
   fi
 }
-assert_equal "$(devkit_parent_is_idle "$host_meta")" true
-devkit_parent_notify_dispatch "$host_meta"
+assert_equal "$(megabrain_parent_is_idle "$host_meta")" true
+megabrain_parent_notify_dispatch "$host_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 assert_equal "$superset_send_count" 1
-devkit_parent_notify_waiter_register ide-dispatch "$host_meta"
-devkit_parent_notify_dispatch "$host_meta"
+megabrain_parent_notify_waiter_register ide-dispatch "$host_meta"
+megabrain_parent_notify_dispatch "$host_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" suppressed
 assert_equal "$superset_send_count" 1
-devkit_parent_notify_waiter_unregister ide-dispatch
+megabrain_parent_notify_waiter_unregister ide-dispatch
 printf 'Superset IDE: terminals read settled, terminals send submitted, waiter suppressed\n'
 
 nudged_id=nudge-watch
@@ -206,8 +206,8 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   sleep 0.1
 done
 append_message "$nudged_id" 'nudge woke watcher'
-nudge_meta="$(devkit_dispatch_meta_read "$nudged_id")"
-devkit_parent_notify_dispatch "$nudge_meta"
+nudge_meta="$(megabrain_dispatch_meta_read "$nudged_id")"
+megabrain_parent_notify_dispatch "$nudge_meta"
 wait "$watch_pid"
 assert_equal "$(jq -r '.messages[0].text' "$watch_output")" 'nudge woke watcher'
 # The follower never writes again after the wake line, so an unreaped one holds the
@@ -225,11 +225,11 @@ outside_tmux="$(tmux -L "$outside_socket" display-message -p -t "$outside_pane" 
 env MEGABRAIN_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" send-keys -t "$outside_pane" -l "PS1='OUTSIDE$ '; export PS1; printf 'outside-ready\\n'"
 env MEGABRAIN_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" send-keys -t "$outside_pane" Enter
 sleep 0.1
-devkit_dispatch_meta_write cross-context parent-terminal superset superset workspace-test cross-context-child "$root" main codex label running gpt-5 true codex "$outside_session" "$outside_pane" tmux tmux "$outside_session" "$outside_pane" "$workspace_id" >/dev/null
-cross_context_meta="$(devkit_dispatch_meta_read cross-context)"
+megabrain_dispatch_meta_write cross-context parent-terminal superset superset workspace-test cross-context-child "$root" main codex label running gpt-5 true codex "$outside_session" "$outside_pane" tmux tmux "$outside_session" "$outside_pane" "$workspace_id" >/dev/null
+cross_context_meta="$(megabrain_dispatch_meta_read cross-context)"
 export TMUX="$outside_tmux" TMUX_PANE="$outside_pane"
 cross_context_before="$(env MEGABRAIN_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" capture-pane -p -t "$outside_pane" -S -20)"
-devkit_parent_notify_dispatch "$cross_context_meta"
+megabrain_parent_notify_dispatch "$cross_context_meta"
 cross_context_after="$(env MEGABRAIN_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" capture-pane -p -t "$outside_pane" -S -20)"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" suppressed
 assert_equal "$cross_context_before" "$cross_context_after"
@@ -238,8 +238,8 @@ printf 'cross-context parent notice is suppressed and logged\n'
 
 export TMUX="$tmux_info" TMUX_PANE="$parent_pane"
 create_meta same-context "$parent_pane"
-same_context_meta="$(devkit_dispatch_meta_read same-context)"
-devkit_parent_notify_dispatch "$same_context_meta"
+same_context_meta="$(megabrain_dispatch_meta_read same-context)"
+megabrain_parent_notify_dispatch "$same_context_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 same_context_capture="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
 assert_contains "$same_context_capture" '[devkit] mail available for dispatch same-context'
@@ -253,8 +253,8 @@ tmux_cmd send-keys -t "$no_context_pane" -l "PS1='NO-CONTEXT$ '; export PS1; pri
 tmux_cmd send-keys -t "$no_context_pane" Enter
 sleep 0.1
 create_meta no-context "$no_context_pane" tmux superset "$no_context_pane" "$no_context_session"
-no_context_meta="$(devkit_dispatch_meta_read no-context)"
-devkit_parent_notify_dispatch "$no_context_meta"
+no_context_meta="$(megabrain_dispatch_meta_read no-context)"
+megabrain_parent_notify_dispatch "$no_context_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 assert_contains "$(cat "$state_dir/dispatches/no-context/nudge.log")" 'outcome=delivered reason=parent-idle'
 printf 'tmux without state context delivers from the dispatch location\n'
@@ -273,8 +273,8 @@ create_meta renamed-context "$no_context_pane" tmux superset "$no_context_pane" 
 mv "$rename_old_state" "$rename_new_state"
 MEGABRAIN_STATE_DIR="$rename_new_state"
 MEGABRAIN_DISPATCH_DIR="$rename_new_state/dispatches"
-renamed_meta="$(devkit_dispatch_meta_read renamed-context)"
-devkit_parent_notify_dispatch "$renamed_meta"
+renamed_meta="$(megabrain_dispatch_meta_read renamed-context)"
+megabrain_parent_notify_dispatch "$renamed_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 assert_contains "$(cat "$rename_new_state/dispatches/renamed-context/nudge.log")" 'outcome=delivered reason=parent-idle'
 HOME="$saved_home"

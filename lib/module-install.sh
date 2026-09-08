@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-devkit_module_doctor() {
+megabrain_module_doctor() {
   local module="$1"
   case "$module" in
     orchestration) module_orchestration_doctor ;;
@@ -11,11 +11,11 @@ devkit_module_doctor() {
     simulator-tv) module_simulator_tv_doctor ;;
     tv-adb) module_tv_adb_doctor ;;
     tmux-runtime) module_tmux_runtime_doctor ;;
-    *) devkit_set_status missing "unknown module"; return 1 ;;
+    *) megabrain_set_status missing "unknown module"; return 1 ;;
   esac
 }
 
-devkit_module_install() {
+megabrain_module_install() {
   local module="$1"
   case "$module" in
     orchestration) module_orchestration_install ;;
@@ -26,41 +26,41 @@ devkit_module_install() {
     simulator-tv) module_simulator_tv_install ;;
     tv-adb) module_tv_adb_install ;;
     tmux-runtime) module_tmux_runtime_install "${2:-false}" ;;
-    *) devkit_error "unknown module: $module"; return "$MEGABRAIN_USAGE_ERROR" ;;
+    *) megabrain_error "unknown module: $module"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }
 
-devkit_module_revert() {
+megabrain_module_revert() {
   local module="$1"
   case "$module" in
     orchestration-hooks) module_orchestration_hooks_revert ;;
-    *) devkit_error "module cannot be reverted: $module"; return "$MEGABRAIN_USAGE_ERROR" ;;
+    *) megabrain_error "module cannot be reverted: $module"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }
 
-devkit_install_one() {
+megabrain_install_one() {
   local module="$1"
   local assume_yes="${2:-false}" install_rc doctor_rc
-  devkit_module_install "$module" "$assume_yes"
+  megabrain_module_install "$module" "$assume_yes"
   install_rc=$?
-  devkit_module_doctor "$module"
+  megabrain_module_doctor "$module"
   doctor_rc=$?
   if [ "$doctor_rc" -eq 0 ] && [ "$install_rc" -eq 0 ]; then
-    devkit_state_set "$module" true "$MODULE_DETAILS" || return 1
-    devkit_status_line "$module" "$MODULE_STATUS" "$MODULE_REASON"
+    megabrain_state_set "$module" true "$MODULE_DETAILS" || return 1
+    megabrain_status_line "$module" "$MODULE_STATUS" "$MODULE_REASON"
     return 0
   fi
-  devkit_state_set "$module" false "$MODULE_DETAILS" || return 1
-  devkit_status_line "$module" "$MODULE_STATUS" "$MODULE_REASON"
+  megabrain_state_set "$module" false "$MODULE_DETAILS" || return 1
+  megabrain_status_line "$module" "$MODULE_STATUS" "$MODULE_REASON"
   return 1
 }
 
-devkit_doctor_one() {
+megabrain_doctor_one() {
   local module="$1"
   local json="${2:-false}"
   MODULE_UNCERTAIN_DISPATCHES=0
   MODULE_RETAINED_TERMINALS=0
-  devkit_module_doctor "$module"
+  megabrain_module_doctor "$module"
   local rc=$?
   if [ "$json" = true ]; then
     jq -n --arg module "$module" --arg status "$MODULE_STATUS" --arg reason "$MODULE_REASON" \
@@ -68,18 +68,18 @@ devkit_doctor_one() {
       --argjson retainedTerminals "${MODULE_RETAINED_TERMINALS:-0}" \
       '{module: $module, status: $status, reason: $reason, uncertainDispatches: $uncertainDispatches, retainedTerminals: $retainedTerminals}'
   else
-    devkit_status_line "$module" "$MODULE_STATUS" "$MODULE_REASON"
+    megabrain_status_line "$module" "$MODULE_STATUS" "$MODULE_REASON"
   fi
   return "$rc"
 }
 
-devkit_interactive_modules() {
+megabrain_interactive_modules() {
   local index module selected
   local -a ids
   ids=()
   while IFS= read -r module; do
     ids+=("$module")
-  done < <(devkit_module_ids)
+  done < <(megabrain_module_ids)
   printf 'Select modules to install (numbers separated by spaces, or all):\n'
   index=1
   if [ "${#ids[@]}" -gt 0 ]; then
@@ -97,12 +97,12 @@ devkit_interactive_modules() {
   fi
   for index in $selected; do
     case "$index" in
-      '') devkit_error "invalid module selection: $index"; return 1 ;;
+      '') megabrain_error "invalid module selection: $index"; return 1 ;;
       *)
         if [[ "$index" =~ ^[0-9]+$ ]] && [ "$index" -ge 1 ] && [ "$index" -le "${#ids[@]}" ]; then
           printf '%s\n' "${ids[$((index - 1))]}"
         else
-          devkit_error "invalid module selection: $index"
+          megabrain_error "invalid module selection: $index"
           return 1
         fi
         ;;
@@ -118,12 +118,12 @@ command_install() {
       --yes) assume_yes=true; shift ;;
       --revert) revert=true; shift ;;
       -h|--help)
-        devkit_usage_show install
+        megabrain_usage_show install
         return 0
         ;;
       *)
         if [ -n "$module" ]; then
-          devkit_error "install accepts at most one module id"
+          megabrain_error "install accepts at most one module id"
           return "$MEGABRAIN_USAGE_ERROR"
         fi
         module="$arg"
@@ -132,21 +132,21 @@ command_install() {
     esac
   done
   if [ -n "$module" ]; then
-    devkit_validate_module "$module" || { devkit_error "unknown module: $module"; return "$MEGABRAIN_USAGE_ERROR"; }
+    megabrain_validate_module "$module" || { megabrain_error "unknown module: $module"; return "$MEGABRAIN_USAGE_ERROR"; }
     if [ "$revert" = true ]; then
-      devkit_module_revert "$module"
+      megabrain_module_revert "$module"
       return $?
     fi
-    devkit_install_one "$module" "$assume_yes"
+    megabrain_install_one "$module" "$assume_yes"
     return $?
   fi
   if [ ! -t 0 ]; then
-    devkit_error "install without a module id requires an interactive terminal"
+    megabrain_error "install without a module id requires an interactive terminal"
     return 1
   fi
-  selected_modules="$(devkit_interactive_modules)" || return 1
+  selected_modules="$(megabrain_interactive_modules)" || return 1
   while IFS= read -r selected; do
-    devkit_install_one "$selected" "$assume_yes" || rc=1
+    megabrain_install_one "$selected" "$assume_yes" || rc=1
   done <<EOF
 $selected_modules
 EOF
@@ -160,12 +160,12 @@ command_doctor() {
     case "$arg" in
       --json) json=true; shift ;;
       -h|--help)
-        devkit_usage_show doctor
+        megabrain_usage_show doctor
         return 0
         ;;
       *)
         if [ -n "$module" ]; then
-          devkit_error "doctor accepts at most one module id"
+          megabrain_error "doctor accepts at most one module id"
           return "$MEGABRAIN_USAGE_ERROR"
         fi
         module="$arg"
@@ -174,20 +174,20 @@ command_doctor() {
     esac
   done
   if [ -n "$module" ]; then
-    devkit_validate_module "$module" || { devkit_error "unknown module: $module"; return "$MEGABRAIN_USAGE_ERROR"; }
-    devkit_doctor_one "$module" "$json"
+    megabrain_validate_module "$module" || { megabrain_error "unknown module: $module"; return "$MEGABRAIN_USAGE_ERROR"; }
+    megabrain_doctor_one "$module" "$json"
     return $?
   fi
   results=''
   while IFS= read -r current; do
     if [ "$json" = true ]; then
-      result="$(devkit_doctor_one "$current" true)" || rc=1
+      result="$(megabrain_doctor_one "$current" true)" || rc=1
       results="${results}${result}
 "
     else
-      devkit_doctor_one "$current" || rc=1
+      megabrain_doctor_one "$current" || rc=1
     fi
-  done < <(devkit_module_ids)
+  done < <(megabrain_module_ids)
   if [ "$json" = true ]; then
     printf '%s' "$results" | jq -s .
   fi
@@ -196,25 +196,25 @@ command_doctor() {
 
 module_orchestration_doctor() {
   local orca_status superset_status counts_suffix
-  devkit_dispatch_health_counts
+  megabrain_dispatch_health_counts
   counts_suffix="; uncertain dispatches: $MODULE_UNCERTAIN_DISPATCHES; retained terminals: $MODULE_RETAINED_TERMINALS"
-  if ! devkit_require_command orca; then
-    devkit_set_status missing "orca CLI is not on PATH$counts_suffix"
+  if ! megabrain_require_command orca; then
+    megabrain_set_status missing "orca CLI is not on PATH$counts_suffix"
     return 1
   fi
   if ! orca status --json >/dev/null 2>&1; then
-    devkit_set_status misconfigured "orca status --json failed$counts_suffix"
+    megabrain_set_status misconfigured "orca status --json failed$counts_suffix"
     return 1
   fi
-  if ! devkit_superset_available; then
-    devkit_set_status missing "superset CLI is not on PATH and $HOME/.superset/bin/superset is unavailable$counts_suffix"
+  if ! megabrain_superset_available; then
+    megabrain_set_status missing "superset CLI is not on PATH and $HOME/.superset/bin/superset is unavailable$counts_suffix"
     return 1
   fi
-  if ! devkit_superset workspaces list --json >/dev/null 2>&1; then
-    devkit_set_status misconfigured "superset workspaces list --json failed$counts_suffix"
+  if ! megabrain_superset workspaces list --json >/dev/null 2>&1; then
+    megabrain_set_status misconfigured "superset workspaces list --json failed$counts_suffix"
     return 1
   fi
-  devkit_set_status ok "orca and superset status checks passed$counts_suffix"
+  megabrain_set_status ok "orca and superset status checks passed$counts_suffix"
   return 0
 }
 

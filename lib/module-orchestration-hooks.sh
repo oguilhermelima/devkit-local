@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 
-devkit_hooks_agent_available() {
+megabrain_hooks_agent_available() {
   case "$1" in
-    claude|codex|agy) devkit_require_command "$1" ;;
-    cursor) devkit_require_command cursor || devkit_require_command cursor-agent ;;
+    claude|codex|agy) megabrain_require_command "$1" ;;
+    cursor) megabrain_require_command cursor || megabrain_require_command cursor-agent ;;
     *) return 1 ;;
   esac
 }
 
-devkit_hooks_config_path() {
+megabrain_hooks_config_path() {
   case "$1" in
     claude) printf '%s/.claude/settings.json\n' "$HOME" ;;
     codex) printf '%s/.codex/hooks.json\n' "$HOME" ;;
@@ -18,7 +18,7 @@ devkit_hooks_config_path() {
   esac
 }
 
-devkit_hooks_event() {
+megabrain_hooks_event() {
   case "$1" in
     cursor) printf 'afterAgentResponse\n' ;;
     claude|codex|agy) printf 'Stop\n' ;;
@@ -26,7 +26,7 @@ devkit_hooks_event() {
   esac
 }
 
-devkit_hooks_command() {
+megabrain_hooks_command() {
   local agent="$1" root="${MEGABRAIN_ROOT:-}"
   if [ -z "$root" ]; then
     # Resolve from the running script so this survives a local repository directory rename.
@@ -36,7 +36,7 @@ devkit_hooks_command() {
   printf 'MEGABRAIN_HOOK_AGENT=%s %q\n' "$agent" "$root/hooks/megabrain-turn-end.sh"
 }
 
-devkit_hooks_config_has_entry() {
+megabrain_hooks_config_has_entry() {
   local agent="$1" path="$2"
   case "$agent" in
     cursor)
@@ -59,7 +59,7 @@ devkit_hooks_config_has_entry() {
   esac
 }
 
-devkit_hooks_trust_detail() {
+megabrain_hooks_trust_detail() {
   case "$1" in
     codex) printf 'Codex shows a "Hooks need review" prompt on its next launch' ;;
     claude) printf 'a trust prompt can appear on its next launch' ;;
@@ -69,34 +69,34 @@ devkit_hooks_trust_detail() {
   esac
 }
 
-devkit_hooks_trust_warning() {
+megabrain_hooks_trust_warning() {
   local agent="$1"
   if [ "$agent" = codex ]; then
-    devkit_hooks_codex_trust_note
+    megabrain_hooks_codex_trust_note
     return 0
   fi
-  devkit_notice "Warning: $agent may require a one-time human trust action for the megabrain hook; $(devkit_hooks_trust_detail "$agent")."
+  megabrain_notice "Warning: $agent may require a one-time human trust action for the megabrain hook; $(megabrain_hooks_trust_detail "$agent")."
 }
 
-devkit_hooks_codex_trust_note() {
-  devkit_notice ""
-  devkit_notice "CODEX ACTION REQUIRED: the megabrain hook needs one-time trust in Codex."
-  devkit_notice "Open a plain terminal, run codex, and choose \"Trust all and continue\"."
-  devkit_notice "Opening Codex through Superset will not complete this step because Superset passes --dangerously-bypass-hook-trust."
+megabrain_hooks_codex_trust_note() {
+  megabrain_notice ""
+  megabrain_notice "CODEX ACTION REQUIRED: the megabrain hook needs one-time trust in Codex."
+  megabrain_notice "Open a plain terminal, run codex, and choose \"Trust all and continue\"."
+  megabrain_notice "Opening Codex through Superset will not complete this step because Superset passes --dangerously-bypass-hook-trust."
 }
 
-devkit_hooks_repair_config() {
+megabrain_hooks_repair_config() {
   local agent="$1" path command tmp
-  path="$(devkit_hooks_config_path "$agent")" || return 1
-  command="$(devkit_hooks_command "$agent")" || return 1
+  path="$(megabrain_hooks_config_path "$agent")" || return 1
+  command="$(megabrain_hooks_command "$agent")" || return 1
   mkdir -p "$(dirname "$path")" || return 1
   if [ -f "$path" ] && ! jq empty "$path" >/dev/null 2>&1; then
-    devkit_error "$agent config is not valid JSON: $path"
+    megabrain_error "$agent config is not valid JSON: $path"
     return 1
   fi
   if [ -f "$path" ]; then
-    devkit_backup_file "$path" >/dev/null || {
-      devkit_error "could not back up $agent hooks: $path"
+    megabrain_backup_file "$path" >/dev/null || {
+      megabrain_error "could not back up $agent hooks: $path"
       return 1
     }
   fi
@@ -124,7 +124,7 @@ devkit_hooks_repair_config() {
       end
     ' "$path" 2>/dev/null >"$tmp"; then
       rm -f "$tmp"
-      devkit_error "could not update $agent hooks: $path"
+      megabrain_error "could not update $agent hooks: $path"
       return 1
     fi
   elif [ ! -f "$path" ]; then
@@ -157,32 +157,32 @@ devkit_hooks_repair_config() {
     end
   ' "$path" 2>/dev/null >"$tmp"; then
     rm -f "$tmp"
-    devkit_error "could not update $agent hooks: $path"
+    megabrain_error "could not update $agent hooks: $path"
     return 1
   fi
   mv -f "$tmp" "$path"
 }
 
-devkit_hooks_revert_config() {
+megabrain_hooks_revert_config() {
   local agent="$1" path backup
-  path="$(devkit_hooks_config_path "$agent")" || return 1
-  backup="$(devkit_latest_backup "$path" 2>/dev/null || true)"
+  path="$(megabrain_hooks_config_path "$agent")" || return 1
+  backup="$(megabrain_latest_backup "$path" 2>/dev/null || true)"
   [ -n "$backup" ] || return 0
   cp -p "$backup" "$path" || {
-    devkit_error "could not restore $agent hooks from $backup"
+    megabrain_error "could not restore $agent hooks from $backup"
     return 1
   }
   printf '%s hooks restored from %s\n' "$agent" "$backup"
 }
 
-devkit_hooks_agent_status() {
+megabrain_hooks_agent_status() {
   local agent="$1" path command
-  if ! devkit_hooks_agent_available "$agent"; then
+  if ! megabrain_hooks_agent_available "$agent"; then
     printf '%s: not-installed' "$agent"
     return 0
   fi
-  path="$(devkit_hooks_config_path "$agent")"
-  command="$(devkit_hooks_command "$agent")" || {
+  path="$(megabrain_hooks_config_path "$agent")"
+  command="$(megabrain_hooks_command "$agent")" || {
     printf '%s: hook-unavailable' "$agent"
     return 1
   }
@@ -194,7 +194,7 @@ devkit_hooks_agent_status() {
     printf '%s: config-invalid' "$agent"
     return 1
   fi
-  if devkit_hooks_config_has_entry "$agent" "$path" "$command"; then
+  if megabrain_hooks_config_has_entry "$agent" "$path" "$command"; then
     printf '%s: entry-present' "$agent"
     return 0
   fi
@@ -205,16 +205,16 @@ devkit_hooks_agent_status() {
 module_orchestration_hooks_doctor() {
   local agent status details='' rc=0 codex_present=false
   for agent in claude codex agy cursor; do
-    status="$(devkit_hooks_agent_status "$agent")" || rc=1
+    status="$(megabrain_hooks_agent_status "$agent")" || rc=1
     [ "$status" = 'codex: entry-present' ] && codex_present=true
     if [ -n "$details" ]; then details="$details; "; fi
     details="$details$status"
   done
-  [ "$codex_present" = true ] && devkit_hooks_codex_trust_note
+  [ "$codex_present" = true ] && megabrain_hooks_codex_trust_note
   if [ "$rc" -eq 0 ]; then
-    devkit_set_status ok "$details; Codex caveat: $(devkit_hooks_trust_detail codex)."
+    megabrain_set_status ok "$details; Codex caveat: $(megabrain_hooks_trust_detail codex)."
   else
-    devkit_set_status misconfigured "$details; Codex caveat: $(devkit_hooks_trust_detail codex)."
+    megabrain_set_status misconfigured "$details; Codex caveat: $(megabrain_hooks_trust_detail codex)."
   fi
   return "$rc"
 }
@@ -222,22 +222,22 @@ module_orchestration_hooks_doctor() {
 module_orchestration_hooks_install() {
   local agent codex_present=false
   for agent in claude codex agy cursor; do
-    devkit_hooks_agent_available "$agent" || continue
-    devkit_hooks_repair_config "$agent" || return 1
+    megabrain_hooks_agent_available "$agent" || continue
+    megabrain_hooks_repair_config "$agent" || return 1
     if [ "$agent" = codex ]; then
       codex_present=true
     else
-      devkit_hooks_trust_warning "$agent"
+      megabrain_hooks_trust_warning "$agent"
     fi
   done
-  [ "$codex_present" = true ] && devkit_hooks_codex_trust_note
+  [ "$codex_present" = true ] && megabrain_hooks_codex_trust_note
   return 0
 }
 
 module_orchestration_hooks_revert() {
   local agent
   for agent in claude codex agy cursor; do
-    devkit_hooks_agent_available "$agent" || continue
-    devkit_hooks_revert_config "$agent" || return 1
+    megabrain_hooks_agent_available "$agent" || continue
+    megabrain_hooks_revert_config "$agent" || return 1
   done
 }

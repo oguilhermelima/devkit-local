@@ -61,7 +61,7 @@ create_meta() {
   local dispatch_id="$1" session="$2" pane="$3" parent_session_arg parent_pane_arg
   parent_session_arg="${4:-$session}"
   parent_pane_arg="${5:-$pane}"
-  devkit_dispatch_meta_write "$dispatch_id" parent-terminal orca orca "" "$dispatch_id-terminal" \
+  megabrain_dispatch_meta_write "$dispatch_id" parent-terminal orca orca "" "$dispatch_id-terminal" \
     "$root" main codex label running gpt-5 true codex "$session" "$pane" tmux tmux \
     "$parent_session_arg" "$parent_pane_arg" "" >/dev/null
 }
@@ -80,9 +80,9 @@ parent_tmux="$(tmux_cmd display-message -p -t "$parent_pane" '#{socket_path},#{p
 export TMUX="$parent_tmux" TMUX_PANE="$parent_pane"
 register_parent "$parent_session" claude
 create_meta queueing-parent "$parent_session" "$parent_pane"
-queueing_meta="$(devkit_dispatch_meta_read queueing-parent)"
-assert_equal "$(devkit_parent_notify_tmux_is_idle "$queueing_meta")" false
-devkit_parent_notify_dispatch "$queueing_meta"
+queueing_meta="$(megabrain_dispatch_meta_read queueing-parent)"
+assert_equal "$(megabrain_parent_notify_tmux_is_idle "$queueing_meta")" false
+megabrain_parent_notify_dispatch "$queueing_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 queueing_capture="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
 assert_contains "$queueing_capture" '[devkit] mail available for dispatch queueing-parent'
@@ -93,9 +93,9 @@ printf 'queueing parent receives a notice while busy\n'
 tmux_cmd new-session -d -s "$unknown_session" "printf '%s' 'Working · esc to interrupt'; sleep 5"
 unknown_pane="$(tmux_cmd display-message -p -t "$unknown_session" '#{pane_id}')"
 create_meta unrecognised-parent "$unknown_session" "$unknown_pane"
-unknown_meta="$(devkit_dispatch_meta_read unrecognised-parent)"
+unknown_meta="$(megabrain_dispatch_meta_read unrecognised-parent)"
 unknown_before="$(tmux_cmd capture-pane -p -t "$unknown_pane" -S -20)"
-devkit_parent_notify_dispatch "$unknown_meta"
+megabrain_parent_notify_dispatch "$unknown_meta"
 unknown_after="$(tmux_cmd capture-pane -p -t "$unknown_pane" -S -20)"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" busy
 assert_equal "$unknown_before" "$unknown_after"
@@ -107,25 +107,25 @@ tmux_cmd new-session -d -s "$failed_session" "printf '%s' 'Working · esc to int
 failed_pane="$(tmux_cmd display-message -p -t "$failed_session" '#{pane_id}')"
 register_parent "$failed_session" claude
 create_meta failed-notice "$failed_session" "$failed_pane"
-failed_meta="$(devkit_dispatch_meta_read failed-notice)"
-devkit_parent_notify() {
+failed_meta="$(megabrain_dispatch_meta_read failed-notice)"
+megabrain_parent_notify() {
   printf 'simulated send failure\n' >&2
   return 1
 }
-devkit_parent_notify_dispatch "$failed_meta" || true
+megabrain_parent_notify_dispatch "$failed_meta" || true
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" failed
 failed_log="$(cat "$state_dir/dispatches/failed-notice/nudge.log")"
 assert_contains "$failed_log" 'outcome=failed reason=simulated send failure'
 assert_equal "$(printf '%s\n' "$failed_log" | wc -l | tr -d ' ')" 1
 printf 'notify log records delivered, suppressed, and failed outcomes\n'
 
-devkit_parent_notify_dispatch() {
+megabrain_parent_notify_dispatch() {
   return 1
 }
 export ORCA_TERMINAL_HANDLE=child-terminal
 unset TMUX TMUX_PANE
-devkit_dispatch_meta_write queue-safety parent-terminal orca orca "" child-terminal "$root" main codex label running gpt-5 true codex "" "" host ide >/dev/null
-if ! child_output="$(devkit_dispatch_child_message ask 'queue survives notify failure')"; then
+megabrain_dispatch_meta_write queue-safety parent-terminal orca orca "" child-terminal "$root" main codex label running gpt-5 true codex "" "" host ide >/dev/null
+if ! child_output="$(megabrain_dispatch_child_message ask 'queue survives notify failure')"; then
   fail 'child message failed when notify failed'
 fi
 assert_contains "$child_output" 'ask sent: queue-safety'
@@ -137,7 +137,7 @@ export ORCA_TERMINAL_HANDLE=parent-terminal
 tmux_cmd split-window -v -t "$parent_pane" -P -F '#{pane_id}' bash >/dev/null
 shared_pane="$(tmux_cmd list-panes -t "$parent_session" -F '#{pane_id}' | tail -n 1)"
 create_meta shared-close "$parent_session" "$shared_pane"
-shared_close="$(devkit_dispatch_close shared-close --json)"
+shared_close="$(megabrain_dispatch_close shared-close --json)"
 assert_equal "$(printf '%s' "$shared_close" | jq -r '.message')" \
   'tmux pane removed; the shared tmux session and host terminal tab were kept.'
 printf 'shared close reports that session and host tab were kept\n'
@@ -152,7 +152,7 @@ orca() {
   fi
   return 1
 }
-exclusive_close="$(devkit_dispatch_close exclusive-close --json)"
+exclusive_close="$(megabrain_dispatch_close exclusive-close --json)"
 assert_equal "$(printf '%s' "$exclusive_close" | jq -r '.message')" \
   'last tmux pane removed; the exclusive tmux session and host terminal tab were closed.'
 printf 'exclusive close reports that session and host tab were closed\n'

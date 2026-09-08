@@ -49,16 +49,16 @@ mkdir -p "$MEGABRAIN_DISPATCH_DIR"
 host_call_log="$state_dir/host-calls"
 : >"$host_call_log"
 
-devkit_dispatch_preamble() {
+megabrain_dispatch_preamble() {
   printf 'preamble\n'
 }
 
-devkit_superset_available() {
+megabrain_superset_available() {
   return 0
 }
 
 host_mode=success
-devkit_superset() {
+megabrain_superset() {
   printf '%s\n' "$*" >>"$host_call_log"
   if [ "$1" = terminals ] && [ "$2" = create ]; then
     if [ "$host_mode" = failure ]; then
@@ -77,20 +77,20 @@ devkit_superset() {
   return 1
 }
 
-devkit_superset_wait_for_terminal_ready() {
+megabrain_superset_wait_for_terminal_ready() {
   return 0
 }
 
-devkit_dispatch_native_send() {
+megabrain_dispatch_native_send() {
   return 0
 }
 
-devkit_dispatch_wait_for_prompt_receipt() {
+megabrain_dispatch_wait_for_prompt_receipt() {
   return 0
 }
 
 host_mode=failure
-if host_failure_output="$(devkit_launch_agent "$root" workspace-test codex gpt-5 medium ping label 2>&1)"; then
+if host_failure_output="$(megabrain_launch_agent "$root" workspace-test codex gpt-5 medium ping label 2>&1)"; then
   fail 'host launch unexpectedly succeeded'
 fi
 assert_contains "$host_failure_output" 'Superset terminals create failed'
@@ -98,7 +98,7 @@ printf 'host launch failure reports the failed operation\n'
 
 host_mode=read-failure
 : >"$host_call_log"
-if host_read_failure_output="$(devkit_launch_agent "$root" workspace-test codex gpt-5 medium ping label 2>&1)"; then
+if host_read_failure_output="$(megabrain_launch_agent "$root" workspace-test codex gpt-5 medium ping label 2>&1)"; then
   fail 'host read-back failure unexpectedly succeeded'
 fi
 assert_contains "$host_read_failure_output" 'could not be read immediately after creation'
@@ -108,81 +108,81 @@ printf 'host launch fails immediately when terminal read-back fails\n'
 
 host_mode=success
 : >"$host_call_log"
-host_output="$(devkit_launch_agent "$root" workspace-test codex gpt-5 medium ping label 2>&1)"
+host_output="$(megabrain_launch_agent "$root" workspace-test codex gpt-5 medium ping label 2>&1)"
 assert_contains "$host_output" 'terminalId'
 assert_equal "$(wc -l <"$host_call_log" | tr -d ' ')" 2
 printf 'host launch success verifies and sends a dispatch\n'
 
-devkit_dispatch_meta_write list-live parent-terminal superset superset workspace-test child-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
+megabrain_dispatch_meta_write list-live parent-terminal superset superset workspace-test child-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
 : >"$host_call_log"
 list_output="$(command_orchestrate_list --all --json)"
 assert_equal "$(wc -l <"$host_call_log" | tr -d ' ')" 0
 assert_equal "$(printf '%s' "$list_output" | jq -r 'map(select(.dispatchId == "list-live")) | length')" 1
 printf 'dispatch list uses metadata without host calls\n'
 
-devkit_dispatch_meta_write stalled-live live-terminal superset superset workspace-test live-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
-devkit_dispatch_message_append stalled-live child received 'prompt received' live-terminal >/dev/null
+megabrain_dispatch_meta_write stalled-live live-terminal superset superset workspace-test live-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
+megabrain_dispatch_message_append stalled-live child received 'prompt received' live-terminal >/dev/null
 env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=live-terminal MEGABRAIN_HOOK_AGENT=codex "$root/hooks/megabrain-turn-end.sh" '{"last_assistant_message":"still working"}' >/dev/null
 assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-live/meta.json")" running
 printf 'live queue activity does not trigger stalled\n'
 
-devkit_superset() {
+megabrain_superset() {
   if [ "$1" = terminals ] && [ "$2" = list ]; then
     printf '[]\n'
     return 0
   fi
   return 1
 }
-devkit_dispatch_meta_write stalled-missing child-terminal superset superset workspace-test missing-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
+megabrain_dispatch_meta_write stalled-missing child-terminal superset superset workspace-test missing-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
 env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=missing-terminal MEGABRAIN_HOOK_AGENT=codex "$root/hooks/megabrain-turn-end.sh" '{"last_assistant_message":"stuck"}' >/dev/null
 assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-missing/meta.json")" stalled
 printf 'missing terminal remains evidence for stalled\n'
 
-devkit_dispatch_meta_write stalled-done done-terminal superset superset workspace-test done-terminal "$root" main codex label stalled gpt-5 true codex '' '' host ide >/dev/null
+megabrain_dispatch_meta_write stalled-done done-terminal superset superset workspace-test done-terminal "$root" main codex label stalled gpt-5 true codex '' '' host ide >/dev/null
 env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=done-terminal "$root/devkit" done 'completed after recovery' >/dev/null
 assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-done/meta.json")" done
 printf 'done is accepted from stalled\n'
 
-devkit_dispatch_meta_write stalled-ask parent-terminal superset superset workspace-test stalled-ask-terminal "$root" main codex label stalled gpt-5 true codex '' '' host ide >/dev/null
-TMUX= TMUX_PANE= SUPERSET_TERMINAL_ID=stalled-ask-terminal devkit_dispatch_child_message ask 'question after stall' >/dev/null
+megabrain_dispatch_meta_write stalled-ask parent-terminal superset superset workspace-test stalled-ask-terminal "$root" main codex label stalled gpt-5 true codex '' '' host ide >/dev/null
+TMUX= TMUX_PANE= SUPERSET_TERMINAL_ID=stalled-ask-terminal megabrain_dispatch_child_message ask 'question after stall' >/dev/null
 assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-ask/meta.json")" waiting_for_reply
 printf 'ask is accepted from stalled\n'
 
-devkit_dispatch_meta_write orphaned-ask parent-terminal superset superset workspace-test orphaned-ask-terminal "$root" main codex label orphaned gpt-5 true codex '' '' host ide >/dev/null
-TMUX= TMUX_PANE= SUPERSET_TERMINAL_ID=orphaned-ask-terminal devkit_dispatch_child_message ask 'question after orphaning' >/dev/null
+megabrain_dispatch_meta_write orphaned-ask parent-terminal superset superset workspace-test orphaned-ask-terminal "$root" main codex label orphaned gpt-5 true codex '' '' host ide >/dev/null
+TMUX= TMUX_PANE= SUPERSET_TERMINAL_ID=orphaned-ask-terminal megabrain_dispatch_child_message ask 'question after orphaning' >/dev/null
 assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/orphaned-ask/meta.json")" waiting_for_reply
 printf 'ask is accepted from orphaned\n'
 
-devkit_dispatch_terminal_status() {
+megabrain_dispatch_terminal_status() {
   MEGABRAIN_TERMINAL_STATUS=unknown
 }
 
-devkit_dispatch_parent_status() {
+megabrain_dispatch_parent_status() {
   MEGABRAIN_PARENT_STATUS=alive
 }
 
-devkit_dispatch_native_close() {
+megabrain_dispatch_native_close() {
   MEGABRAIN_DISPATCH_CLOSE_OUTCOME=host
   return 0
 }
 
-devkit_dispatch_meta_write queued-proof parent-terminal superset superset workspace-test queued-proof-terminal "$root" main codex label done gpt-5 true codex '' '' host ide >/dev/null
-devkit_dispatch_message_append queued-proof child done 'finished before close' queued-proof-terminal >/dev/null
-devkit_dispatch_reconcile_one queued-proof
+megabrain_dispatch_meta_write queued-proof parent-terminal superset superset workspace-test queued-proof-terminal "$root" main codex label done gpt-5 true codex '' '' host ide >/dev/null
+megabrain_dispatch_message_append queued-proof child done 'finished before close' queued-proof-terminal >/dev/null
+megabrain_dispatch_reconcile_one queued-proof
 assert_equal "$MEGABRAIN_RECONCILE_OUTCOME" adopted
 assert_equal "$(jq -r '.terminalState' "$MEGABRAIN_DISPATCH_DIR/queued-proof/meta.json")" owned
-devkit_dispatch_close queued-proof >/dev/null
+megabrain_dispatch_close queued-proof >/dev/null
 assert_equal "$(jq -r '.terminalState' "$MEGABRAIN_DISPATCH_DIR/queued-proof/meta.json")" released
 printf 'child queue message proves identity for a done dispatch\n'
 
-devkit_dispatch_meta_write queued-unproven parent-terminal superset superset workspace-test queued-unproven-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
-devkit_dispatch_reconcile_one queued-unproven
+megabrain_dispatch_meta_write queued-unproven parent-terminal superset superset workspace-test queued-unproven-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
+megabrain_dispatch_reconcile_one queued-unproven
 assert_equal "$MEGABRAIN_RECONCILE_OUTCOME" identity-unproven
 assert_equal "$(jq -r '.terminalState' "$MEGABRAIN_DISPATCH_DIR/queued-unproven/meta.json")" retained
 printf 'unproven terminal without child queue evidence remains retained\n'
 
-devkit_dispatch_meta_write late-reply parent-terminal superset superset workspace-test late-reply-terminal "$root" main codex label done gpt-5 true codex '' '' host ide >/dev/null
-late_reply_output="$(devkit_dispatch_reply late-reply --text 'late answer' --json)"
+megabrain_dispatch_meta_write late-reply parent-terminal superset superset workspace-test late-reply-terminal "$root" main codex label done gpt-5 true codex '' '' host ide >/dev/null
+late_reply_output="$(megabrain_dispatch_reply late-reply --text 'late answer' --json)"
 assert_equal "$(printf '%s' "$late_reply_output" | jq -r '.status')" queued
 assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/late-reply/meta.json")" done
 late_reply_message="$MEGABRAIN_DISPATCH_DIR/late-reply/messages/0001-parent-reply.json"

@@ -66,7 +66,7 @@ orca() {
 
 create_meta() {
   local dispatch_id="$1" tmux_session="$2" tmux_pane="$3" parent_session="$4" parent_pane="$5"
-  devkit_dispatch_meta_write "$dispatch_id" parent-terminal orca orca workspace-test "$dispatch_id-terminal" \
+  megabrain_dispatch_meta_write "$dispatch_id" parent-terminal orca orca workspace-test "$dispatch_id-terminal" \
     "$root" fix/close-never-kills-caller codex label running gpt-5 true codex \
     "$tmux_session" "$tmux_pane" tmux tmux "$parent_session" "$parent_pane" workspace-test >/dev/null
 }
@@ -86,14 +86,14 @@ export TMUX="$parent_tmux" TMUX_PANE="$parent_pane" ORCA_TERMINAL_HANDLE=parent-
 unset SUPERSET_TERMINAL_ID
 
 create_meta self-close "$session_name" "$parent_pane" "$session_name" "$parent_pane"
-assert_failure_contains 'refusing to close dispatch self-close' devkit_dispatch_close self-close --json
+assert_failure_contains 'refusing to close dispatch self-close' megabrain_dispatch_close self-close --json
 assert_pane_alive "$parent_pane"
 assert_session_alive "$session_name"
 printf 'caller pane is protected from normal close\n'
 
 create_meta force-self-close "$session_name" "$parent_pane" "$session_name" "$parent_pane"
-devkit_dispatch_meta_update_terminal_state force-self-close retained
-assert_failure_contains 'refusing to close dispatch force-self-close' devkit_dispatch_close force-self-close --force-release --json
+megabrain_dispatch_meta_update_terminal_state force-self-close retained
+assert_failure_contains 'refusing to close dispatch force-self-close' megabrain_dispatch_close force-self-close --force-release --json
 assert_pane_alive "$parent_pane"
 assert_session_alive "$session_name"
 printf 'caller pane protection cannot be bypassed by force-release\n'
@@ -101,7 +101,7 @@ printf 'caller pane protection cannot be bypassed by force-release\n'
 shared_pane="$(tmux_cmd split-window -v -t "$parent_pane" -P -F '#{pane_id}' bash)"
 create_meta shared-child "$session_name" "$shared_pane" "$session_name" "$parent_pane"
 before_panes="$(tmux_cmd list-panes -t "$session_name" | wc -l | tr -d ' ')"
-devkit_dispatch_close shared-child --json >/dev/null
+megabrain_dispatch_close shared-child --json >/dev/null
 after_panes="$(tmux_cmd list-panes -t "$session_name" | wc -l | tr -d ' ')"
 assert_equal "$before_panes" 2
 assert_equal "$after_panes" 1
@@ -114,7 +114,7 @@ printf 'shared-session child close removes only the child pane\n'
 tmux_cmd new-session -d -s "$dedicated_session_name" bash
 dedicated_pane="$(tmux_cmd display-message -p -t "$dedicated_session_name" '#{pane_id}')"
 create_meta dedicated-child "$dedicated_session_name" "$dedicated_pane" "$session_name" "$parent_pane"
-devkit_dispatch_close dedicated-child --json >/dev/null
+megabrain_dispatch_close dedicated-child --json >/dev/null
 if tmux_cmd has-session -t "$dedicated_session_name" >/dev/null 2>&1; then
   fail 'dedicated dispatch session is still alive'
 fi

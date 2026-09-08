@@ -4,42 +4,42 @@ MEGABRAIN_APPIUM_PORT="${MEGABRAIN_APPIUM_PORT:-4723}"
 MEGABRAIN_APPIUM_PIDFILE="$MEGABRAIN_STATE_DIR/appium.pid"
 MEGABRAIN_APPIUM_LOG="$MEGABRAIN_STATE_DIR/appium.log"
 
-devkit_appium_driver_ready() {
-  devkit_require_command appium || return 1
+megabrain_appium_driver_ready() {
+  megabrain_require_command appium || return 1
   appium driver list --installed 2>&1 | grep -Eiq '(^|[[:space:]])xcuitest(@|[[:space:]]|$)'
 }
 
 module_simulator_native_doctor() {
   if [ "$(uname -s 2>/dev/null || printf unknown)" != Darwin ]; then
-    devkit_set_status unsupported "macOS only"
+    megabrain_set_status unsupported "macOS only"
     return 1
   fi
-  if ! devkit_require_command appium; then
-    devkit_set_status missing "appium is not on PATH"
+  if ! megabrain_require_command appium; then
+    megabrain_set_status missing "appium is not on PATH"
     return 1
   fi
-  if ! devkit_appium_driver_ready; then
-    devkit_set_status misconfigured "appium-xcuitest-driver is not installed"
+  if ! megabrain_appium_driver_ready; then
+    megabrain_set_status misconfigured "appium-xcuitest-driver is not installed"
     return 1
   fi
-  devkit_set_status ok "appium and xcuitest driver are installed"
+  megabrain_set_status ok "appium and xcuitest driver are installed"
   return 0
 }
 
 module_simulator_native_install() {
   module_simulator_native_doctor >/dev/null
   if [ "$?" -ne 0 ] && [ "$MODULE_STATUS" = unsupported ]; then
-    devkit_error "simulator-native is macOS only"
+    megabrain_error "simulator-native is macOS only"
     return 1
   fi
-  if ! devkit_require_command appium; then
+  if ! megabrain_require_command appium; then
     npm install -g appium || return 1
   fi
   appium driver list --installed 2>&1 | grep -Eiq '(^|[[:space:]])xcuitest(@|[[:space:]]|$)' || appium driver install xcuitest || return 1
   module_simulator_native_doctor
 }
 
-devkit_appium_pid() {
+megabrain_appium_pid() {
   local pid=""
   if [ -f "$MEGABRAIN_APPIUM_PIDFILE" ]; then
     pid="$(sed -n '1p' "$MEGABRAIN_APPIUM_PIDFILE")"
@@ -51,9 +51,9 @@ devkit_appium_pid() {
   lsof -tiTCP:"$MEGABRAIN_APPIUM_PORT" -sTCP:LISTEN 2>/dev/null | head -n 1
 }
 
-devkit_appium_status() {
+megabrain_appium_status() {
   local pid command_line
-  pid="$(devkit_appium_pid)"
+  pid="$(megabrain_appium_pid)"
   if [ -z "$pid" ]; then
     printf 'appium: down (port %s)\n' "$MEGABRAIN_APPIUM_PORT"
     return 1
@@ -67,14 +67,14 @@ devkit_appium_status() {
   return 0
 }
 
-devkit_appium_start() {
+megabrain_appium_start() {
   local pid
-  if devkit_appium_status >/dev/null 2>&1; then
-    devkit_appium_status
+  if megabrain_appium_status >/dev/null 2>&1; then
+    megabrain_appium_status
     return 0
   fi
   module_simulator_native_doctor >/dev/null || {
-    devkit_error "appium is not ready; run megabrain install simulator-native"
+    megabrain_error "appium is not ready; run megabrain install simulator-native"
     return 1
   }
   mkdir -p "$MEGABRAIN_STATE_DIR" || return 1
@@ -84,18 +84,18 @@ devkit_appium_start() {
   local attempt
   for attempt in 1 2 3 4 5 6 7 8 9 10; do
     sleep 0.2
-    if devkit_appium_status >/dev/null 2>&1; then
-      devkit_appium_status
+    if megabrain_appium_status >/dev/null 2>&1; then
+      megabrain_appium_status
       return 0
     fi
   done
-  devkit_error "appium did not start on port $MEGABRAIN_APPIUM_PORT; see $MEGABRAIN_APPIUM_LOG"
+  megabrain_error "appium did not start on port $MEGABRAIN_APPIUM_PORT; see $MEGABRAIN_APPIUM_LOG"
   return 1
 }
 
-devkit_appium_stop() {
+megabrain_appium_stop() {
   local pid command_line
-  pid="$(devkit_appium_pid)"
+  pid="$(megabrain_appium_pid)"
   if [ -z "$pid" ]; then
     rm -f "$MEGABRAIN_APPIUM_PIDFILE"
     printf 'appium: already stopped\n'
@@ -103,7 +103,7 @@ devkit_appium_stop() {
   fi
   command_line="$(ps -p "$pid" -o command= 2>/dev/null || true)"
   if [ -n "$command_line" ] && [[ "$command_line" != *appium* ]]; then
-    devkit_error "refusing to stop non-Appium process $pid on port $MEGABRAIN_APPIUM_PORT"
+    megabrain_error "refusing to stop non-Appium process $pid on port $MEGABRAIN_APPIUM_PORT"
     return 1
   fi
   kill "$pid" >/dev/null 2>&1 || true
@@ -123,26 +123,26 @@ command_native() {
   case "$family" in
     appium)
       case "${1:-}" in
-        -h|--help) devkit_usage_show native-appium; return 0 ;;
+        -h|--help) megabrain_usage_show native-appium; return 0 ;;
       esac
-      [ "$#" -eq 0 ] || { devkit_error "unknown native appium option: $1"; return "$MEGABRAIN_USAGE_ERROR"; }
+      [ "$#" -eq 0 ] || { megabrain_error "unknown native appium option: $1"; return "$MEGABRAIN_USAGE_ERROR"; }
       case "$operation" in
-        start) devkit_appium_start ;;
-        stop) devkit_appium_stop ;;
-        status) devkit_appium_status ;;
-        -h|--help|"") devkit_usage_show native-appium ;;
-        *) devkit_error "unknown appium operation: $operation"; return "$MEGABRAIN_USAGE_ERROR" ;;
+        start) megabrain_appium_start ;;
+        stop) megabrain_appium_stop ;;
+        status) megabrain_appium_status ;;
+        -h|--help|"") megabrain_usage_show native-appium ;;
+        *) megabrain_error "unknown appium operation: $operation"; return "$MEGABRAIN_USAGE_ERROR" ;;
       esac
       ;;
-    -h|--help|"") devkit_usage_show native-appium ;;
-    *) devkit_error "unknown native command: $family"; return "$MEGABRAIN_USAGE_ERROR" ;;
+    -h|--help|"") megabrain_usage_show native-appium ;;
+    *) megabrain_error "unknown native command: $family"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }
 
 module_simulator_tv_doctor() {
   module_simulator_native_doctor
   if [ "$?" -eq 0 ]; then
-    devkit_set_status ok "Apple TV simulator uses the shared Appium xcuitest toolchain"
+    megabrain_set_status ok "Apple TV simulator uses the shared Appium xcuitest toolchain"
     return 0
   fi
   return 1

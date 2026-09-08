@@ -1,4 +1,4 @@
-_devkit_tmux_wrap() {
+_megabrain_tmux_wrap() {
   local agent=$1; shift
   # Orca types the prompt after launch, so tmux startup would race it.
   if [[ -n $TMUX || -n $MEGABRAIN_NO_TMUX || -n $ORCA_AGENT_LAUNCH_TOKEN || ! -t 0 ]]; then
@@ -52,22 +52,22 @@ _devkit_tmux_wrap() {
   tmux attach-session -t "$session"
 }
 claude() {
-  if typeset -f _devkit_tmux_wrap >/dev/null 2>&1; then
-    _devkit_tmux_wrap claude "$@"
+  if typeset -f _megabrain_tmux_wrap >/dev/null 2>&1; then
+    _megabrain_tmux_wrap claude "$@"
   else
     command claude "$@"
   fi
 }
 codex() {
-  if typeset -f _devkit_tmux_wrap >/dev/null 2>&1; then
-    _devkit_tmux_wrap codex "$@"
+  if typeset -f _megabrain_tmux_wrap >/dev/null 2>&1; then
+    _megabrain_tmux_wrap codex "$@"
   else
     command codex "$@"
   fi
 }
 agy() {
-  if typeset -f _devkit_tmux_wrap >/dev/null 2>&1; then
-    _devkit_tmux_wrap agy "$@"
+  if typeset -f _megabrain_tmux_wrap >/dev/null 2>&1; then
+    _megabrain_tmux_wrap agy "$@"
   else
     command agy "$@"
   fi

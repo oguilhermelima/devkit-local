@@ -67,7 +67,7 @@ tmux_cmd() {
 
 create_tmux_meta() {
   local dispatch_id="$1" pane="$2"
-  devkit_dispatch_meta_write "$dispatch_id" "$parent_id" superset superset "$workspace_id" host-terminal "$root" main codex label running gpt-5 true codex "$session_name" "$pane" tmux >/dev/null
+  megabrain_dispatch_meta_write "$dispatch_id" "$parent_id" superset superset "$workspace_id" host-terminal "$root" main codex label running gpt-5 true codex "$session_name" "$pane" tmux >/dev/null
 }
 
 send_child_message() {
@@ -135,25 +135,25 @@ assert_contains "$(cat "$stale_output")" "no managed dispatch belongs to tmux se
 assert_equal "$(find "$state_dir/dispatches/$dispatch_one/messages" -name '*.json' | wc -l | tr -d ' ')" 1
 
 tab_dispatch="dispatch-tab"
-devkit_dispatch_meta_write "$tab_dispatch" tab-parent superset superset "$workspace_id" tab-terminal "$root" main codex label running gpt-5 true codex "" "" host >/dev/null
+megabrain_dispatch_meta_write "$tab_dispatch" tab-parent superset superset "$workspace_id" tab-terminal "$root" main codex label running gpt-5 true codex "" "" host >/dev/null
 env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=tab-terminal MEGABRAIN_DISPATCH_ID="$tab_dispatch" "$root/devkit" ask tab-message >/dev/null
 tab_message="$(find "$state_dir/dispatches/$tab_dispatch/messages" -name '*.json' -print -quit)"
 assert_equal "$(jq -r '.text' "$tab_message")" tab-message
 
-devkit_runtime_enabled() { return 0; }
-devkit_tmux_available() { return 0; }
-devkit_superset_available() { return 0; }
-devkit_tmux_existing_session_for_worktree() { MEGABRAIN_TMUX_EXISTING_SESSION="$session_name"; return 0; }
-devkit_tmux_host_terminal_for_session() { return 0; }
-devkit_tmux_split_pane() { printf '%s\n' "$tmux_pane_two"; }
-devkit_tmux_apply_config() { return 0; }
-devkit_tmux_settle_pane() { return 0; }
-devkit_tmux_send_agent() { return 0; }
-devkit_tmux_agent_output_clean() { return 0; }
-devkit_dispatch_wait_for_prompt_receipt() { return 0; }
-devkit_agent_command() { printf 'true\n'; }
+megabrain_runtime_enabled() { return 0; }
+megabrain_tmux_available() { return 0; }
+megabrain_superset_available() { return 0; }
+megabrain_tmux_existing_session_for_worktree() { MEGABRAIN_TMUX_EXISTING_SESSION="$session_name"; return 0; }
+megabrain_tmux_host_terminal_for_session() { return 0; }
+megabrain_tmux_split_pane() { printf '%s\n' "$tmux_pane_two"; }
+megabrain_tmux_apply_config() { return 0; }
+megabrain_tmux_settle_pane() { return 0; }
+megabrain_tmux_send_agent() { return 0; }
+megabrain_tmux_agent_output_clean() { return 0; }
+megabrain_dispatch_wait_for_prompt_receipt() { return 0; }
+megabrain_agent_command() { printf 'true\n'; }
 
-SUPERSET_TERMINAL_ID="$parent_id" devkit_launch_agent "$root" "$workspace_id" codex gpt-5 medium prompt label >/dev/null
+SUPERSET_TERMINAL_ID="$parent_id" megabrain_launch_agent "$root" "$workspace_id" codex gpt-5 medium prompt label >/dev/null
 reused_dispatch="$MEGABRAIN_LAST_DISPATCH"
 assert_equal "$(jq -r '.terminalId' "$state_dir/dispatches/$reused_dispatch/meta.json")" "$parent_id"
 
