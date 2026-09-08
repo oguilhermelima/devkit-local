@@ -28,6 +28,12 @@ devkit_tmux_session_exists() {
   tmux has-session -t "$session" 2>/dev/null
 }
 
+devkit_tmux_set_state_dir() {
+  local session="$1"
+  [ -n "$session" ] || return 1
+  tmux set-environment -t "$session" DEVKIT_STATE_DIR "$DEVKIT_STATE_DIR"
+}
+
 devkit_tmux_wait_for_session() {
   local session="$1" attempt
   for ((attempt = 1; attempt <= DEVKIT_TMUX_SETTLE_ATTEMPTS; attempt++)); do

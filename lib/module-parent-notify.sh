@@ -53,18 +53,24 @@ devkit_parent_notify_canonical_dir() {
 }
 
 devkit_parent_notify_context_matches() {
-  local meta="$1" runtime owner current context
+  local meta="$1" runtime owner current context session
   DEVKIT_PARENT_NOTIFY_STATE_REASON=state-directory-mismatch
   owner="$(devkit_parent_notify_canonical_dir "$(dirname "$DEVKIT_DISPATCH_DIR")")" || return 1
   current="$(devkit_parent_notify_canonical_dir "$DEVKIT_STATE_DIR")" || return 1
   [ "$owner" = "$current" ] || return 1
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   if [ "$runtime" = tmux ]; then
-    context="$(tmux show-environment -g DEVKIT_STATE_DIR 2>/dev/null | sed 's/^DEVKIT_STATE_DIR=//' || true)"
-    [ -n "$context" ] || {
+    session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
+    context="$(tmux show-environment -t "$session" DEVKIT_STATE_DIR 2>/dev/null | sed 's/^DEVKIT_STATE_DIR=//' || true)"
+    [ -n "$context" ] || context="$(tmux show-environment -g DEVKIT_STATE_DIR 2>/dev/null | sed 's/^DEVKIT_STATE_DIR=//' || true)"
+    if [ -z "$context" ]; then
+      context="$(devkit_parent_notify_canonical_dir "$HOME/.devkit")" || return 1
+      if [ "$owner" = "$context" ] && [ "$current" = "$context" ]; then
+        return 0
+      fi
       DEVKIT_PARENT_NOTIFY_STATE_REASON=state-directory-unknown
       return 1
-    }
+    fi
     context="$(devkit_parent_notify_canonical_dir "$context")" || return 1
     # WHY: The tmux server context is authoritative because a child may override its environment.
     [ "$owner" = "$context" ] || return 1

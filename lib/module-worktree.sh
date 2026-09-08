@@ -533,6 +533,11 @@ ${prompt}"
         devkit_error "tmux session $tmux_session did not become available"
         return 1
       }
+      devkit_tmux_set_state_dir "$tmux_session" || {
+        devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "" "$host_terminal_created"
+        devkit_error "could not scope tmux child session $tmux_session to $DEVKIT_STATE_DIR"
+        return 1
+      }
       tmux_pane="$(devkit_tmux_first_pane "$tmux_session")"
     fi
     if [ -z "$tmux_pane" ]; then
