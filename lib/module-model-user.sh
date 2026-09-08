@@ -9,7 +9,7 @@ megabrain_model_level_known() {
 
 megabrain_model_levels_json() {
   local levels="$1" level
-  printf '%s' "$levels" | tr ',' '\n' | while IFS= read -r level; do
+  printf '%s\n' "$levels" | tr ',' '\n' | while IFS= read -r level; do
     [ -n "$level" ] && printf '%s\n' "$level"
   done | jq -Rsc 'split("\n") | map(select(length > 0))'
 }
@@ -25,7 +25,7 @@ megabrain_model_add() {
   while IFS= read -r level; do
     [ -n "$level" ] || { megabrain_error "reasoning levels cannot contain empty values"; return 1; }
     megabrain_model_level_known "$level" || { megabrain_error "unknown reasoning level: $level"; return 1; }
-  done < <(printf '%s' "$levels" | tr ',' '\n')
+  done < <(printf '%s\n' "$levels" | tr ',' '\n')
   registry="$(megabrain_model_read)" || return 1
   if printf '%s' "$registry" | jq -e --arg agent "$agent" --arg model "$model" \
     '.models[] | select(.agent == $agent and .model == $model)' >/dev/null 2>&1; then
