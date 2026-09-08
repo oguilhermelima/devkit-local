@@ -1,5 +1,3 @@
-<div align="center">
-
 # megabrain
 
 **Hand work to another coding agent, and get it back.**
@@ -7,15 +5,9 @@
 A local orchestrator that spawns agents, keeps the conversation with them durable, and tears them
 down when the work is done.
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-![Shell](https://img.shields.io/badge/shell-bash%203.2%2B-lightgrey.svg)
-![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue.svg)
-![Agents](https://img.shields.io/badge/agents-codex%20%7C%20claude%20%7C%20agy-orange.svg)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) ![Shell](https://img.shields.io/badge/shell-bash%203.2%2B-lightgrey.svg) ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue.svg) ![Agents](https://img.shields.io/badge/agents-codex%20%7C%20claude%20%7C%20agy-orange.svg)
 
-[Why](#why) · [Install](#install) · [Delegate](#delegate) · [Supervise](#supervise) ·
-[Examples](#examples) · [Testing](#testing) · [Limits](#limits)
-
-</div>
+[Why](#why) · [Install](#install) · [Chains](#chains-choosing-who-does-the-work) · [Orchestration](#orchestration-the-conversation-that-outlives-the-terminal) · [Where it runs](#where-it-runs) · [Examples](#examples) · [Testing](#testing) · [Limits](#limits)
 
 ## Why
 
@@ -52,12 +44,14 @@ megabrain doctor          # what is installed and what is missing
 megabrain context --json  # tmux, orca, or superset
 ```
 
-## Delegate
+## Chains: choosing who does the work
 
-Start here and let megabrain choose the agent, the model and the effort.
+A chain is an ordered list of steps. Each step names an agent, a model and an effort, and
+`chain run` takes the **first step whose usage window still has room**. You describe the
+preference once; the choice is made against reality every time.
 
 ```sh
-megabrain chain run --worktree ~/code/myrepo --prompt "$(cat brief.md)" --json
+megabrain chain run --worktree ~/code/api --prompt "$(cat brief.md)" --json
 ```
 
 ```json
@@ -66,33 +60,98 @@ megabrain chain run --worktree ~/code/myrepo --prompt "$(cat brief.md)" --json
  "dispatch":{"dispatch":"dispatch-20260908-…","runtime":"tmux"}}
 ```
 
-> [!TIP]
-> Reach for `orchestrate spawn` only to name an agent and model deliberately. `chain run` is the
-> one that knows which provider still has room.
+The result always says which step it took and why the earlier ones were skipped, and that reason
+is recorded in the dispatch. When your first choice is exhausted you get the second one with an
+explanation, instead of a failure you have to diagnose.
 
-## Supervise
+**A chain is named after the parent that uses it, not the child it launches.** First use creates
+`claude`, `codex` and `agy`. `run` prefers an explicit name, then the most specific selector that
+matches your `parentAgent`, `parentModel` and `parentEffort`, then `defaultSteps`. Two selectors
+of equal specificity fail rather than pick arbitrarily.
+
+```sh
+megabrain chain list --json      # the steps, in order, with their selectors
+megabrain chain limits --json    # what each provider window says right now
+megabrain chain repair <name> --step 2 --model <id> --effort high
+```
+
+> [!NOTE]
+> A limit condition skips a step; a launch failure advances to the next one. An unknown limit
+> counts as usable, so a provider megabrain cannot read is tried rather than skipped. Codex
+> windows come from the newest rollout on disk; Claude and agy are stubs and always report
+> unknown.
+
+## Orchestration: the conversation that outlives the terminal
+
+Spawning is the easy half. The hard half is that a child asks questions, a pane closes, a machine
+sleeps, and the answer has to survive all of it. Every message is written to an append-only queue
+**before** anything is typed into a terminal.
 
 ```sh
 megabrain orchestrate watch <id> --json         # blocks until there is mail
 megabrain orchestrate reply <id> --text "..."   # answer a question
 megabrain orchestrate ack <id> <delivery-id>    # mark it consumed
 megabrain orchestrate read <id>                 # what the agent actually did
+megabrain orchestrate reconcile <id>            # settle its state against reality
 megabrain orchestrate close <id>                # take the pane back
 ```
+
+From inside a child, the same queue from the other side:
+
+```sh
+megabrain received              # confirm the prompt landed
+megabrain ask "question"        # ask, then poll for the answer
+megabrain check --timeout 120
+megabrain done "what I verified"
+```
+
+Three properties do the work:
+
+- **A delivery replays until it is acknowledged.** Reading one and not acting on it loses nothing.
+- **Typing is a nudge, not the delivery.** A pointer lands in the parent's terminal to say there
+  is mail. If the pane is gone or the composer is busy, the notice is lost and the message is not.
+- **Your own turn end is a second chance.** When you finish speaking, megabrain points at any
+  dispatch of yours holding unread mail, once per message, so a missed nudge recovers.
 
 > [!IMPORTANT]
 > Closing a finished child is the coordinator's job. Nothing does it for you, and the child cannot:
 > it would be killing the pane it runs in. Read the pane first — closing destroys the scrollback,
 > and a `done` is a claim the transcript is where you check.
 
-From inside a child, the same queue from the other side:
+## Where it runs
+
+A dispatch runs as a **tmux split** or as a **tab in an orchestrator**, and the two are not rivals.
+
+| | tmux | Orca / Superset |
+| --- | --- | --- |
+| Needs | tmux | the app and its CLI |
+| Identity | its own session and pane | the managed terminal id |
+| Child appears as | a split beside you | a tab in the IDE |
+| `close` | removes the pane outright | leaves `Desconectado` until dismissed |
+| Shared worktrees | not on its own | yes |
+
+**They compose.** The usual setup is a tmux session running inside an orchestrator's terminal: the
+IDE gives you cards, tabs and shared worktrees, and tmux gives you cheap panes and a real close.
+`megabrain context` reports which one a session is in.
+
+**And tmux stands alone.** With neither app installed, a session inside tmux identifies itself by
+its own session and pane, so the whole delegate-supervise-close loop works on a bare Linux box.
+
+### Worktrees: one folder, both apps
+
+Point both apps at a single directory for worktrees. Every checkout then appears in the same place
+in both IDEs, and a card and a folder never disagree about where the work is.
 
 ```sh
-megabrain received              # confirm the prompt landed
-megabrain ask "question"        # ask, then poll
-megabrain check --timeout 120
-megabrain done "what I verified"
+superset settings set worktreeBaseDir ~/Workspaces/Worktrees
+megabrain worktree create --repo api --branch feat/rate-limit --json
 ```
+
+> [!TIP]
+> Keep it beside your repositories rather than inside one — `~/Workspaces/Worktrees` next to
+> `~/Workspaces/api`. A worktree nested inside its own repository confuses tooling that walks up
+> looking for a git root. `megabrain worktree adopt` registers a checkout that only one side knows
+> about, and `megabrain worktree finish` removes it from both.
 
 ## Examples
 
