@@ -151,4 +151,18 @@ assert_equal "$("$root/megabrain" chain list --json | jq -r '.chains[] | select(
 assert_equal "$("$root/megabrain" chain list --json | jq -r '.chains[] | select(.name == "legacy") | .steps[1].model')" claude-sonnet-5
 printf 'migration: legacy values reported without rewrite and repaired explicitly\n'
 
+# WHY: the reasoning levels are split with a read loop, and a split that loses its last
+# element loses it silently. A model registered with a single level ended up with an empty
+# level list, which makes every later --effort fail against it: the model is in the
+# registry and cannot be used. The same loss let an invalid level in last position pass
+# validation, so the check and the storage were wrong in the same way.
+assert_equal "$("$root/megabrain" model add codex levels-one --reasoning high >/dev/null 2>&1; "$root/megabrain" model list --json | jq -c '.models[] | select(.model == "levels-one") | .reasoning.levels')" '["high"]'
+assert_equal "$("$root/megabrain" model add codex levels-three --reasoning low,medium,high >/dev/null 2>&1; "$root/megabrain" model list --json | jq -c '.models[] | select(.model == "levels-three") | .reasoning.levels')" '["low","medium","high"]'
+
+if "$root/megabrain" model add codex levels-bad --reasoning low,not-a-level >/dev/null 2>&1; then
+  fail 'an unknown reasoning level in last position was accepted'
+fi
+assert_equal "$("$root/megabrain" model list --json | jq -r 'map(.models[]? | select(.model == "levels-bad")) | length' 2>/dev/null || printf 0)" 0
+printf 'every reasoning level is stored, and an unknown one is refused wherever it sits\n'
+
 printf 'ok: model registry, provenance, chain guard, escape hatch, and migration\n'
