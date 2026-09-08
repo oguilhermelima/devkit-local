@@ -3,7 +3,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-state_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-chain.XXXXXX")"
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-chain.XXXXXX")"
 home_dir="$state_dir/home"
 call_file="$state_dir/spawn-call"
 
@@ -106,7 +106,7 @@ assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_USED" 97.0
 printf 'limit newest file without snapshot: older usable snapshot\n'
 
-seeded="$(MEGABRAIN_STATE_DIR="$MEGABRAIN_STATE_DIR" "$root/devkit" chain list --json)"
+seeded="$(MEGABRAIN_STATE_DIR="$MEGABRAIN_STATE_DIR" "$root/megabrain" chain list --json)"
 assert_equal "$(printf '%s' "$seeded" | jq '.chains | length')" 3
 assert_equal "$(printf '%s' "$seeded" | jq -r '[.chains[].when | keys[]] | unique | join(",")')" parentAgent
 printf 'seed and list: passed\n'

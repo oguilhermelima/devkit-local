@@ -3,7 +3,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-state_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-facts.XXXXXX")"
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-facts.XXXXXX")"
 facts_file="$state_dir/facts.json"
 
 cleanup() {
@@ -51,16 +51,16 @@ assert_failure_contains() {
   assert_contains "$output" "$expected"
 }
 
-list_output="$("$root/devkit" fact list --json)"
+list_output="$("$root/megabrain" fact list --json)"
 assert_equal "$(printf '%s' "$list_output" | jq 'length')" 0
 printf 'empty store initializes as a facts array\n'
 
-assert_failure_contains provenance.who "$root/devkit" fact add missing-provenance --measurement measured
-"$root/devkit" fact add bash-version --measurement 'Bash 3.2.57 is installed on macOS' --who tester --when 2026-09-07T19:27:29Z --command 'bash --version' --json >/dev/null
+assert_failure_contains provenance.who "$root/megabrain" fact add missing-provenance --measurement measured
+"$root/megabrain" fact add bash-version --measurement 'Bash 3.2.57 is installed on macOS' --who tester --when 2026-09-07T19:27:29Z --command 'bash --version' --json >/dev/null
 repo_id="$(git -C "$root" config --get remote.origin.url)"
-"$root/devkit" fact add repo-fact --measurement 'repository measurement' --who tester --when 2026-09-07T19:27:29Z --command 'git remote -v' --scope repository --json >/dev/null
-"$root/devkit" fact add other-repo --measurement 'must stay out of this prompt' --who tester --when 2026-09-07T19:27:29Z --command 'printf other' --repository other-repository --json >/dev/null
-list_output="$("$root/devkit" fact list --json)"
+"$root/megabrain" fact add repo-fact --measurement 'repository measurement' --who tester --when 2026-09-07T19:27:29Z --command 'git remote -v' --scope repository --json >/dev/null
+"$root/megabrain" fact add other-repo --measurement 'must stay out of this prompt' --who tester --when 2026-09-07T19:27:29Z --command 'printf other' --repository other-repository --json >/dev/null
+list_output="$("$root/megabrain" fact list --json)"
 assert_equal "$(printf '%s' "$list_output" | jq 'length')" 3
 assert_equal "$(printf '%s' "$list_output" | jq -r --arg id repo-fact '.[] | select(.id == $id) | .scope.repository')" "$repo_id"
 printf 'add and list preserve provenance and repository scope\n'
@@ -68,8 +68,8 @@ printf 'add and list preserve provenance and repository scope\n'
 editor="$state_dir/editor"
 printf '%s\n' '#!/usr/bin/env bash' 'jq '\''(.facts |= map(if .id == "repo-fact" then .measurement = "edited measurement" else . end))'\'' "$1" >"$1.next"' 'mv "$1.next" "$1"' >"$editor"
 chmod +x "$editor"
-EDITOR="$editor" "$root/devkit" fact edit repo-fact --json >/dev/null
-assert_equal "$("$root/devkit" fact list --json | jq -r '.[] | select(.id == "repo-fact") | .measurement')" 'edited measurement'
+EDITOR="$editor" "$root/megabrain" fact edit repo-fact --json >/dev/null
+assert_equal "$("$root/megabrain" fact list --json | jq -r '.[] | select(.id == "repo-fact") | .measurement')" 'edited measurement'
 printf 'edit changes one fact through the validated temporary copy\n'
 
 preamble="$(bash -c 'source "$1/lib/common.sh"; source "$1/lib/module-orchestrate.sh"; megabrain_dispatch_preamble "$1"' _ "$root")"
@@ -79,7 +79,7 @@ else
   assert_contains "$preamble" "Before starting work, run $root/megabrain received"
 fi
 assert_not_contains "$preamble" './megabrain'
-assert_not_contains "$preamble" './devkit'
+assert_not_contains "$preamble" './megabrain'
 assert_contains "$preamble" 'bash-version'
 assert_contains "$preamble" 'repo-fact'
 assert_contains "$preamble" 'Treat each fact as a starting point with provenance, not as truth.'
@@ -100,7 +100,7 @@ cp "$root/lib/module-facts.sh" "$no_path_root/lib/module-facts.sh"
 no_path_preamble="$(PATH=/usr/bin:/bin MEGABRAIN_ROOT="$no_path_root" MEGABRAIN_EXECUTABLE="$no_path_root/megabrain" MEGABRAIN_FACTS_FILE="$facts_file" bash -c 'source "$1/lib/common.sh"; source "$2/lib/module-facts.sh"; megabrain_dispatch_preamble "$1"' _ "$root" "$no_path_root")"
 assert_contains "$no_path_preamble" 'could not be resolved through PATH or an absolute executable path'
 assert_not_contains "$no_path_preamble" 'run ./megabrain'
-assert_not_contains "$no_path_preamble" 'run ./devkit'
+assert_not_contains "$no_path_preamble" 'run ./megabrain'
 printf 'preamble reports an unavailable command instead of an impossible instruction\n'
 
 if limited="$({ MEGABRAIN_FACT_MAX_INJECTED=1 bash -c 'source "$1/lib/common.sh"; source "$1/lib/module-orchestrate.sh"; megabrain_dispatch_preamble "$1";' _ "$root"; } 2>&1)"; then
@@ -115,9 +115,9 @@ fi
 assert_contains "$limited" 'byte limit'
 printf '%s\n' "$limited"
 
-removed="$("$root/devkit" fact remove other-repo --json)"
+removed="$("$root/megabrain" fact remove other-repo --json)"
 assert_equal "$(printf '%s' "$removed" | jq -r '.removed')" true
-assert_equal "$("$root/devkit" fact list --json | jq 'length')" 2
+assert_equal "$("$root/megabrain" fact list --json | jq 'length')" 2
 printf 'remove deletes only the requested fact\n'
 
 printf 'ok: fact provenance, commands, preamble scope, and size limits\n'

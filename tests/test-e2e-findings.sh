@@ -3,7 +3,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-state_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-e2e-findings.XXXXXX")"
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-e2e-findings.XXXXXX")"
 bin_dir="$state_dir/bin"
 mkdir -p "$bin_dir"
 
@@ -139,7 +139,7 @@ assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-missing/meta.jso
 printf 'missing terminal remains evidence for stalled\n'
 
 megabrain_dispatch_meta_write stalled-done done-terminal superset superset workspace-test done-terminal "$root" main codex label stalled gpt-5 true codex '' '' host ide >/dev/null
-env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=done-terminal "$root/devkit" done 'completed after recovery' >/dev/null
+env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=done-terminal "$root/megabrain" done 'completed after recovery' >/dev/null
 assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-done/meta.json")" done
 printf 'done is accepted from stalled\n'
 
@@ -189,12 +189,12 @@ late_reply_message="$MEGABRAIN_DISPATCH_DIR/late-reply/messages/0001-parent-repl
 assert_equal "$(jq -r '.text' "$late_reply_message")" 'late answer'
 printf 'reply to a done dispatch stays queued and keeps done state\n'
 
-model_output="$("$root/devkit" model list)"
+model_output="$("$root/megabrain" model list)"
 assert_contains "$model_output" 'sourced'
 assert_contains "$model_output" 'inferred'
-assert_equal "$("$root/devkit" model list --json | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-5.6-luna") | .provenance.kind')" sourced
-assert_equal "$("$root/devkit" model list --json | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-5.6-luna") | .reasoning.provenance.kind')" inferred
-assert_equal "$("$root/devkit" model list --json | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-5.6-luna") | .reasoning.provenance.verified[0]')" xhigh
+assert_equal "$("$root/megabrain" model list --json | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-5.6-luna") | .provenance.kind')" sourced
+assert_equal "$("$root/megabrain" model list --json | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-5.6-luna") | .reasoning.provenance.kind')" inferred
+assert_equal "$("$root/megabrain" model list --json | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-5.6-luna") | .reasoning.provenance.verified[0]')" xhigh
 printf 'model list separates sourced ids from inferred effort spellings\n'
 
 printf 'ok: end to end findings coverage\n'

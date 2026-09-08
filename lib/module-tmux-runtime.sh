@@ -11,6 +11,7 @@ MEGABRAIN_TMUX_CHILD_SPLIT_FLAG='-v'
 MEGABRAIN_TMUX_TUNE_START='# >>> megabrain tmux tuning >>>'
 MEGABRAIN_TMUX_TUNE_END='# <<< megabrain tmux tuning <<<'
 MEGABRAIN_TMUX_TUNE_SOURCE='source-file ~/.megabrain/tmux/megabrain.tmux.conf'
+# Keep these markers so migration and revert can find blocks written by older installs.
 MEGABRAIN_TMUX_TUNE_LEGACY_START='# >>> devkit tmux tuning >>>'
 MEGABRAIN_TMUX_TUNE_LEGACY_END='# <<< devkit tmux tuning <<<'
 MEGABRAIN_TMUX_WRAPPER_START='# >>> megabrain tmux wrapper >>>'
@@ -343,7 +344,7 @@ megabrain_tmux_tuning_validate_config() {
   starts=$(( $(grep -Fxc "$MEGABRAIN_TMUX_TUNE_START" "$config" 2>/dev/null || true) + $(grep -Fxc "$MEGABRAIN_TMUX_TUNE_LEGACY_START" "$config" 2>/dev/null || true) ))
   ends=$(( $(grep -Fxc "$MEGABRAIN_TMUX_TUNE_END" "$config" 2>/dev/null || true) + $(grep -Fxc "$MEGABRAIN_TMUX_TUNE_LEGACY_END" "$config" 2>/dev/null || true) ))
   if [ "$starts" -ne "$ends" ]; then
-    megabrain_error "tmux config has an incomplete devkit tuning block: $config"
+    megabrain_error "tmux config has an incomplete legacy tuning block: $config"
     return 1
   fi
 }
@@ -514,7 +515,7 @@ megabrain_tmux_tuning_revert() {
   megabrain_tmux_tuning_validate_config "$config" || return 1
   megabrain_tmux_tuning_block_present "$config" || return 0
   megabrain_tmux_tuning_remove_block "$config" || {
-    megabrain_error "could not remove the devkit tuning block from $config"
+    megabrain_error "could not remove the legacy tuning block from $config"
     return 1
   }
   MEGABRAIN_TMUX_TUNE_REVERTED=true
@@ -965,9 +966,9 @@ module_tmux_runtime_doctor() {
     detail="$detail; running server none"
   fi
   if megabrain_tmux_config_applied; then
-    detail="$detail; devkit session config applied"
+    detail="$detail; megabrain session config applied"
   else
-    detail="$detail; devkit session config will apply when a session launches"
+    detail="$detail; megabrain session config will apply when a session launches"
   fi
   if [ "$enabled" = enabled ]; then
     megabrain_set_status ok "$detail"

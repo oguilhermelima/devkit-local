@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 if ! declare -F megabrain_model_init >/dev/null 2>&1; then
-  # shellcheck source=local/devkit/lib/module-model.sh
+  # shellcheck source=local/megabrain/lib/module-model.sh
   source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/module-model.sh"
 fi
 
@@ -717,7 +717,7 @@ megabrain_chain_usage_notice_maybe() {
   report="$(megabrain_chain_usage_notice_report)" || return 0
   meta="$(megabrain_dispatch_meta_read "$dispatch_id" 2>/dev/null || true)"
   [ -n "$meta" ] || return 0
-  megabrain_dispatch_message_append "$dispatch_id" devkit usage "$report" "${MEGABRAIN_SESSION_ID:-devkit}" >/dev/null 2>&1 || return 0
+  megabrain_dispatch_message_append "$dispatch_id" megabrain usage "$report" "${MEGABRAIN_SESSION_ID:-megabrain}" >/dev/null 2>&1 || return 0
   megabrain_parent_notify_dispatch "$meta" >/dev/null 2>&1 || true
   megabrain_chain_usage_notice_mark >/dev/null 2>&1 || true
 }

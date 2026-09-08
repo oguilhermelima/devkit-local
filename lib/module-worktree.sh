@@ -482,7 +482,7 @@ megabrain_launch_agent() {
     *$'\n'*) megabrain_error "dispatch label cannot contain a newline"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
   dispatch_preamble="$(megabrain_dispatch_preamble "$worktree_path")" || return 1
-  final_prompt="[devkit dispatch: ${label}]
+  final_prompt="[megabrain dispatch: ${label}]
 
 ${dispatch_preamble}
 
@@ -511,7 +511,7 @@ ${prompt}"
         return 1
       }
     else
-      tmux_session="devkit-$dispatch_id"
+      tmux_session="megabrain-$dispatch_id"
       # Start a shell first so terminal-identification replies cannot leak into the agent composer.
       tmux_command="tmux new-session -A -s $(printf '%q' "$tmux_session")"
       if [ "$context" = orca ]; then

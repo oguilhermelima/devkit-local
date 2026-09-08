@@ -15,7 +15,7 @@ MEGABRAIN_ROOT="$(cd -P "$(dirname "$MEGABRAIN_SOURCE")" && pwd)"
 MEGABRAIN_EXECUTABLE="$MEGABRAIN_SOURCE"
 MEGABRAIN_LIB_DIR="$MEGABRAIN_ROOT/lib"
 
-# shellcheck source=local/devkit/lib/common.sh
+# shellcheck source=local/megabrain/lib/common.sh
 source "$MEGABRAIN_LIB_DIR/common.sh"
 for megabrain_module in "$MEGABRAIN_LIB_DIR"/module-*.sh; do
   [ -f "$megabrain_module" ] || continue

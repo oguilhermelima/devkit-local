@@ -3,12 +3,12 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-state_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-notify-delivery.XXXXXX")"
-socket_name="devkitnotify-$$"
-parent_session="devkit-notify-parent-$$"
-unknown_session="devkit-notify-unknown-$$"
-failed_session="devkit-notify-failed-$$"
-dedicated_session="devkit-notify-dedicated-$$"
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-notify-delivery.XXXXXX")"
+socket_name="megabrainnotify-$$"
+parent_session="megabrain-notify-parent-$$"
+unknown_session="megabrain-notify-unknown-$$"
+failed_session="megabrain-notify-failed-$$"
+dedicated_session="megabrain-notify-dedicated-$$"
 parent_pane=""
 parent_tmux=""
 

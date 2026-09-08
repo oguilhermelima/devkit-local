@@ -79,7 +79,7 @@ done
 assert_equal "$(megabrain_terminal_command_with_agent_permissions 'pnpm dev')" 'pnpm dev'
 printf 'permissions: pnpm dev\n'
 
-tmux_display_count_file="$(mktemp "${TMPDIR:-/tmp}/devkit-agent-command.XXXXXX")"
+tmux_display_count_file="$(mktemp "${TMPDIR:-/tmp}/megabrain-agent-command.XXXXXX")"
 printf '0\n' >"$tmux_display_count_file"
 trap 'rm -f "$tmux_display_count_file"' EXIT
 tmux() {

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-state_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-runtime.XXXXXX")"
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-runtime.XXXXXX")"
 before_worktrees="$(git -C "$root" worktree list --porcelain)"
 spawn_gate_passed=false
 

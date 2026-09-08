@@ -38,6 +38,7 @@ megabrain_hooks_command() {
 
 megabrain_hooks_config_has_entry() {
   local agent="$1" path="$2"
+  # Keep devkit entries so hook migration recognizes commands written before the rename.
   case "$agent" in
     cursor)
       jq -e '

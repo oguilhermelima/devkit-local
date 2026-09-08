@@ -3,10 +3,10 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-state_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-close-safety.XXXXXX")"
-socket_name="devkitclose-$$"
-session_name="devkit-close-parent-$$"
-dedicated_session_name="devkit-close-dedicated-$$"
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-close-safety.XXXXXX")"
+socket_name="megabrainclose-$$"
+session_name="megabrain-close-parent-$$"
+dedicated_session_name="megabrain-close-dedicated-$$"
 parent_pane=""
 parent_tmux=""
 close_log="$state_dir/host-close.log"

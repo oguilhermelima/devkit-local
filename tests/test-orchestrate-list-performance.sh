@@ -3,7 +3,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-state_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-list-performance.XXXXXX")"
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-list-performance.XXXXXX")"
 wrapper_dir="$state_dir/bin"
 count_file="$state_dir/jq-count"
 real_jq="$(command -v jq)"

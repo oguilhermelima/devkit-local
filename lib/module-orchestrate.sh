@@ -12,7 +12,7 @@ MEGABRAIN_DISPATCH_CLOSE_OUTCOME=unknown
 MEGABRAIN_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS=60
 
 if ! declare -F megabrain_dispatch_preamble >/dev/null 2>&1; then
-  # shellcheck source=local/devkit/lib/module-facts.sh
+  # shellcheck source=local/megabrain/lib/module-facts.sh
   source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/module-facts.sh"
 fi
 
@@ -90,9 +90,9 @@ megabrain_dispatch_default_label() {
   if [ -n "$user_name" ] && [ -n "$host_name" ]; then
     printf '%s@%s %s\n' "$user_name" "$host_name" "$timestamp"
   elif [ -n "$timestamp" ]; then
-    printf 'devkit-dispatch-%s\n' "$timestamp"
+    printf 'megabrain-dispatch-%s\n' "$timestamp"
   else
-    printf 'devkit-dispatch\n'
+    printf 'megabrain-dispatch\n'
   fi
 }
 

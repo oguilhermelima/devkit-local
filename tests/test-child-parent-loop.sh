@@ -4,7 +4,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 state_dir=""
-socket_name=devkitloop
+socket_name=megabrainloop
 session_name=""
 parent_pane=""
 parent_tmux=""
@@ -131,7 +131,7 @@ megabrain_dispatch_wait_for_prompt_receipt() {
 }
 
 prepare_tmux_parent() {
-  session_name="devkit-loop-parent-$$"
+  session_name="megabrain-loop-parent-$$"
   tmux_cmd new-session -d -s "$session_name" bash
   parent_pane="$(tmux_cmd display-message -p -t "$session_name" '#{pane_id}')"
   parent_tmux="$(tmux_cmd display-message -p -t "$parent_pane" '#{socket_path},#{pid},#{session_id}')"
@@ -144,7 +144,7 @@ prepare_tmux_parent() {
 
 assert_claude_idle_fixtures() {
   local fixture_session fixture_pane fixture_meta
-  fixture_session="devkit-loop-claude-$$"
+  fixture_session="megabrain-loop-claude-$$"
   tmux_cmd new-session -d -s "$fixture_session" "printf '%s' '  ⏵⏵ bypass permissions on · 1 shell · ← for agents'; sleep 2"
   fixture_pane="$(tmux_cmd display-message -p -t "$fixture_session" '#{pane_id}')"
   fixture_meta="$(jq -cn --arg session "$fixture_session" --arg pane "$fixture_pane" '{parentTmuxSession:$session,parentTmuxPane:$pane}')"
@@ -166,32 +166,32 @@ child_command() {
   local verb="$1" text="${2:-}"
   if [ "$MEGABRAIN_TEST_RUNTIME" = tmux ]; then
     if [ "$verb" = received ]; then
-      env -u SUPERSET_TERMINAL_ID MEGABRAIN_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/devkit" "$verb"
+      env -u SUPERSET_TERMINAL_ID MEGABRAIN_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/megabrain" "$verb"
     else
-      env -u SUPERSET_TERMINAL_ID MEGABRAIN_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/devkit" "$verb" "$text"
+      env -u SUPERSET_TERMINAL_ID MEGABRAIN_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/megabrain" "$verb" "$text"
     fi
   else
     if [ "$verb" = received ]; then
-      env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/devkit" "$verb"
+      env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/megabrain" "$verb"
     else
-      env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/devkit" "$verb" "$text"
+      env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/megabrain" "$verb" "$text"
     fi
   fi
 }
 
 child_check() {
   if [ "$MEGABRAIN_TEST_RUNTIME" = tmux ]; then
-    env -u SUPERSET_TERMINAL_ID MEGABRAIN_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/devkit" check --timeout 0 --json
+    env -u SUPERSET_TERMINAL_ID MEGABRAIN_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/megabrain" check --timeout 0 --json
   else
-    env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/devkit" check --timeout 0 --json
+    env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/megabrain" check --timeout 0 --json
   fi
 }
 
 child_ack() {
   if [ "$MEGABRAIN_TEST_RUNTIME" = tmux ]; then
-    env -u SUPERSET_TERMINAL_ID MEGABRAIN_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/devkit" ack "$1" --json
+    env -u SUPERSET_TERMINAL_ID MEGABRAIN_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/megabrain" ack "$1" --json
   else
-    env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/devkit" ack "$1" --json
+    env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/megabrain" ack "$1" --json
   fi
 }
 
@@ -210,7 +210,7 @@ run_flow() {
   MEGABRAIN_TEST_RUNTIME="$runtime"
   fake_send_mode=ok
   fake_close=false
-  set_state_dir "$(mktemp -d "${TMPDIR:-/tmp}/devkit-loop-$runtime.XXXXXX")"
+  set_state_dir "$(mktemp -d "${TMPDIR:-/tmp}/megabrain-loop-$runtime.XXXXXX")"
   export MEGABRAIN_TEST_CONTEXT
   if [ "$runtime" = tmux ]; then
     MEGABRAIN_TEST_CONTEXT=orca

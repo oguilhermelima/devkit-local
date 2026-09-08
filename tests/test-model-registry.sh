@@ -3,7 +3,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-state_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-models.XXXXXX")"
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-models.XXXXXX")"
 bin_dir="$state_dir/bin"
 mkdir -p "$bin_dir"
 
@@ -50,7 +50,7 @@ assert_failure_contains() {
   assert_contains "$output" "$expected"
 }
 
-list_output="$("$root/devkit" model list --json)"
+list_output="$("$root/megabrain" model list --json)"
 assert_equal "$(printf '%s' "$list_output" | jq '[.models[] | select(.agent == "codex")] | length')" 10
 assert_equal "$(printf '%s' "$list_output" | jq '[.models[] | select(.agent == "claude")] | length')" 18
 assert_equal "$(printf '%s' "$list_output" | jq '[.models[] | select(.agent == "agy")] | length')" 14
@@ -82,61 +82,61 @@ exit 1
 EOF
 chmod +x "$bin_dir/agy"
 before_refresh="$(printf '%s' "$list_output" | jq -r '.models[] | select(.agent == "agy") | .provenance.obtainedAt' | head -n 1)"
-"$root/devkit" model refresh agy >/dev/null
-after_refresh="$("$root/devkit" model list --json)"
+"$root/megabrain" model refresh agy >/dev/null
+after_refresh="$("$root/megabrain" model list --json)"
 assert_equal "$(printf '%s' "$after_refresh" | jq -r '[.models[] | select(.agent == "agy")] | length')" 15
 assert_equal "$(printf '%s' "$after_refresh" | jq -r '.models[] | select(.agent == "agy" and .model == "gemini-9.1-flash-low") | .provenance.kind')" live
 assert_not_equal() { [ "$1" != "$2" ] || fail "expected values to differ: $1"; }
 assert_not_equal "$before_refresh" "$(printf '%s' "$after_refresh" | jq -r '.models[] | select(.agent == "agy" and .model == "gemini-9.1-flash-low") | .provenance.obtainedAt')"
 printf 'registry refresh: agy source replaced entries and timestamp\n'
 
-"$root/devkit" model add codex user-model --reasoning low,medium,high >/dev/null
-assert_equal "$("$root/devkit" model list --json | jq -r '.models[] | select(.model == "user-model") | .provenance.kind')" curated
-assert_failure_contains 'already registered' "$root/devkit" model add codex user-model --reasoning low
-assert_failure_contains 'reasoning levels' "$root/devkit" model add codex malformed-model --reasoning low,,high
+"$root/megabrain" model add codex user-model --reasoning low,medium,high >/dev/null
+assert_equal "$("$root/megabrain" model list --json | jq -r '.models[] | select(.model == "user-model") | .provenance.kind')" curated
+assert_failure_contains 'already registered' "$root/megabrain" model add codex user-model --reasoning low
+assert_failure_contains 'reasoning levels' "$root/megabrain" model add codex malformed-model --reasoning low,,high
 printf 'registry add: user entry accepted, duplicate and malformed input refused\n'
 
-assert_failure_contains 'has effort as part of the model id' "$root/devkit" chain add agy-with-effort \
+assert_failure_contains 'has effort as part of the model id' "$root/megabrain" chain add agy-with-effort \
   --when '{"parentAgent":"codex"}' \
   --steps '[{"agent":"agy","model":"gemini-3.8-flash-high","effort":"high"}]'
-"$root/devkit" chain add agy-without-effort \
+"$root/megabrain" chain add agy-without-effort \
   --when '{"parentAgent":"codex"}' \
   --steps '[{"agent":"agy","model":"gemini-3.8-flash-high"}]' >/dev/null
-assert_equal "$("$root/devkit" chain list --json | jq -r '.chains[] | select(.name == "agy-without-effort") | .steps[0].effort // "absent"')" absent
-assert_failure_contains 'requires a separate reasoning level' "$root/devkit" chain add codex-without-effort \
+assert_equal "$("$root/megabrain" chain list --json | jq -r '.chains[] | select(.name == "agy-without-effort") | .steps[0].effort // "absent"')" absent
+assert_failure_contains 'requires a separate reasoning level' "$root/megabrain" chain add codex-without-effort \
   --when '{"parentAgent":"codex"}' \
   --steps '[{"agent":"codex","model":"gpt-6-astra"}]'
-assert_failure_contains 'requires a separate reasoning level' "$root/devkit" chain add claude-without-effort \
+assert_failure_contains 'requires a separate reasoning level' "$root/megabrain" chain add claude-without-effort \
   --when '{"parentAgent":"codex"}' \
   --steps '[{"agent":"claude","model":"claude-sonnet-5"}]'
-retired_output="$("$root/devkit" chain add retired-model-chain \
+retired_output="$("$root/megabrain" chain add retired-model-chain \
   --when '{"parentAgent":"codex"}' \
   --steps '[{"agent":"codex","model":"gpt-5.4","effort":"high"}]' 2>&1)"
 assert_contains "$retired_output" 'Warning: model'
 assert_contains "$retired_output" 'retirement date: 2026-08-31'
 printf 'chain effort: embedded agy effort omitted, separate axes required, retired models warn\n'
 
-assert_failure_contains 'unknown-model' "$root/devkit" chain add unknown-model-chain \
+assert_failure_contains 'unknown-model' "$root/megabrain" chain add unknown-model-chain \
   --when '{"parentAgent":"codex"}' \
   --steps '[{"agent":"codex","model":"unknown-model","effort":"high"}]'
-assert_failure_contains 'does not support reasoning level' "$root/devkit" chain add bad-effort-chain \
+assert_failure_contains 'does not support reasoning level' "$root/megabrain" chain add bad-effort-chain \
   --when '{"parentAgent":"codex"}' \
   --steps '[{"agent":"codex","model":"gpt-5.6-luna","effort":"none"}]'
-unknown_ids_output="$("$root/devkit" chain add readable-unknown-chain \
+unknown_ids_output="$("$root/megabrain" chain add readable-unknown-chain \
   --when '{"parentAgent":"codex"}' \
   --steps '[{"agent":"codex","model":"unknown-readable-model","effort":"high"}]' 2>&1 || true)"
 assert_contains "$unknown_ids_output" 'Valid model ids:'
 assert_not_contains "$unknown_ids_output" 'gpt-6-astra,gpt-5.6'
-"$root/devkit" chain add escaped-chain --allow-unknown-model \
+"$root/megabrain" chain add escaped-chain --allow-unknown-model \
   --when '{"parentAgent":"codex"}' \
   --steps '[{"agent":"codex","model":"future-model","effort":"high"}]' >/dev/null
-assert_equal "$("$root/devkit" chain list --json | jq -r '.chains[] | select(.name == "escaped-chain") | .steps[0].unvalidated')" true
+assert_equal "$("$root/megabrain" chain list --json | jq -r '.chains[] | select(.name == "escaped-chain") | .steps[0].unvalidated')" true
 printf 'chain guard: unknown and unsupported values refused; escape hatch records unvalidated\n'
 
 original='{"chains":{"legacy":{"when":{"parentAgent":"codex"},"steps":[{"agent":"agy","model":"gemini-2.5-pro","effort":"high"},{"agent":"claude","model":"claude-sonnet-4-5","effort":"high"}]}},"defaultSteps":[]}'
 mkdir -p "$MEGABRAIN_STATE_DIR"
 printf '%s\n' "$original" >"$MEGABRAIN_STATE_DIR/chains.json"
-if migration_output="$("$root/devkit" chain list 2>&1)"; then
+if migration_output="$("$root/megabrain" chain list 2>&1)"; then
   fail 'invalid legacy chain unexpectedly listed successfully'
 fi
 assert_contains "$migration_output" 'chain legacy step 1'
@@ -144,11 +144,11 @@ assert_contains "$migration_output" 'gemini-2.5-pro'
 assert_contains "$migration_output" 'chain legacy step 2'
 assert_contains "$migration_output" 'claude-sonnet-4-5'
 assert_equal "$(cat "$MEGABRAIN_STATE_DIR/chains.json")" "$original"
-"$root/devkit" chain repair legacy --step 1 --model gemini-3.8-flash-high >/dev/null
-"$root/devkit" chain repair legacy --step 2 --model claude-sonnet-5 --effort high >/dev/null
-assert_equal "$("$root/devkit" chain list --json | jq -r '.chains[] | select(.name == "legacy") | .steps[0].model')" gemini-3.8-flash-high
-assert_equal "$("$root/devkit" chain list --json | jq -r '.chains[] | select(.name == "legacy") | .steps[0].effort // "absent"')" absent
-assert_equal "$("$root/devkit" chain list --json | jq -r '.chains[] | select(.name == "legacy") | .steps[1].model')" claude-sonnet-5
+"$root/megabrain" chain repair legacy --step 1 --model gemini-3.8-flash-high >/dev/null
+"$root/megabrain" chain repair legacy --step 2 --model claude-sonnet-5 --effort high >/dev/null
+assert_equal "$("$root/megabrain" chain list --json | jq -r '.chains[] | select(.name == "legacy") | .steps[0].model')" gemini-3.8-flash-high
+assert_equal "$("$root/megabrain" chain list --json | jq -r '.chains[] | select(.name == "legacy") | .steps[0].effort // "absent"')" absent
+assert_equal "$("$root/megabrain" chain list --json | jq -r '.chains[] | select(.name == "legacy") | .steps[1].model')" claude-sonnet-5
 printf 'migration: legacy values reported without rewrite and repaired explicitly\n'
 
 printf 'ok: model registry, provenance, chain guard, escape hatch, and migration\n'

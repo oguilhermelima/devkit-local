@@ -3,13 +3,13 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-state_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-nudge.XXXXXX")"
-socket_name=devkitnudge
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-nudge.XXXXXX")"
+socket_name=megabrainnudge
 # Short on purpose: TMUX_TMPDIR sits under a long mktemp path and the socket path
 # has to stay inside the 104-byte Unix socket limit.
 outside_socket=dnout
-session_name=devkit-nudge-test
-no_context_session=devkit-nudge-no-context
+session_name=megabrain-nudge-test
+no_context_session=megabrain-nudge-no-context
 parent_id=parent-terminal
 workspace_id=workspace-test
 parent_pane=""
@@ -93,12 +93,12 @@ assert_contains "$idle_capture" '[devkit] mail available for dispatch tmux-idle'
 assert_not_contains "$idle_capture" 'body must remain in queue'
 printf 'tmux idle pointer: %s\n' "$(printf '%s\n' "$idle_capture" | grep -F '[devkit] mail available for dispatch tmux-idle' | tail -n 1)"
 
-delivery="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/devkit" orchestrate watch tmux-idle --timeout 0 --poll-interval 0 --wait-mode poll --json)"
+delivery="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/megabrain" orchestrate watch tmux-idle --timeout 0 --poll-interval 0 --wait-mode poll --json)"
 assert_equal "$(jq -r '.messages | length' <<<"$delivery")" 1
 assert_equal "$(jq -r '.messages[0].text' <<<"$delivery")" 'body must remain in queue'
 delivery_id="$(jq -r '.deliveryId' <<<"$delivery")"
-env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/devkit" orchestrate ack tmux-idle "$delivery_id" --json >/dev/null
-second_delivery="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/devkit" orchestrate watch tmux-idle --timeout 0 --poll-interval 0 --wait-mode poll --json)"
+env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/megabrain" orchestrate ack tmux-idle "$delivery_id" --json >/dev/null
+second_delivery="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/megabrain" orchestrate watch tmux-idle --timeout 0 --poll-interval 0 --wait-mode poll --json)"
 assert_equal "$(jq -r '.messages | length' <<<"$second_delivery")" 0
 printf 'no double delivery: one message, then empty queue\n'
 
@@ -134,7 +134,7 @@ waiter_after="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" suppressed
 assert_equal "$waiter_before" "$waiter_after"
 megabrain_parent_notify_waiter_unregister tmux-waiter
-waiter_delivery="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/devkit" orchestrate watch tmux-waiter --timeout 0 --poll-interval 0 --wait-mode poll --json)"
+waiter_delivery="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/megabrain" orchestrate watch tmux-waiter --timeout 0 --poll-interval 0 --wait-mode poll --json)"
 assert_equal "$(jq -r '.messages[0].text' <<<"$waiter_delivery")" 'waiter body'
 printf 'active waiter: nudge suppressed and delivery remained readable\n'
 
@@ -197,7 +197,7 @@ printf 'Superset IDE: terminals read settled, terminals send submitted, waiter s
 nudged_id=nudge-watch
 create_meta "$nudged_id" "$parent_pane"
 watch_output="$state_dir/watch.json"
-env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/devkit" orchestrate watch "$nudged_id" --timeout 3 --wait-mode nudge --json >"$watch_output" &
+env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/megabrain" orchestrate watch "$nudged_id" --timeout 3 --wait-mode nudge --json >"$watch_output" &
 watch_pid=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   if [ -f "$state_dir/dispatches/$nudged_id/waiter.json" ]; then
@@ -216,7 +216,7 @@ assert_equal "$(pgrep -f "tail -n \+[0-9]* -f $state_dir/dispatches/$nudged_id/n
 assert_equal "$(ls -d "${TMPDIR:-/tmp}"/megabrain-wake.* 2>/dev/null | wc -l | tr -d ' ')" 0
 printf 'nudge mode: watch blocked, woke from pointer marker, and left no follower\n'
 
-outside_state_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-nudge-outside.XXXXXX")"
+outside_state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-nudge-outside.XXXXXX")"
 outside_session="out-$$"
 env MEGABRAIN_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" new-session -d -s "$outside_session" bash
 env MEGABRAIN_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" set-environment -t "$outside_session" MEGABRAIN_STATE_DIR "$outside_state_dir"
