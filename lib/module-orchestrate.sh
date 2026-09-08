@@ -1442,7 +1442,11 @@ megabrain_dispatch_child_message() {
     starting|start-unproven) megabrain_dispatch_meta_update_process_state "$dispatch_id" running || return 1 ;;
   esac
   if [ "$type" = received ]; then
-    :
+    # WHY: received is a protocol confirmation. The only thing that waits for it is
+    # megabrain_dispatch_wait_for_prompt_receipt, which polls the queue directly, so a
+    # pointer for it wakes the coordinator for nothing and races whatever it is typing.
+    printf '%s sent: %s\n' "$type" "$dispatch_id"
+    return 0
   elif [ "$type" = ask ]; then
     megabrain_dispatch_meta_update_state "$dispatch_id" waiting_for_reply || return 1
     megabrain_dispatch_meta_update_process_state "$dispatch_id" running || return 1
