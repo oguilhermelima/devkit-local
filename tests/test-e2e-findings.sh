@@ -122,7 +122,7 @@ printf 'dispatch list uses metadata without host calls\n'
 
 devkit_dispatch_meta_write stalled-live live-terminal superset superset workspace-test live-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
 devkit_dispatch_message_append stalled-live child received 'prompt received' live-terminal >/dev/null
-env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=live-terminal DEVKIT_HOOK_AGENT=codex "$root/hooks/devkit-turn-end.sh" '{"last_assistant_message":"still working"}' >/dev/null
+env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=live-terminal MEGABRAIN_HOOK_AGENT=codex "$root/hooks/megabrain-turn-end.sh" '{"last_assistant_message":"still working"}' >/dev/null
 assert_equal "$(jq -r '.state' "$DEVKIT_DISPATCH_DIR/stalled-live/meta.json")" running
 printf 'live queue activity does not trigger stalled\n'
 
@@ -134,7 +134,7 @@ devkit_superset() {
   return 1
 }
 devkit_dispatch_meta_write stalled-missing child-terminal superset superset workspace-test missing-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
-env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=missing-terminal DEVKIT_HOOK_AGENT=codex "$root/hooks/devkit-turn-end.sh" '{"last_assistant_message":"stuck"}' >/dev/null
+env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=missing-terminal MEGABRAIN_HOOK_AGENT=codex "$root/hooks/megabrain-turn-end.sh" '{"last_assistant_message":"stuck"}' >/dev/null
 assert_equal "$(jq -r '.state' "$DEVKIT_DISPATCH_DIR/stalled-missing/meta.json")" stalled
 printf 'missing terminal remains evidence for stalled\n'
 

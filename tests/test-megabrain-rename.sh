@@ -87,13 +87,20 @@ HOME="$integration_home" "$root/megabrain" tmux tune --revert >/dev/null
 cmp -s "$original_zshrc" "$integration_home/.zshrc" || fail 'zshrc was not restored by reverse operation'
 printf 'marked integrations: backed up, replaced once, and reverted\n'
 
+legacy_root="$work/old-location/devkit-local"
 for agent in claude codex agy cursor; do
   mkdir -p "$integration_home/.$agent"
   config="$integration_home/.$agent/hooks.json"
   [ "$agent" = claude ] && config="$integration_home/.$agent/settings.json"
   case "$agent" in
-    cursor) printf '{"hooks":{"afterAgentResponse":[{"command":"old"}]}}\n' >"$config" ;;
-    *) printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"old"}]}]}}\n' >"$config" ;;
+    cursor)
+      jq -n --arg command "DEVKIT_HOOK_AGENT=$agent $legacy_root/hooks/devkit-turn-end.sh" \
+        '{hooks:{afterAgentResponse:[{command:"keep"},{command:$command},{command:$command}]}}' >"$config"
+      ;;
+    *)
+      jq -n --arg command "DEVKIT_HOOK_AGENT=$agent $legacy_root/hooks/devkit-turn-end.sh" \
+        '{hooks:{Stop:[{hooks:[{type:"command",command:"keep"},{type:"command",command:$command},{type:"command",command:$command}]}]}}' >"$config"
+      ;;
   esac
   cp "$config" "$work/${agent}-hooks.json"
   mkdir -p "$work/bin"
@@ -109,8 +116,38 @@ for agent in claude codex agy cursor; do
   assert_backup_matches "$config" "$work/${agent}-hooks.json"
   count="$(jq '[.. | objects | .command? // empty | select(test("megabrain-turn-end[.]sh"))] | length' "$config")"
   assert_equal "$count" 1
+  assert_equal "$(jq -r '.. | objects | .command? // empty | select(test("megabrain-turn-end[.]sh"))' "$config")" \
+    "MEGABRAIN_HOOK_AGENT=$agent $root/hooks/megabrain-turn-end.sh"
+  if grep -F "$legacy_root/hooks/devkit-turn-end.sh" "$config" >/dev/null 2>&1; then
+    fail "$agent config retained the legacy hook path"
+  fi
 done
 printf 'agent hooks: all four updated with backups and one entry each\n'
+
+PATH="$work/bin:$PATH" HOME="$integration_home" MEGABRAIN_STATE_DIR="$integration_home/state" \
+  "$root/megabrain" install orchestration-hooks --revert >/dev/null
+for agent in claude codex agy cursor; do
+  config="$integration_home/.$agent/hooks.json"
+  [ "$agent" = claude ] && config="$integration_home/.$agent/settings.json"
+  cmp -s "$work/${agent}-hooks.json" "$config" || fail "$agent hooks were not restored"
+done
+printf 'agent hooks: reverse operation restored the legacy entries\n'
+
+moved_root="$work/moved/megabrain-local"
+mkdir -p "$(dirname "$moved_root")"
+cp -Rp "$root" "$moved_root"
+moved_root="$(cd -P "$moved_root" && pwd -P)"
+PATH="$work/bin:$PATH" HOME="$integration_home" MEGABRAIN_STATE_DIR="$integration_home/state" \
+  "$moved_root/megabrain" install orchestration-hooks --yes >/dev/null
+for agent in claude codex agy cursor; do
+  config="$integration_home/.$agent/hooks.json"
+  [ "$agent" = claude ] && config="$integration_home/.$agent/settings.json"
+  moved_entry="$(jq -r '.. | objects | .command? // empty | select(test("megabrain-turn-end[.]sh"))' "$config")"
+  assert_equal "$moved_entry" "MEGABRAIN_HOOK_AGENT=$agent $moved_root/hooks/megabrain-turn-end.sh"
+  assert_file "$moved_root/hooks/megabrain-turn-end.sh"
+  [ -x "$moved_root/hooks/megabrain-turn-end.sh" ] || fail 'moved hook is not executable'
+done
+printf 'agent hooks: repair resolved the moved checkout dynamically\n'
 
 install_home="$work/install-home"
 mkdir -p "$install_home/.devkit-local"
