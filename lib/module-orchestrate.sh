@@ -676,7 +676,7 @@ megabrain_dispatch_tmux_caller_session() {
 }
 
 megabrain_dispatch_find_child() {
-  local tmux_session="" tmux_pane="" tmux_identity=false matches dispatch_id second
+  local tmux_session="" tmux_pane="" tmux_identity=false matches dispatch_id second direct_id direct_meta
   MEGABRAIN_FOUND_DISPATCH=""
   megabrain_dispatch_require_session || return 1
   if [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
@@ -684,11 +684,32 @@ megabrain_dispatch_find_child() {
     tmux_pane="$TMUX_PANE"
     tmux_session="$(megabrain_dispatch_tmux_caller_session || true)"
   fi
+  direct_id="${MEGABRAIN_DISPATCH_ID:-}"
+  if [ -n "$direct_id" ]; then
+    direct_meta="$(megabrain_dispatch_meta_read "$direct_id" 2>/dev/null || true)"
+    if [ -n "$direct_meta" ]; then
+      if [ "$tmux_identity" = true ]; then
+        if [ -n "$tmux_session" ] && printf '%s' "$direct_meta" | jq -e \
+          --arg dispatchId "$direct_id" --arg host "$MEGABRAIN_SESSION_HOST" \
+          --arg session "$tmux_session" --arg pane "$tmux_pane" \
+          '.dispatchId == $dispatchId and .childHost == $host and .runtime == "tmux" and .tmuxSession == $session and .tmuxPane == $pane' \
+          >/dev/null 2>&1; then
+          MEGABRAIN_FOUND_DISPATCH="$direct_id"
+          return 0
+        fi
+      elif printf '%s' "$direct_meta" | jq -e \
+        --arg dispatchId "$direct_id" --arg id "$MEGABRAIN_SESSION_ID" --arg host "$MEGABRAIN_SESSION_HOST" \
+        '.dispatchId == $dispatchId and .terminalId == $id and .childHost == $host' \
+        >/dev/null 2>&1; then
+        MEGABRAIN_FOUND_DISPATCH="$direct_id"
+        return 0
+      fi
+    fi
+  fi
   # WHY: this runs on every ask, done, check, received and turn-end hook, and the
-  # dispatch directory only grows. One jq per meta file cost half a second against the
-  # 83 dispatches on the machine this was written on; one jq over all of them is two
-  # orders of magnitude cheaper. Pane identity replaces terminal identity because tmux
-  # shares the host id across panes.
+  # dispatch directory only grows. Use the exported dispatch id when it is valid, and
+  # retain this batch scan for older or stale environments. Pane identity replaces
+  # terminal identity because tmux shares the host id across panes.
   if [ "$tmux_identity" = true ]; then
     [ -n "$tmux_session" ] || {
       megabrain_error "no managed dispatch belongs to tmux session ${tmux_session:-unknown} pane $tmux_pane"
