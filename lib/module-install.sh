@@ -26,7 +26,7 @@ devkit_module_install() {
     simulator-tv) module_simulator_tv_install ;;
     tv-adb) module_tv_adb_install ;;
     tmux-runtime) module_tmux_runtime_install "${2:-false}" ;;
-    *) devkit_error "unknown module: $module"; return "$DEVKIT_USAGE_ERROR" ;;
+    *) devkit_error "unknown module: $module"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }
 
@@ -34,7 +34,7 @@ devkit_module_revert() {
   local module="$1"
   case "$module" in
     orchestration-hooks) module_orchestration_hooks_revert ;;
-    *) devkit_error "module cannot be reverted: $module"; return "$DEVKIT_USAGE_ERROR" ;;
+    *) devkit_error "module cannot be reverted: $module"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }
 
@@ -124,7 +124,7 @@ command_install() {
       *)
         if [ -n "$module" ]; then
           devkit_error "install accepts at most one module id"
-          return "$DEVKIT_USAGE_ERROR"
+          return "$MEGABRAIN_USAGE_ERROR"
         fi
         module="$arg"
         shift
@@ -132,7 +132,7 @@ command_install() {
     esac
   done
   if [ -n "$module" ]; then
-    devkit_validate_module "$module" || { devkit_error "unknown module: $module"; return "$DEVKIT_USAGE_ERROR"; }
+    devkit_validate_module "$module" || { devkit_error "unknown module: $module"; return "$MEGABRAIN_USAGE_ERROR"; }
     if [ "$revert" = true ]; then
       devkit_module_revert "$module"
       return $?
@@ -166,7 +166,7 @@ command_doctor() {
       *)
         if [ -n "$module" ]; then
           devkit_error "doctor accepts at most one module id"
-          return "$DEVKIT_USAGE_ERROR"
+          return "$MEGABRAIN_USAGE_ERROR"
         fi
         module="$arg"
         shift
@@ -174,7 +174,7 @@ command_doctor() {
     esac
   done
   if [ -n "$module" ]; then
-    devkit_validate_module "$module" || { devkit_error "unknown module: $module"; return "$DEVKIT_USAGE_ERROR"; }
+    devkit_validate_module "$module" || { devkit_error "unknown module: $module"; return "$MEGABRAIN_USAGE_ERROR"; }
     devkit_doctor_one "$module" "$json"
     return $?
   fi

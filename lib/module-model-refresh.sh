@@ -25,12 +25,12 @@ devkit_model_refresh_agy() {
 $ids
 EOF
   registry="$(devkit_model_read)" || return 1
-  tmp="$(mktemp "$DEVKIT_STATE_DIR/models.XXXXXX")" || return 1
+  tmp="$(mktemp "$MEGABRAIN_STATE_DIR/models.XXXXXX")" || return 1
   if ! printf '%s' "$registry" | jq --argjson models "$models" '.models = ([.models[] | select(.agent != "agy")] + $models)' >"$tmp"; then
     rm -f "$tmp"
     return 1
   fi
-  mv -f "$tmp" "$DEVKIT_MODEL_FILE"
+  mv -f "$tmp" "$MEGABRAIN_MODEL_FILE"
   printf 'model registry refreshed: agy (%s models)\n' "$(printf '%s' "$models" | jq 'length')"
 }
 
@@ -39,14 +39,14 @@ command_model_refresh() {
   case "$agent" in
     -h|--help) printf 'Usage: megabrain model refresh <agent>\n'; return 0 ;;
   esac
-  [ -n "$agent" ] || { devkit_error 'Usage: megabrain model refresh <agent>'; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$agent" ] || { devkit_error 'Usage: megabrain model refresh <agent>'; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) shift ;;
       -h|--help) printf 'Usage: megabrain model refresh <agent>\n'; return 0 ;;
-      *) devkit_error "unknown model refresh option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown model refresh option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
   case "$agent" in

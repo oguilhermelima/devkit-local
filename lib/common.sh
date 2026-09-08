@@ -1,25 +1,32 @@
 #!/usr/bin/env bash
 
-DEVKIT_USAGE_ERROR=2
-DEVKIT_STATE_DIR_EXPLICIT=false
+MEGABRAIN_USAGE_ERROR=2
 MEGABRAIN_STATE_DIR_EXPLICIT=false
-DEVKIT_STATE_DIR_LEGACY="${DEVKIT_STATE_DIR:-}"
+MEGABRAIN_STATE_DIR_LEGACY=""
+MEGABRAIN_STATE_DIR_LEGACY_EXPLICIT=false
 if [ "${MEGABRAIN_STATE_DIR+x}" = x ]; then
   MEGABRAIN_STATE_DIR_EXPLICIT=true
-  DEVKIT_STATE_DIR="$MEGABRAIN_STATE_DIR"
+  if [ "${DEVKIT_STATE_DIR+x}" = x ]; then
+    printf 'DEVKIT_STATE_DIR is deprecated and ignored because MEGABRAIN_STATE_DIR is set.\n' >&2
+    unset DEVKIT_STATE_DIR
+  fi
 elif [ "${DEVKIT_STATE_DIR+x}" = x ]; then
-  DEVKIT_STATE_DIR_EXPLICIT=true
+  MEGABRAIN_STATE_DIR_EXPLICIT=true
+  MEGABRAIN_STATE_DIR_LEGACY_EXPLICIT=true
+  MEGABRAIN_STATE_DIR_LEGACY="$DEVKIT_STATE_DIR"
+  MEGABRAIN_STATE_DIR="$DEVKIT_STATE_DIR"
   printf 'DEVKIT_STATE_DIR is deprecated; use MEGABRAIN_STATE_DIR instead.\n' >&2
+  unset DEVKIT_STATE_DIR
 else
-  DEVKIT_STATE_DIR="$HOME/.megabrain"
+  MEGABRAIN_STATE_DIR="$HOME/.megabrain"
 fi
-DEVKIT_STATE_FILE="$DEVKIT_STATE_DIR/state.json"
-DEVKIT_CHAIN_FILE="$DEVKIT_STATE_DIR/chains.json"
-DEVKIT_DISPATCH_DIR="$DEVKIT_STATE_DIR/dispatches"
-DEVKIT_TMUX_SESSION_DIR="$DEVKIT_STATE_DIR/sessions"
-DEVKIT_SHARED_ROOT=""
-DEVKIT_SESSION_ID=""
-DEVKIT_SESSION_HOST=""
+MEGABRAIN_STATE_FILE="$MEGABRAIN_STATE_DIR/state.json"
+MEGABRAIN_CHAIN_FILE="$MEGABRAIN_STATE_DIR/chains.json"
+MEGABRAIN_DISPATCH_DIR="$MEGABRAIN_STATE_DIR/dispatches"
+MEGABRAIN_TMUX_SESSION_DIR="$MEGABRAIN_STATE_DIR/sessions"
+MEGABRAIN_SHARED_ROOT=""
+MEGABRAIN_SESSION_ID=""
+MEGABRAIN_SESSION_HOST=""
 MODULE_STATUS=""
 MODULE_REASON=""
 MODULE_DETAILS=""
@@ -64,16 +71,16 @@ devkit_iso_now() {
 }
 
 devkit_session_id() {
-  DEVKIT_SESSION_ID=""
-  DEVKIT_SESSION_HOST="unknown"
+  MEGABRAIN_SESSION_ID=""
+  MEGABRAIN_SESSION_HOST="unknown"
   if [ -n "${SUPERSET_TERMINAL_ID:-}" ]; then
-    DEVKIT_SESSION_ID="$SUPERSET_TERMINAL_ID"
-    DEVKIT_SESSION_HOST="superset"
+    MEGABRAIN_SESSION_ID="$SUPERSET_TERMINAL_ID"
+    MEGABRAIN_SESSION_HOST="superset"
   elif [ -n "${ORCA_TERMINAL_HANDLE:-}" ]; then
-    DEVKIT_SESSION_ID="$ORCA_TERMINAL_HANDLE"
-    DEVKIT_SESSION_HOST="orca"
+    MEGABRAIN_SESSION_ID="$ORCA_TERMINAL_HANDLE"
+    MEGABRAIN_SESSION_HOST="orca"
   fi
-  printf '%s\n' "$DEVKIT_SESSION_ID"
+  printf '%s\n' "$MEGABRAIN_SESSION_ID"
 }
 
 devkit_json_value() {
@@ -82,11 +89,11 @@ devkit_json_value() {
 }
 
 devkit_state_init() {
-  mkdir -p "$DEVKIT_STATE_DIR" || return 1
-  if [ ! -f "$DEVKIT_STATE_FILE" ]; then
-    printf '{}\n' >"$DEVKIT_STATE_FILE"
-  elif ! jq empty "$DEVKIT_STATE_FILE" >/dev/null 2>&1; then
-    devkit_error "state file is not valid JSON: $DEVKIT_STATE_FILE"
+  mkdir -p "$MEGABRAIN_STATE_DIR" || return 1
+  if [ ! -f "$MEGABRAIN_STATE_FILE" ]; then
+    printf '{}\n' >"$MEGABRAIN_STATE_FILE"
+  elif ! jq empty "$MEGABRAIN_STATE_FILE" >/dev/null 2>&1; then
+    devkit_error "state file is not valid JSON: $MEGABRAIN_STATE_FILE"
     return 1
   fi
 }
@@ -100,17 +107,17 @@ devkit_state_set() {
 
   devkit_state_init || return 1
   configured_at="$(devkit_iso_now)"
-  tmp="$(mktemp "$DEVKIT_STATE_DIR/state.XXXXXX")" || return 1
+  tmp="$(mktemp "$MEGABRAIN_STATE_DIR/state.XXXXXX")" || return 1
   if ! jq --arg module "$module" \
     --argjson installed "$installed" \
     --arg configuredAt "$configured_at" \
     --arg details "$details" \
     '.[$module] = {installed: $installed, configuredAt: $configuredAt, details: $details}' \
-    "$DEVKIT_STATE_FILE" >"$tmp"; then
+    "$MEGABRAIN_STATE_FILE" >"$tmp"; then
     rm -f "$tmp"
     return 1
   fi
-  mv -f "$tmp" "$DEVKIT_STATE_FILE"
+  mv -f "$tmp" "$MEGABRAIN_STATE_FILE"
 }
 
 devkit_set_status() {
@@ -166,8 +173,8 @@ devkit_module_ids() {
 }
 
 devkit_runtime_enabled() {
-  [ -f "$DEVKIT_STATE_FILE" ] || return 1
-  jq -e '."tmux-runtime".installed == true' "$DEVKIT_STATE_FILE" >/dev/null 2>&1
+  [ -f "$MEGABRAIN_STATE_FILE" ] || return 1
+  jq -e '."tmux-runtime".installed == true' "$MEGABRAIN_STATE_FILE" >/dev/null 2>&1
 }
 
 devkit_backup_path() {
@@ -187,7 +194,7 @@ devkit_backup_file() {
   [ -f "$path" ] || return 0
   backup="$(devkit_backup_path "$path")"
   cp -p "$path" "$backup" || return 1
-  DEVKIT_LAST_BACKUP_PATH="$backup"
+  MEGABRAIN_LAST_BACKUP_PATH="$backup"
   printf '%s\n' "$backup"
 }
 

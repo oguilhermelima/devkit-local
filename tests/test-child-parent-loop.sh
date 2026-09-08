@@ -46,13 +46,13 @@ tmux_cmd() {
 
 set_state_dir() {
   state_dir="$1"
-  DEVKIT_STATE_DIR="$state_dir"
-  DEVKIT_STATE_FILE="$state_dir/state.json"
-  DEVKIT_CHAIN_FILE="$state_dir/chains.json"
-  DEVKIT_DISPATCH_DIR="$state_dir/dispatches"
-  DEVKIT_TMUX_SESSION_DIR="$state_dir/sessions"
+  MEGABRAIN_STATE_DIR="$state_dir"
+  MEGABRAIN_STATE_FILE="$state_dir/state.json"
+  MEGABRAIN_CHAIN_FILE="$state_dir/chains.json"
+  MEGABRAIN_DISPATCH_DIR="$state_dir/dispatches"
+  MEGABRAIN_TMUX_SESSION_DIR="$state_dir/sessions"
   mkdir -p "$state_dir"
-  jq -n '{chains:{loop:{when:{parentAgent:"codex"},steps:[{agent:"codex",model:"test-model",effort:"low"}]}},defaultSteps:[]}' >"$DEVKIT_CHAIN_FILE"
+  jq -n '{chains:{loop:{when:{parentAgent:"codex"},steps:[{agent:"codex",model:"test-model",effort:"low"}]}},defaultSteps:[]}' >"$MEGABRAIN_CHAIN_FILE"
 }
 
 fake_codex() {
@@ -90,7 +90,7 @@ source "$root/lib/module-worktree.sh"
 source "$root/lib/module-chain.sh"
 
 devkit_context_detect() {
-  printf '%s\n' "$DEVKIT_TEST_CONTEXT"
+  printf '%s\n' "$MEGABRAIN_TEST_CONTEXT"
 }
 
 devkit_workspace_id_for_target() {
@@ -135,7 +135,7 @@ prepare_tmux_parent() {
   tmux_cmd new-session -d -s "$session_name" bash
   parent_pane="$(tmux_cmd display-message -p -t "$session_name" '#{pane_id}')"
   parent_tmux="$(tmux_cmd display-message -p -t "$parent_pane" '#{socket_path},#{pid},#{session_id}')"
-  tmux_cmd set-environment -t "$session_name" DEVKIT_STATE_DIR "$state_dir"
+  tmux_cmd set-environment -t "$session_name" MEGABRAIN_STATE_DIR "$state_dir"
   export TMUX="$parent_tmux" TMUX_PANE="$parent_pane"
   tmux_cmd send-keys -t "$parent_pane" -l "PS1='PARENT$ '; export PS1; printf 'parent-ready\\n'"
   tmux_cmd send-keys -t "$parent_pane" Enter
@@ -164,34 +164,34 @@ assert_claude_idle_fixtures() {
 
 child_command() {
   local verb="$1" text="${2:-}"
-  if [ "$DEVKIT_TEST_RUNTIME" = tmux ]; then
+  if [ "$MEGABRAIN_TEST_RUNTIME" = tmux ]; then
     if [ "$verb" = received ]; then
-      env -u SUPERSET_TERMINAL_ID DEVKIT_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/devkit" "$verb"
+      env -u SUPERSET_TERMINAL_ID MEGABRAIN_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/devkit" "$verb"
     else
-      env -u SUPERSET_TERMINAL_ID DEVKIT_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/devkit" "$verb" "$text"
+      env -u SUPERSET_TERMINAL_ID MEGABRAIN_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/devkit" "$verb" "$text"
     fi
   else
     if [ "$verb" = received ]; then
-      env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/devkit" "$verb"
+      env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/devkit" "$verb"
     else
-      env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/devkit" "$verb" "$text"
+      env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/devkit" "$verb" "$text"
     fi
   fi
 }
 
 child_check() {
-  if [ "$DEVKIT_TEST_RUNTIME" = tmux ]; then
-    env -u SUPERSET_TERMINAL_ID DEVKIT_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/devkit" check --timeout 0 --json
+  if [ "$MEGABRAIN_TEST_RUNTIME" = tmux ]; then
+    env -u SUPERSET_TERMINAL_ID MEGABRAIN_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/devkit" check --timeout 0 --json
   else
-    env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/devkit" check --timeout 0 --json
+    env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/devkit" check --timeout 0 --json
   fi
 }
 
 child_ack() {
-  if [ "$DEVKIT_TEST_RUNTIME" = tmux ]; then
-    env -u SUPERSET_TERMINAL_ID DEVKIT_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/devkit" ack "$1" --json
+  if [ "$MEGABRAIN_TEST_RUNTIME" = tmux ]; then
+    env -u SUPERSET_TERMINAL_ID MEGABRAIN_STATE_DIR="$state_dir" ORCA_TERMINAL_HANDLE=parent-terminal TMUX="$child_tmux" TMUX_PANE="$child_pane" "$root/devkit" ack "$1" --json
   else
-    env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/devkit" ack "$1" --json
+    env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=child-terminal "$root/devkit" ack "$1" --json
   fi
 }
 
@@ -207,20 +207,20 @@ run_flow() {
   local runtime="$1" chain_output dispatch_meta dispatch_id delivery replay delivery_id reply_result push_check push_ack
   local question_delivery question_delivery_id pull_result pull_delivery_id done_delivery done_delivery_id
   local busy_pane busy_before busy_after
-  DEVKIT_TEST_RUNTIME="$runtime"
+  MEGABRAIN_TEST_RUNTIME="$runtime"
   fake_send_mode=ok
   fake_close=false
   set_state_dir "$(mktemp -d "${TMPDIR:-/tmp}/devkit-loop-$runtime.XXXXXX")"
-  export DEVKIT_TEST_CONTEXT
+  export MEGABRAIN_TEST_CONTEXT
   if [ "$runtime" = tmux ]; then
-    DEVKIT_TEST_CONTEXT=orca
+    MEGABRAIN_TEST_CONTEXT=orca
     export ORCA_TERMINAL_HANDLE=parent-terminal
     unset SUPERSET_TERMINAL_ID
     prepare_tmux_parent
     assert_claude_idle_fixtures
     spawn_choice=true
   else
-    DEVKIT_TEST_CONTEXT=superset
+    MEGABRAIN_TEST_CONTEXT=superset
     export SUPERSET_TERMINAL_ID=parent-terminal
     unset ORCA_TERMINAL_HANDLE TMUX TMUX_PANE
     spawn_choice=false
@@ -231,7 +231,7 @@ run_flow() {
   dispatch_id="$(printf '%s' "$chain_output" | jq -r '.dispatch.dispatch // empty')"
   [ -n "$dispatch_id" ] || fail "$runtime chain did not launch a dispatch"
   if [ "$runtime" = tmux ]; then
-    assert_equal "$(tmux_cmd show-environment -t "$session_name" DEVKIT_STATE_DIR)" "DEVKIT_STATE_DIR=$state_dir"
+    assert_equal "$(tmux_cmd show-environment -t "$session_name" MEGABRAIN_STATE_DIR)" "MEGABRAIN_STATE_DIR=$state_dir"
   fi
   dispatch_meta="$(devkit_dispatch_meta_read "$dispatch_id")"
   assert_equal "$(printf '%s' "$dispatch_meta" | jq -r '.promptDelivered')" true
@@ -244,8 +244,8 @@ run_flow() {
     assert_contains "$(cat "$state_dir/fake-sends.log")" chain-launch
     assert_not_equal "$dispatch_id" "$(printf '%s' "$dispatch_meta" | jq -r '.terminalId')"
     assert_contains "$(cat "$state_dir/fake-sends.log")" "SUPERSET_TERMINAL_ID=child-terminal"
-    assert_contains "$(cat "$state_dir/fake-sends.log")" "DEVKIT_DISPATCH_ID=$dispatch_id"
-    assert_contains "$(cat "$state_dir/fake-sends.log")" "DEVKIT_STATE_DIR=$state_dir"
+    assert_contains "$(cat "$state_dir/fake-sends.log")" "MEGABRAIN_DISPATCH_ID=$dispatch_id"
+    assert_contains "$(cat "$state_dir/fake-sends.log")" "MEGABRAIN_STATE_DIR=$state_dir"
   fi
   child_command received >/dev/null
   receipt_delivery="$(parent_watch)"

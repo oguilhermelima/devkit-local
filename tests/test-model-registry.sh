@@ -14,7 +14,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export DEVKIT_STATE_DIR="$state_dir/state"
+export MEGABRAIN_STATE_DIR="$state_dir/state"
 export PATH="$bin_dir:$PATH"
 
 fail() {
@@ -134,8 +134,8 @@ assert_equal "$("$root/devkit" chain list --json | jq -r '.chains[] | select(.na
 printf 'chain guard: unknown and unsupported values refused; escape hatch records unvalidated\n'
 
 original='{"chains":{"legacy":{"when":{"parentAgent":"codex"},"steps":[{"agent":"agy","model":"gemini-2.5-pro","effort":"high"},{"agent":"claude","model":"claude-sonnet-4-5","effort":"high"}]}},"defaultSteps":[]}'
-mkdir -p "$DEVKIT_STATE_DIR"
-printf '%s\n' "$original" >"$DEVKIT_STATE_DIR/chains.json"
+mkdir -p "$MEGABRAIN_STATE_DIR"
+printf '%s\n' "$original" >"$MEGABRAIN_STATE_DIR/chains.json"
 if migration_output="$("$root/devkit" chain list 2>&1)"; then
   fail 'invalid legacy chain unexpectedly listed successfully'
 fi
@@ -143,7 +143,7 @@ assert_contains "$migration_output" 'chain legacy step 1'
 assert_contains "$migration_output" 'gemini-2.5-pro'
 assert_contains "$migration_output" 'chain legacy step 2'
 assert_contains "$migration_output" 'claude-sonnet-4-5'
-assert_equal "$(cat "$DEVKIT_STATE_DIR/chains.json")" "$original"
+assert_equal "$(cat "$MEGABRAIN_STATE_DIR/chains.json")" "$original"
 "$root/devkit" chain repair legacy --step 1 --model gemini-3.8-flash-high >/dev/null
 "$root/devkit" chain repair legacy --step 2 --model claude-sonnet-5 --effort high >/dev/null
 assert_equal "$("$root/devkit" chain list --json | jq -r '.chains[] | select(.name == "legacy") | .steps[0].model')" gemini-3.8-flash-high

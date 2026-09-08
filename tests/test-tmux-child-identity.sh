@@ -19,7 +19,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export DEVKIT_STATE_DIR="$state_dir"
+export MEGABRAIN_STATE_DIR="$state_dir"
 export TMUX_TMPDIR="$state_dir"
 source "$root/lib/common.sh"
 source "$root/lib/module-tmux-runtime.sh"
@@ -72,7 +72,7 @@ create_tmux_meta() {
 
 send_child_message() {
   local pane="$1" dispatch_id="$2" text="$3" output="$4" command_text
-  command_text="DEVKIT_STATE_DIR=$(printf '%q' "$state_dir") SUPERSET_TERMINAL_ID=$(printf '%q' host-terminal) DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_id") $(printf '%q' "$root/devkit") ask $(printf '%q' "$text") >$(printf '%q' "$output") 2>&1"
+  command_text="MEGABRAIN_STATE_DIR=$(printf '%q' "$state_dir") SUPERSET_TERMINAL_ID=$(printf '%q' host-terminal) MEGABRAIN_DISPATCH_ID=$(printf '%q' "$dispatch_id") $(printf '%q' "$root/devkit") ask $(printf '%q' "$text") >$(printf '%q' "$output") 2>&1"
   tmux_cmd send-keys -t "$pane" -l "$command_text"
   tmux_cmd send-keys -t "$pane" Enter
   wait_for_file "$output"
@@ -101,17 +101,17 @@ assert_equal "$(jq -r '.text' "$message_two")" child-two
 [ "$(find "$state_dir/dispatches/$dispatch_two/messages" -name '*.json' | wc -l | tr -d ' ')" = 1 ] || fail "dispatch two received an extra message"
 
 wrong_parent_output=""
-if wrong_parent_output="$(env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=other-parent "$root/devkit" orchestrate watch "$dispatch_one" --timeout 0 --poll-interval 0 --json 2>&1)"; then
+if wrong_parent_output="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=other-parent "$root/devkit" orchestrate watch "$dispatch_one" --timeout 0 --poll-interval 0 --json 2>&1)"; then
   fail "wrong parent read dispatch one"
 fi
 assert_contains "$wrong_parent_output" "owned by superset/$parent_id"
-if wrong_parent_output="$(env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=other-parent "$root/devkit" orchestrate watch "$dispatch_two" --timeout 0 --poll-interval 0 --json 2>&1)"; then
+if wrong_parent_output="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=other-parent "$root/devkit" orchestrate watch "$dispatch_two" --timeout 0 --poll-interval 0 --json 2>&1)"; then
   fail "wrong parent read dispatch two"
 fi
 assert_contains "$wrong_parent_output" "owned by superset/$parent_id"
 
-delivery_one="$(env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/devkit" orchestrate watch "$dispatch_one" --timeout 0 --poll-interval 0 --json)"
-delivery_two="$(env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/devkit" orchestrate watch "$dispatch_two" --timeout 0 --poll-interval 0 --json)"
+delivery_one="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/devkit" orchestrate watch "$dispatch_one" --timeout 0 --poll-interval 0 --json)"
+delivery_two="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/devkit" orchestrate watch "$dispatch_two" --timeout 0 --poll-interval 0 --json)"
 delivery_id_one="$(jq -r '.deliveryId' <<<"$delivery_one")"
 delivery_id_two="$(jq -r '.deliveryId' <<<"$delivery_two")"
 [ "$delivery_id_one" != null ] || fail "dispatch one did not create a delivery"
@@ -119,7 +119,7 @@ delivery_id_two="$(jq -r '.deliveryId' <<<"$delivery_two")"
 assert_equal "$(jq -r '.messages[0].text' <<<"$delivery_one")" child-one
 assert_equal "$(jq -r '.messages[0].text' <<<"$delivery_two")" child-two
 
-env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/devkit" orchestrate ack "$dispatch_one" "$delivery_id_one" --json >/dev/null
+env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/devkit" orchestrate ack "$dispatch_one" "$delivery_id_one" --json >/dev/null
 assert_equal "$(jq -r '.status' "$state_dir/dispatches/$dispatch_one/deliveries/$delivery_id_one.json")" acknowledged
 assert_equal "$(jq -r '.status' "$state_dir/dispatches/$dispatch_two/deliveries/$delivery_id_two.json")" outstanding
 
@@ -127,7 +127,7 @@ stale_pane="$tmux_pane_one"
 tmux_cmd kill-pane -t "$stale_pane"
 stale_output="$state_dir/stale.out"
 stale_done="$state_dir/stale.done"
-stale_command="DEVKIT_STATE_DIR=$(printf '%q' "$state_dir") SUPERSET_TERMINAL_ID=host-terminal DEVKIT_DISPATCH_ID=$(printf '%q' "$dispatch_one") TMUX_PANE=$(printf '%q' "$stale_pane") $(printf '%q' "$root/devkit") ask stale-message >$(printf '%q' "$stale_output") 2>&1; printf 'done\n' >$(printf '%q' "$stale_done")"
+stale_command="MEGABRAIN_STATE_DIR=$(printf '%q' "$state_dir") SUPERSET_TERMINAL_ID=host-terminal MEGABRAIN_DISPATCH_ID=$(printf '%q' "$dispatch_one") TMUX_PANE=$(printf '%q' "$stale_pane") $(printf '%q' "$root/devkit") ask stale-message >$(printf '%q' "$stale_output") 2>&1; printf 'done\n' >$(printf '%q' "$stale_done")"
 tmux_cmd send-keys -t "$tmux_pane_two" -l "$stale_command"
 tmux_cmd send-keys -t "$tmux_pane_two" Enter
 wait_for_file "$stale_done"
@@ -136,14 +136,14 @@ assert_equal "$(find "$state_dir/dispatches/$dispatch_one/messages" -name '*.jso
 
 tab_dispatch="dispatch-tab"
 devkit_dispatch_meta_write "$tab_dispatch" tab-parent superset superset "$workspace_id" tab-terminal "$root" main codex label running gpt-5 true codex "" "" host >/dev/null
-env -u TMUX -u TMUX_PANE DEVKIT_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=tab-terminal DEVKIT_DISPATCH_ID="$tab_dispatch" "$root/devkit" ask tab-message >/dev/null
+env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=tab-terminal MEGABRAIN_DISPATCH_ID="$tab_dispatch" "$root/devkit" ask tab-message >/dev/null
 tab_message="$(find "$state_dir/dispatches/$tab_dispatch/messages" -name '*.json' -print -quit)"
 assert_equal "$(jq -r '.text' "$tab_message")" tab-message
 
 devkit_runtime_enabled() { return 0; }
 devkit_tmux_available() { return 0; }
 devkit_superset_available() { return 0; }
-devkit_tmux_existing_session_for_worktree() { DEVKIT_TMUX_EXISTING_SESSION="$session_name"; return 0; }
+devkit_tmux_existing_session_for_worktree() { MEGABRAIN_TMUX_EXISTING_SESSION="$session_name"; return 0; }
 devkit_tmux_host_terminal_for_session() { return 0; }
 devkit_tmux_split_pane() { printf '%s\n' "$tmux_pane_two"; }
 devkit_tmux_apply_config() { return 0; }
@@ -154,7 +154,7 @@ devkit_dispatch_wait_for_prompt_receipt() { return 0; }
 devkit_agent_command() { printf 'true\n'; }
 
 SUPERSET_TERMINAL_ID="$parent_id" devkit_launch_agent "$root" "$workspace_id" codex gpt-5 medium prompt label >/dev/null
-reused_dispatch="$DEVKIT_LAST_DISPATCH"
+reused_dispatch="$MEGABRAIN_LAST_DISPATCH"
 assert_equal "$(jq -r '.terminalId' "$state_dir/dispatches/$reused_dispatch/meta.json")" "$parent_id"
 
 printf 'ok: tmux child identity, ownership, stale pane, tab mode, and reused-session terminal identity\n'

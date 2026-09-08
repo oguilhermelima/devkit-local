@@ -20,8 +20,8 @@ devkit_model_add() {
     codex|claude|agy) ;;
     *) devkit_error "unknown agent: $agent"; return 1 ;;
   esac
-  [ -n "$model" ] || { devkit_error "model id cannot be empty"; return "$DEVKIT_USAGE_ERROR"; }
-  [ -n "$levels" ] || { devkit_error "reasoning levels cannot be empty"; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$model" ] || { devkit_error "model id cannot be empty"; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ -n "$levels" ] || { devkit_error "reasoning levels cannot be empty"; return "$MEGABRAIN_USAGE_ERROR"; }
   while IFS= read -r level; do
     [ -n "$level" ] || { devkit_error "reasoning levels cannot contain empty values"; return 1; }
     devkit_model_level_known "$level" || { devkit_error "unknown reasoning level: $level"; return 1; }
@@ -33,7 +33,7 @@ devkit_model_add() {
     return 1
   fi
   levels_json="$(devkit_model_levels_json "$levels")" || return 1
-  tmp="$(mktemp "$DEVKIT_STATE_DIR/models.XXXXXX")" || return 1
+  tmp="$(mktemp "$MEGABRAIN_STATE_DIR/models.XXXXXX")" || return 1
   if ! printf '%s' "$registry" | jq \
     --arg agent "$agent" --arg model "$model" --argjson levels "$levels_json" \
     --arg obtainedAt "$(devkit_iso_now)" \
@@ -41,7 +41,7 @@ devkit_model_add() {
     rm -f "$tmp"
     return 1
   fi
-  mv -f "$tmp" "$DEVKIT_MODEL_FILE"
+  mv -f "$tmp" "$MEGABRAIN_MODEL_FILE"
   printf 'model added: %s/%s\n' "$agent" "$model"
 }
 
@@ -50,18 +50,18 @@ command_model_add() {
   case "$agent" in
     -h|--help) printf 'Usage: megabrain model add <agent> <model> --reasoning <levels>\n'; return 0 ;;
   esac
-  [ "$#" -ge 2 ] || { devkit_error 'Usage: megabrain model add <agent> <model> --reasoning <levels>'; return "$DEVKIT_USAGE_ERROR"; }
+  [ "$#" -ge 2 ] || { devkit_error 'Usage: megabrain model add <agent> <model> --reasoning <levels>'; return "$MEGABRAIN_USAGE_ERROR"; }
   shift 2
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --reasoning|--reasonings|--reasoning-levels|--levels)
         levels="${2:-}"
-        [ -n "$levels" ] || { devkit_error "$arg requires a value"; return "$DEVKIT_USAGE_ERROR"; }
+        [ -n "$levels" ] || { devkit_error "$arg requires a value"; return "$MEGABRAIN_USAGE_ERROR"; }
         shift 2
         ;;
       -h|--help) printf 'Usage: megabrain model add <agent> <model> --reasoning <levels>\n'; return 0 ;;
-      *) devkit_error "unknown model add option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown model add option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
   devkit_model_add "$agent" "$model" "$levels"

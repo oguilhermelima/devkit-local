@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
 
-DEVKIT_DISPATCH_PROTOCOL=""
-DEVKIT_SUPERSET_PROTOCOL=""
-DEVKIT_LAST_DISPATCH=""
-DEVKIT_DISPATCH_CLOSE_LAST_PANE=false
-DEVKIT_DISPATCH_DELIVERY_BATCH_CAP="${DEVKIT_DISPATCH_DELIVERY_BATCH_CAP:-50}"
-DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS="${DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS:-30}"
-DEVKIT_PROMPT_BUDGET_ARGV_BYTES=262144
-DEVKIT_PROMPT_BUDGET_TMUX_BYTES=12000
-DEVKIT_DISPATCH_CLOSE_OUTCOME=unknown
-DEVKIT_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS=60
+MEGABRAIN_DISPATCH_PROTOCOL=""
+MEGABRAIN_SUPERSET_PROTOCOL=""
+MEGABRAIN_LAST_DISPATCH=""
+MEGABRAIN_DISPATCH_CLOSE_LAST_PANE=false
+MEGABRAIN_DISPATCH_DELIVERY_BATCH_CAP="${MEGABRAIN_DISPATCH_DELIVERY_BATCH_CAP:-50}"
+MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS="${MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS:-30}"
+MEGABRAIN_PROMPT_BUDGET_ARGV_BYTES=262144
+MEGABRAIN_PROMPT_BUDGET_TMUX_BYTES=12000
+MEGABRAIN_DISPATCH_CLOSE_OUTCOME=unknown
+MEGABRAIN_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS=60
 
 if ! declare -F devkit_dispatch_preamble >/dev/null 2>&1; then
   # shellcheck source=local/devkit/lib/module-facts.sh
   source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/module-facts.sh"
 fi
 
-DEVKIT_DISPATCH_PROTOCOL="$(devkit_dispatch_protocol)"
-DEVKIT_SUPERSET_PROTOCOL="$DEVKIT_DISPATCH_PROTOCOL"
+MEGABRAIN_DISPATCH_PROTOCOL="$(devkit_dispatch_protocol)"
+MEGABRAIN_SUPERSET_PROTOCOL="$MEGABRAIN_DISPATCH_PROTOCOL"
 
 devkit_dispatch_transition_allowed() {
   local axis="$1" from="$2" to="$3"
@@ -60,8 +60,8 @@ devkit_prompt_byte_length() {
 devkit_validate_prompt_budget() {
   local text="$1" path="${2:-argv}" label="${3:-prompt}" actual limit
   case "$path" in
-    argv) limit="$DEVKIT_PROMPT_BUDGET_ARGV_BYTES" ;;
-    tmux) limit="$DEVKIT_PROMPT_BUDGET_TMUX_BYTES" ;;
+    argv) limit="$MEGABRAIN_PROMPT_BUDGET_ARGV_BYTES" ;;
+    tmux) limit="$MEGABRAIN_PROMPT_BUDGET_TMUX_BYTES" ;;
     *) devkit_error "unknown prompt delivery path: $path"; return 1 ;;
   esac
   actual="$(devkit_prompt_byte_length "$text")"
@@ -75,7 +75,7 @@ devkit_dispatch_new_id() {
   local candidate suffix counter=0
   suffix="$(date -u '+%Y%m%d%H%M%S')-$$-${RANDOM:-0}"
   candidate="dispatch-$suffix"
-  while [ -e "$DEVKIT_DISPATCH_DIR/$candidate" ]; do
+  while [ -e "$MEGABRAIN_DISPATCH_DIR/$candidate" ]; do
     counter=$((counter + 1))
     candidate="dispatch-$suffix-$counter"
   done
@@ -104,7 +104,7 @@ devkit_dispatch_dir() {
       return 1
       ;;
   esac
-  printf '%s/%s\n' "$DEVKIT_DISPATCH_DIR" "$dispatch_id"
+  printf '%s/%s\n' "$MEGABRAIN_DISPATCH_DIR" "$dispatch_id"
 }
 
 devkit_dispatch_meta_path() { printf '%s/meta.json\n' "$(devkit_dispatch_dir "$1")"; }
@@ -162,9 +162,9 @@ devkit_dispatch_meta_write() {
   local agent="$9" label="${10}" state="${11}" model="${12:-}" model_honored="${13:-false}"
   local agent_id="${14:-$agent}" tmux_session="${15:-}" tmux_pane="${16:-}" runtime="${17:-host}" spawn_runtime="${18:-}"
   local parent_tmux_session="${19:-}" parent_tmux_pane="${20:-}" parent_workspace_id="${21:-}"
-  local chain_name="${22:-${DEVKIT_CHAIN_NAME:-}}" chain_step="${23:-${DEVKIT_CHAIN_STEP:-}}"
-  local chain_total="${24:-${DEVKIT_CHAIN_TOTAL:-}}" chain_reason="${25:-${DEVKIT_CHAIN_REASON:-}}"
-  local chain_default="${26:-${DEVKIT_CHAIN_DEFAULT:-false}}" chain_step_json chain_total_json dispatch_dir tmp
+  local chain_name="${22:-${MEGABRAIN_CHAIN_NAME:-}}" chain_step="${23:-${MEGABRAIN_CHAIN_STEP:-}}"
+  local chain_total="${24:-${MEGABRAIN_CHAIN_TOTAL:-}}" chain_reason="${25:-${MEGABRAIN_CHAIN_REASON:-}}"
+  local chain_default="${26:-${MEGABRAIN_CHAIN_DEFAULT:-false}}" chain_step_json chain_total_json dispatch_dir tmp
   if [ -z "$spawn_runtime" ]; then
     [ "$runtime" = tmux ] && spawn_runtime=tmux || spawn_runtime=ide
   fi
@@ -340,7 +340,7 @@ devkit_dispatch_has_recent_child_activity() {
   done
   [ "$latest" -gt 0 ] || return 1
   now="$(date +%s)"
-  [ $((now - latest)) -le "$DEVKIT_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS" ]
+  [ $((now - latest)) -le "$MEGABRAIN_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS" ]
 }
 
 devkit_dispatch_has_child_identity_proof() {
@@ -356,7 +356,7 @@ devkit_dispatch_has_child_identity_proof() {
 devkit_dispatch_reconcile_one() {
   local dispatch_id="$1" meta state process_state terminal_status parent_status failure_count next_state next_process
   local stage reason outcome terminal_state next_terminal
-  DEVKIT_RECONCILE_OUTCOME=unchanged
+  MEGABRAIN_RECONCILE_OUTCOME=unchanged
   devkit_dispatch_meta_normalize "$dispatch_id" || return 1
   meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
   state="$(printf '%s' "$meta" | jq -r '.state')"
@@ -365,7 +365,7 @@ devkit_dispatch_reconcile_one() {
   [ "$state" != closed ] || return 0
   [ "$state" != circuit_broken ] || return 0
   devkit_dispatch_terminal_status "$meta"
-  terminal_status="${DEVKIT_TERMINAL_STATUS:-unknown}"
+  terminal_status="${MEGABRAIN_TERMINAL_STATUS:-unknown}"
   if devkit_dispatch_has_child_identity_proof "$dispatch_id"; then
     # WHY: A child message is direct identity proof, even when terminal inspection is inconclusive.
     terminal_status=proven
@@ -382,11 +382,11 @@ devkit_dispatch_reconcile_one() {
         succeeded|failed|stopped|abandoned) next_process=__keep__ ;;
       esac
       devkit_dispatch_meta_update_fields "$dispatch_id" "$next_state" "$next_process" missing terminal-missing terminal-missing terminal-missing terminal-missing "$failure_count" || return 1
-      DEVKIT_RECONCILE_OUTCOME=terminal-missing
+      MEGABRAIN_RECONCILE_OUTCOME=terminal-missing
       ;;
     proven)
       devkit_dispatch_parent_status "$meta"
-      parent_status="${DEVKIT_PARENT_STATUS:-unknown}"
+      parent_status="${MEGABRAIN_PARENT_STATUS:-unknown}"
       case "$parent_status" in
         gone)
           next_state=__keep__
@@ -395,7 +395,7 @@ devkit_dispatch_reconcile_one() {
           esac
           # Retained blocks release while the orphaned terminal remains under review.
           devkit_dispatch_meta_update_fields "$dispatch_id" "$next_state" __keep__ retained parent-missing parent-missing orphaned parent-missing __keep__ || return 1
-          DEVKIT_RECONCILE_OUTCOME=orphaned
+          MEGABRAIN_RECONCILE_OUTCOME=orphaned
           ;;
         alive)
           next_state=__keep__
@@ -407,11 +407,11 @@ devkit_dispatch_reconcile_one() {
           esac
           [ "$terminal_state" = retained ] && next_terminal=owned
           devkit_dispatch_meta_update_fields "$dispatch_id" "$next_state" "$next_process" "$next_terminal" terminal-proven identity-proven adopted __keep__ __keep__ || return 1
-          DEVKIT_RECONCILE_OUTCOME=adopted
+          MEGABRAIN_RECONCILE_OUTCOME=adopted
           ;;
         *)
           devkit_dispatch_meta_update_fields "$dispatch_id" __keep__ __keep__ __keep__ parent-unproven parent-unproven parent-unproven __keep__ __keep__ || return 1
-          DEVKIT_RECONCILE_OUTCOME=parent-unproven
+          MEGABRAIN_RECONCILE_OUTCOME=parent-unproven
           ;;
       esac
       ;;
@@ -420,7 +420,7 @@ devkit_dispatch_reconcile_one() {
       [ "$process_state" = starting ] && next_process=start-unproven
       # Retained blocks release while terminal identity is unproven.
       devkit_dispatch_meta_update_fields "$dispatch_id" __keep__ "$next_process" retained identity-unproven identity-unproven identity-unproven identity-unproven __keep__ || return 1
-      DEVKIT_RECONCILE_OUTCOME=identity-unproven
+      MEGABRAIN_RECONCILE_OUTCOME=identity-unproven
       ;;
   esac
 }
@@ -440,26 +440,26 @@ devkit_dispatch_reconcile() {
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: megabrain orchestrate reconcile <dispatch-id> [--all] [--json]\n'; return 0 ;;
       *)
-        [ -z "$dispatch_id" ] || { devkit_error "unknown reconcile option: $arg"; return "$DEVKIT_USAGE_ERROR"; }
+        [ -z "$dispatch_id" ] || { devkit_error "unknown reconcile option: $arg"; return "$MEGABRAIN_USAGE_ERROR"; }
         dispatch_id="$arg"
         shift
         ;;
     esac
   done
   if [ "$all" = true ]; then
-    for meta_path in "$DEVKIT_DISPATCH_DIR"/*/meta.json; do
+    for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
       [ -f "$meta_path" ] || continue
       dispatch_id="$(jq -r '.dispatchId' "$meta_path")"
       devkit_dispatch_reconcile_one "$dispatch_id" || return 1
       meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
-      outcome="${DEVKIT_RECONCILE_OUTCOME:-unchanged}"
+      outcome="${MEGABRAIN_RECONCILE_OUTCOME:-unchanged}"
       entries="$(jq --argjson item "$meta" --arg outcome "$outcome" '. + [$item + {reconcileResult: $outcome}]' <<<"$entries")" || return 1
     done
   else
-    [ -n "$dispatch_id" ] || { devkit_error 'Usage: megabrain orchestrate reconcile <dispatch-id> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+    [ -n "$dispatch_id" ] || { devkit_error 'Usage: megabrain orchestrate reconcile <dispatch-id> [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
     devkit_dispatch_reconcile_one "$dispatch_id" || return 1
     meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
-    outcome="${DEVKIT_RECONCILE_OUTCOME:-unchanged}"
+    outcome="${MEGABRAIN_RECONCILE_OUTCOME:-unchanged}"
     entries="$(jq --argjson item "$meta" --arg outcome "$outcome" '. + [$item + {reconcileResult: $outcome}]' <<<"$entries")" || return 1
   fi
   if [ "$json" = true ]; then
@@ -475,7 +475,7 @@ devkit_dispatch_health_counts() {
   local meta_path meta records='[]'
   MODULE_UNCERTAIN_DISPATCHES=0
   MODULE_RETAINED_TERMINALS=0
-  for meta_path in "$DEVKIT_DISPATCH_DIR"/*/meta.json; do
+  for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
     [ -f "$meta_path" ] || continue
     meta="$(cat "$meta_path" 2>/dev/null || true)"
     printf '%s' "$meta" | jq -e . >/dev/null 2>&1 || continue
@@ -525,7 +525,7 @@ devkit_dispatch_message_append() {
   fi
   mv -f "$tmp" "$path"
   rmdir "$lock"
-  DEVKIT_LAST_MESSAGE_SEQ="$seq"
+  MEGABRAIN_LAST_MESSAGE_SEQ="$seq"
   printf '%s\n' "$seq"
 }
 
@@ -632,15 +632,15 @@ devkit_dispatch_child_consumer() {
   if [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
     session="$(devkit_dispatch_tmux_caller_session || true)"
     [ -n "$session" ] || return 1
-    printf 'child/%s/%s/%s\n' "$DEVKIT_SESSION_HOST" "$session" "$TMUX_PANE"
+    printf 'child/%s/%s/%s\n' "$MEGABRAIN_SESSION_HOST" "$session" "$TMUX_PANE"
   else
-    printf 'child/%s/%s\n' "$DEVKIT_SESSION_HOST" "$DEVKIT_SESSION_ID"
+    printf 'child/%s/%s\n' "$MEGABRAIN_SESSION_HOST" "$MEGABRAIN_SESSION_ID"
   fi
 }
 
 devkit_dispatch_require_session() {
   devkit_session_id >/dev/null
-  if [ -z "${DEVKIT_SESSION_ID:-}" ]; then
+  if [ -z "${MEGABRAIN_SESSION_ID:-}" ]; then
     devkit_error "this command requires a managed terminal identity; run it inside an Orca or Superset terminal"
     return 1
   fi
@@ -652,8 +652,8 @@ devkit_dispatch_require_parent() {
   meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
   expected_id="$(printf '%s' "$meta" | jq -r '.parentSessionId // empty')"
   expected_host="$(printf '%s' "$meta" | jq -r '.parentHost // empty')"
-  if [ "$DEVKIT_SESSION_ID" != "$expected_id" ] || [ "$DEVKIT_SESSION_HOST" != "$expected_host" ]; then
-    devkit_error "dispatch $dispatch_id is owned by $expected_host/$expected_id, not $DEVKIT_SESSION_HOST/$DEVKIT_SESSION_ID"
+  if [ "$MEGABRAIN_SESSION_ID" != "$expected_id" ] || [ "$MEGABRAIN_SESSION_HOST" != "$expected_host" ]; then
+    devkit_error "dispatch $dispatch_id is owned by $expected_host/$expected_id, not $MEGABRAIN_SESSION_HOST/$MEGABRAIN_SESSION_ID"
     return 1
   fi
   printf '%s\n' "$meta"
@@ -666,46 +666,46 @@ devkit_dispatch_tmux_caller_session() {
 
 devkit_dispatch_find_child() {
   local meta_path meta dispatch_id tmux_session="" tmux_pane="" tmux_identity=false matched
-  DEVKIT_FOUND_DISPATCH=""
+  MEGABRAIN_FOUND_DISPATCH=""
   devkit_dispatch_require_session || return 1
   if [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
     tmux_identity=true
     tmux_pane="$TMUX_PANE"
     tmux_session="$(devkit_dispatch_tmux_caller_session || true)"
   fi
-  for meta_path in "$DEVKIT_DISPATCH_DIR"/*/meta.json; do
+  for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
     [ -f "$meta_path" ] || continue
     meta="$(cat "$meta_path")"
     matched=false
     if [ "$tmux_identity" = true ]; then
       # Pane identity replaces terminal identity because tmux shares the host id across panes.
       [ -n "$tmux_session" ] && printf '%s' "$meta" | jq -e \
-        --arg host "$DEVKIT_SESSION_HOST" --arg session "$tmux_session" --arg pane "$tmux_pane" \
+        --arg host "$MEGABRAIN_SESSION_HOST" --arg session "$tmux_session" --arg pane "$tmux_pane" \
         '.childHost == $host and .runtime == "tmux" and .tmuxSession == $session and .tmuxPane == $pane' >/dev/null 2>&1 && matched=true
-    elif printf '%s' "$meta" | jq -e --arg id "$DEVKIT_SESSION_ID" --arg host "$DEVKIT_SESSION_HOST" \
+    elif printf '%s' "$meta" | jq -e --arg id "$MEGABRAIN_SESSION_ID" --arg host "$MEGABRAIN_SESSION_HOST" \
       '.terminalId == $id and .childHost == $host' >/dev/null 2>&1; then
       matched=true
     fi
     if [ "$matched" = true ]; then
       dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId')"
-      if [ -n "$DEVKIT_FOUND_DISPATCH" ]; then
+      if [ -n "$MEGABRAIN_FOUND_DISPATCH" ]; then
         if [ "$tmux_identity" = true ]; then
-          devkit_error "tmux identity matches multiple dispatches for session ${tmux_session:-unknown} pane $tmux_pane: $DEVKIT_FOUND_DISPATCH, $dispatch_id"
+          devkit_error "tmux identity matches multiple dispatches for session ${tmux_session:-unknown} pane $tmux_pane: $MEGABRAIN_FOUND_DISPATCH, $dispatch_id"
         else
-          devkit_error "terminal identity matches multiple dispatches for $DEVKIT_SESSION_HOST/$DEVKIT_SESSION_ID: $DEVKIT_FOUND_DISPATCH, $dispatch_id"
+          devkit_error "terminal identity matches multiple dispatches for $MEGABRAIN_SESSION_HOST/$MEGABRAIN_SESSION_ID: $MEGABRAIN_FOUND_DISPATCH, $dispatch_id"
         fi
         return 1
       fi
-      DEVKIT_FOUND_DISPATCH="$dispatch_id"
+      MEGABRAIN_FOUND_DISPATCH="$dispatch_id"
     fi
   done
-  if [ -n "$DEVKIT_FOUND_DISPATCH" ]; then
+  if [ -n "$MEGABRAIN_FOUND_DISPATCH" ]; then
     return 0
   fi
   if [ "$tmux_identity" = true ]; then
     devkit_error "no managed dispatch belongs to tmux session ${tmux_session:-unknown} pane $tmux_pane"
   else
-    devkit_error "no managed dispatch belongs to $DEVKIT_SESSION_HOST/$DEVKIT_SESSION_ID"
+    devkit_error "no managed dispatch belongs to $MEGABRAIN_SESSION_HOST/$MEGABRAIN_SESSION_ID"
   fi
   return 1
 }
@@ -774,8 +774,8 @@ devkit_dispatch_close_refuse_caller() {
 devkit_dispatch_native_close() {
   local meta="$1" host workspace_id terminal_id runtime tmux_session tmux_pane pane_count close_rc=0
   local parent_tmux_session caller_tmux_session shared_session=false
-  DEVKIT_DISPATCH_CLOSE_LAST_PANE=false
-  DEVKIT_DISPATCH_CLOSE_OUTCOME=unknown
+  MEGABRAIN_DISPATCH_CLOSE_LAST_PANE=false
+  MEGABRAIN_DISPATCH_CLOSE_OUTCOME=unknown
   host="$(printf '%s' "$meta" | jq -r '.childHost')"
   workspace_id="$(printf '%s' "$meta" | jq -r '.workspaceId // empty')"
   terminal_id="$(printf '%s' "$meta" | jq -r '.terminalId')"
@@ -790,25 +790,25 @@ devkit_dispatch_native_close() {
       shared_session=true
     fi
     if [ "$shared_session" = true ]; then
-      DEVKIT_DISPATCH_CLOSE_OUTCOME=shared-pane
+      MEGABRAIN_DISPATCH_CLOSE_OUTCOME=shared-pane
       devkit_tmux_session_exists "$tmux_session" || return 0
       tmux kill-pane -t "$tmux_pane"
       return $?
     fi
     if ! devkit_tmux_session_exists "$tmux_session"; then
-      DEVKIT_DISPATCH_CLOSE_OUTCOME=exclusive-session
-      DEVKIT_DISPATCH_CLOSE_LAST_PANE=true
+      MEGABRAIN_DISPATCH_CLOSE_OUTCOME=exclusive-session
+      MEGABRAIN_DISPATCH_CLOSE_LAST_PANE=true
       pane_count=0
     else
       pane_count="$(tmux list-panes -t "$tmux_session" 2>/dev/null | wc -l | tr -d ' ')"
     fi
     if [ "$pane_count" -gt 1 ]; then
-      DEVKIT_DISPATCH_CLOSE_OUTCOME=exclusive-pane
+      MEGABRAIN_DISPATCH_CLOSE_OUTCOME=exclusive-pane
       tmux kill-pane -t "$tmux_pane"
       return $?
     fi
-    DEVKIT_DISPATCH_CLOSE_OUTCOME=exclusive-session
-    DEVKIT_DISPATCH_CLOSE_LAST_PANE=true
+    MEGABRAIN_DISPATCH_CLOSE_OUTCOME=exclusive-session
+    MEGABRAIN_DISPATCH_CLOSE_LAST_PANE=true
     tmux kill-session -t "$tmux_session" >/dev/null 2>&1 || true
     case "$host" in
       superset) devkit_superset terminals close --workspace "$workspace_id" --terminal "$terminal_id" --json >/dev/null 2>&1 || close_rc=$? ;;
@@ -829,7 +829,7 @@ devkit_dispatch_read() {
   case "$dispatch_id" in
     -h|--help) printf 'Usage: megabrain orchestrate read <dispatch-id> [--lines <count>] [--json]\n'; return 0 ;;
   esac
-  [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate read <dispatch-id> [--lines <count>] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate read <dispatch-id> [--lines <count>] [--json]"; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -837,10 +837,10 @@ devkit_dispatch_read() {
       --lines) lines="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: megabrain orchestrate read <dispatch-id> [--lines <count>] [--json]\n'; return 0 ;;
-      *) devkit_error "unknown orchestrate read option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown orchestrate read option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
-  [[ "$lines" =~ ^[1-9][0-9]*$ ]] || { devkit_error "--lines must be a positive number"; return "$DEVKIT_USAGE_ERROR"; }
+  [[ "$lines" =~ ^[1-9][0-9]*$ ]] || { devkit_error "--lines must be a positive number"; return "$MEGABRAIN_USAGE_ERROR"; }
   meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   [ "$runtime" = tmux ] || { devkit_error "dispatch $dispatch_id does not use tmux-runtime"; return 1; }
@@ -865,7 +865,7 @@ devkit_dispatch_report() {
 
 devkit_dispatch_mailbox_watch() {
   local mailbox="$1" dispatch_id timeout=120 poll_interval=3 wait_mode=nudge json=false arg meta start_time now remaining
-  local consumer="${DEVKIT_CONSUMER_ID:-}" generation="${DEVKIT_CONSUMER_GENERATION:-1}"
+  local consumer="${MEGABRAIN_CONSUMER_ID:-}" generation="${MEGABRAIN_CONSUMER_GENERATION:-1}"
   local messages_dir deliveries_dir lock path seq from type message_seqs delivery_id outstanding_path outstanding_consumer outstanding_generation
   shift
   case "${1:-}" in
@@ -880,11 +880,11 @@ devkit_dispatch_mailbox_watch() {
   esac
   if [ "$mailbox" = parent ]; then
     dispatch_id="${1:-}"
-    [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]"; return "$DEVKIT_USAGE_ERROR"; }
+    [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--json]"; return "$MEGABRAIN_USAGE_ERROR"; }
     shift
   else
     devkit_dispatch_find_child || return 1
-    dispatch_id="$DEVKIT_FOUND_DISPATCH"
+    dispatch_id="$MEGABRAIN_FOUND_DISPATCH"
   fi
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -904,17 +904,17 @@ devkit_dispatch_mailbox_watch() {
         fi
         return 0
         ;;
-      *) devkit_error "unknown orchestrate watch option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown orchestrate watch option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
-  [[ "$timeout" =~ ^[0-9]+$ ]] || { devkit_error "--timeout must be a non-negative number of seconds"; return "$DEVKIT_USAGE_ERROR"; }
-  [[ "$poll_interval" =~ ^[0-9]+$ ]] || { devkit_error "--poll-interval must be a non-negative number of seconds"; return "$DEVKIT_USAGE_ERROR"; }
-  case "$wait_mode" in nudge|poll) ;; *) devkit_error "--wait-mode must be nudge or poll"; return "$DEVKIT_USAGE_ERROR" ;; esac
-  [[ "$generation" =~ ^[1-9][0-9]*$ ]] || { devkit_error "--generation must be a positive number"; return "$DEVKIT_USAGE_ERROR"; }
-  [[ "$DEVKIT_DISPATCH_DELIVERY_BATCH_CAP" =~ ^[1-9][0-9]*$ ]] || { devkit_error "delivery batch cap is invalid"; return 1; }
+  [[ "$timeout" =~ ^[0-9]+$ ]] || { devkit_error "--timeout must be a non-negative number of seconds"; return "$MEGABRAIN_USAGE_ERROR"; }
+  [[ "$poll_interval" =~ ^[0-9]+$ ]] || { devkit_error "--poll-interval must be a non-negative number of seconds"; return "$MEGABRAIN_USAGE_ERROR"; }
+  case "$wait_mode" in nudge|poll) ;; *) devkit_error "--wait-mode must be nudge or poll"; return "$MEGABRAIN_USAGE_ERROR" ;; esac
+  [[ "$generation" =~ ^[1-9][0-9]*$ ]] || { devkit_error "--generation must be a positive number"; return "$MEGABRAIN_USAGE_ERROR"; }
+  [[ "$MEGABRAIN_DISPATCH_DELIVERY_BATCH_CAP" =~ ^[1-9][0-9]*$ ]] || { devkit_error "delivery batch cap is invalid"; return 1; }
   if [ "$mailbox" = parent ]; then
     meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
-    [ -n "$consumer" ] || consumer="$DEVKIT_SESSION_HOST/$DEVKIT_SESSION_ID"
+    [ -n "$consumer" ] || consumer="$MEGABRAIN_SESSION_HOST/$MEGABRAIN_SESSION_ID"
   else
     meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
     [ -n "$consumer" ] || consumer="$(devkit_dispatch_child_consumer)" || return 1
@@ -965,7 +965,7 @@ devkit_dispatch_mailbox_watch() {
       fi
       devkit_dispatch_seq_acknowledged "$deliveries_dir" "$seq" && continue
       message_seqs="$(jq --argjson seq "$seq" '. + [$seq]' <<<"$message_seqs")" || { rmdir "$lock"; return 1; }
-      [ "$(jq 'length' <<<"$message_seqs")" -ge "$DEVKIT_DISPATCH_DELIVERY_BATCH_CAP" ] && break
+      [ "$(jq 'length' <<<"$message_seqs")" -ge "$MEGABRAIN_DISPATCH_DELIVERY_BATCH_CAP" ] && break
     done < <(devkit_dispatch_message_paths "$messages_dir")
     if [ "$(jq 'length' <<<"$message_seqs")" -gt 0 ]; then
       delivery_id="$(devkit_dispatch_new_delivery_id "$dispatch_id")" || { rmdir "$lock"; [ "$mailbox" = parent ] && devkit_parent_notify_waiter_unregister "$dispatch_id"; return 1; }
@@ -996,7 +996,7 @@ devkit_dispatch_watch() {
 }
 
 devkit_dispatch_wait_for_prompt_receipt() {
-  local dispatch_id="$1" result delivery_id message_type timeout="${DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS:-30}"
+  local dispatch_id="$1" result delivery_id message_type timeout="${MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS:-30}"
   local meta runtime tmux_session tmux_pane started now remaining wait_seconds enter_attempt=0
   meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
@@ -1019,7 +1019,7 @@ devkit_dispatch_wait_for_prompt_receipt() {
       return $?
     fi
     if [ "$runtime" = tmux ] && [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] &&
-      [ "$enter_attempt" -lt "$DEVKIT_TMUX_ENTER_RETRIES" ] && devkit_tmux_session_exists "$tmux_session"; then
+      [ "$enter_attempt" -lt "$MEGABRAIN_TMUX_ENTER_RETRIES" ] && devkit_tmux_session_exists "$tmux_session"; then
       tmux send-keys -t "$tmux_pane" Enter || return 1
       enter_attempt=$((enter_attempt + 1))
     fi
@@ -1031,7 +1031,7 @@ devkit_dispatch_child_check() {
 }
 
 devkit_dispatch_ack_for_owner() {
-  local owner="$1" dispatch_id="" delivery_id="" consumer="${DEVKIT_CONSUMER_ID:-}" generation="${DEVKIT_CONSUMER_GENERATION:-1}"
+  local owner="$1" dispatch_id="" delivery_id="" consumer="${MEGABRAIN_CONSUMER_ID:-}" generation="${MEGABRAIN_CONSUMER_GENERATION:-1}"
   local json=false arg meta path status record_consumer record_generation lock tmp now message_seqs
   shift
   case "${1:-}" in
@@ -1052,10 +1052,10 @@ devkit_dispatch_ack_for_owner() {
     delivery_id="${1:-}"
     shift
     devkit_dispatch_find_child || return 1
-    dispatch_id="$DEVKIT_FOUND_DISPATCH"
+    dispatch_id="$MEGABRAIN_FOUND_DISPATCH"
     [ -n "$consumer" ] || consumer="$(devkit_dispatch_child_consumer)" || return 1
   fi
-  [ -n "$dispatch_id" ] && [ -n "$delivery_id" ] || { devkit_error "Usage: megabrain orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>]"; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$dispatch_id" ] && [ -n "$delivery_id" ] || { devkit_error "Usage: megabrain orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>]"; return "$MEGABRAIN_USAGE_ERROR"; }
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -1063,13 +1063,13 @@ devkit_dispatch_ack_for_owner() {
       --generation) generation="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: megabrain orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json]\n'; return 0 ;;
-      *) devkit_error "unknown orchestrate ack option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown orchestrate ack option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
-  [[ "$generation" =~ ^[1-9][0-9]*$ ]] || { devkit_error "--generation must be a positive number"; return "$DEVKIT_USAGE_ERROR"; }
+  [[ "$generation" =~ ^[1-9][0-9]*$ ]] || { devkit_error "--generation must be a positive number"; return "$MEGABRAIN_USAGE_ERROR"; }
   if [ "$owner" = parent ]; then
     meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
-    [ -n "$consumer" ] || consumer="$DEVKIT_SESSION_HOST/$DEVKIT_SESSION_ID"
+    [ -n "$consumer" ] || consumer="$MEGABRAIN_SESSION_HOST/$MEGABRAIN_SESSION_ID"
   else
     meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
   fi
@@ -1143,7 +1143,7 @@ devkit_dispatch_reply() {
   case "$dispatch_id" in
     -h|--help) printf 'Usage: megabrain orchestrate reply <dispatch-id> --text <answer> [--json]\n'; return 0 ;;
   esac
-  [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate reply <dispatch-id> --text <answer> [--json]"; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate reply <dispatch-id> --text <answer> [--json]"; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -1151,17 +1151,17 @@ devkit_dispatch_reply() {
       --text) answer="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: megabrain orchestrate reply <dispatch-id> --text <answer> [--json]\n'; return 0 ;;
-      *) devkit_error "unknown orchestrate reply option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown orchestrate reply option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
-  [ -n "$answer" ] || { devkit_error "--text is required"; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$answer" ] || { devkit_error "--text is required"; return "$MEGABRAIN_USAGE_ERROR"; }
   meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
   state="$(printf '%s' "$meta" | jq -r '.state // empty')"
   case "$state" in
     running|waiting_for_reply|done) ;;
     *) devkit_error "dispatch $dispatch_id cannot receive a reply in state $state"; return 1 ;;
   esac
-  devkit_dispatch_message_append "$dispatch_id" parent reply "$answer" "$DEVKIT_SESSION_ID" >/dev/null || return 1
+  devkit_dispatch_message_append "$dispatch_id" parent reply "$answer" "$MEGABRAIN_SESSION_ID" >/dev/null || return 1
   status=queued
   if [ "$state" != done ]; then
     idle="$(devkit_dispatch_child_is_idle "$meta" 2>/dev/null || printf 'unknown\n')"
@@ -1182,7 +1182,7 @@ devkit_dispatch_close() {
   case "$dispatch_id" in
     -h|--help) printf 'Usage: megabrain orchestrate close <dispatch-id> [--force-release] [--json]\n'; return 0 ;;
   esac
-  [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate close <dispatch-id> [--json]"; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$dispatch_id" ] || { devkit_error "Usage: megabrain orchestrate close <dispatch-id> [--json]"; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -1190,7 +1190,7 @@ devkit_dispatch_close() {
       --json) json=true; shift ;;
       --force-release) force_release=true; shift ;;
       -h|--help) printf 'Usage: megabrain orchestrate close <dispatch-id> [--force-release] [--json]\n'; return 0 ;;
-      *) devkit_error "unknown orchestrate close option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown orchestrate close option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
   meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
@@ -1218,11 +1218,11 @@ devkit_dispatch_close() {
   esac
   devkit_dispatch_meta_update_terminal_state "$dispatch_id" released || return 1
   if [ "$json" = true ]; then
-    if [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_OUTCOME" = shared-pane ]; then
+    if [ "$runtime" = tmux ] && [ "$MEGABRAIN_DISPATCH_CLOSE_OUTCOME" = shared-pane ]; then
       jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "tmux pane removed; the shared tmux session and host terminal tab were kept."}'
-    elif [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_OUTCOME" = exclusive-pane ]; then
+    elif [ "$runtime" = tmux ] && [ "$MEGABRAIN_DISPATCH_CLOSE_OUTCOME" = exclusive-pane ]; then
       jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "tmux pane removed; the exclusive tmux session and host terminal tab were kept for remaining panes."}'
-    elif [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_OUTCOME" = exclusive-session ]; then
+    elif [ "$runtime" = tmux ] && [ "$MEGABRAIN_DISPATCH_CLOSE_OUTCOME" = exclusive-session ]; then
       jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "last tmux pane removed; the exclusive tmux session and host terminal tab were closed."}'
     elif [ "$child_host" = superset ]; then
       jq -n --arg dispatchId "$dispatch_id" '{dispatchId: $dispatchId, status: "closed", message: "Superset leaves the pane visible as Desconectado until the human dismisses it with the pane X."}'
@@ -1231,11 +1231,11 @@ devkit_dispatch_close() {
     fi
   else
     printf 'closed: %s\n' "$dispatch_id"
-    if [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_OUTCOME" = shared-pane ]; then
+    if [ "$runtime" = tmux ] && [ "$MEGABRAIN_DISPATCH_CLOSE_OUTCOME" = shared-pane ]; then
       printf 'tmux pane removed; the shared tmux session and host terminal tab were kept.\n'
-    elif [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_OUTCOME" = exclusive-pane ]; then
+    elif [ "$runtime" = tmux ] && [ "$MEGABRAIN_DISPATCH_CLOSE_OUTCOME" = exclusive-pane ]; then
       printf 'tmux pane removed; the exclusive tmux session and host terminal tab were kept for remaining panes.\n'
-    elif [ "$runtime" = tmux ] && [ "$DEVKIT_DISPATCH_CLOSE_OUTCOME" = exclusive-session ]; then
+    elif [ "$runtime" = tmux ] && [ "$MEGABRAIN_DISPATCH_CLOSE_OUTCOME" = exclusive-session ]; then
       printf 'last tmux pane removed; the exclusive tmux session and host terminal tab were closed.\n'
     elif [ "$child_host" = superset ]; then
       printf 'Superset leaves the pane visible as Desconectado until the human dismisses it with the pane X.\n'
@@ -1247,11 +1247,11 @@ devkit_dispatch_child_message() {
   local type="$1" text="$2" dispatch_id meta process_state
   case "$type" in
     received|ask|done) ;;
-    *) devkit_error "unsupported child message type: $type"; return "$DEVKIT_USAGE_ERROR" ;;
+    *) devkit_error "unsupported child message type: $type"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
   devkit_dispatch_find_child || return 1
-  dispatch_id="$DEVKIT_FOUND_DISPATCH"
-  devkit_dispatch_message_append "$dispatch_id" child "$type" "$text" "$DEVKIT_SESSION_ID" >/dev/null || return 1
+  dispatch_id="$MEGABRAIN_FOUND_DISPATCH"
+  devkit_dispatch_message_append "$dispatch_id" child "$type" "$text" "$MEGABRAIN_SESSION_ID" >/dev/null || return 1
   meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
   process_state="$(printf '%s' "$meta" | jq -r '.processState // empty')"
   case "$process_state" in
@@ -1275,7 +1275,7 @@ command_ask() {
   case "${1:-}" in
     -h|--help) printf 'Usage: megabrain ask "question"\n'; return 0 ;;
   esac
-  [ "$#" -eq 1 ] && [ -n "$1" ] || { devkit_error 'Usage: megabrain ask "question"'; return "$DEVKIT_USAGE_ERROR"; }
+  [ "$#" -eq 1 ] && [ -n "$1" ] || { devkit_error 'Usage: megabrain ask "question"'; return "$MEGABRAIN_USAGE_ERROR"; }
   devkit_dispatch_child_message ask "$1"
 }
 
@@ -1283,7 +1283,7 @@ command_received() {
   case "${1:-}" in
     -h|--help) printf 'Usage: megabrain received\n'; return 0 ;;
   esac
-  [ "$#" -eq 0 ] || { devkit_error 'Usage: megabrain received'; return "$DEVKIT_USAGE_ERROR"; }
+  [ "$#" -eq 0 ] || { devkit_error 'Usage: megabrain received'; return "$MEGABRAIN_USAGE_ERROR"; }
   devkit_dispatch_child_message received 'prompt received'
 }
 
@@ -1291,7 +1291,7 @@ command_done() {
   case "${1:-}" in
     -h|--help) printf 'Usage: megabrain done "summary"\n'; return 0 ;;
   esac
-  [ "$#" -eq 1 ] && [ -n "$1" ] || { devkit_error 'Usage: megabrain done "summary"'; return "$DEVKIT_USAGE_ERROR"; }
+  [ "$#" -eq 1 ] && [ -n "$1" ] || { devkit_error 'Usage: megabrain done "summary"'; return "$MEGABRAIN_USAGE_ERROR"; }
   devkit_dispatch_child_message done "$1"
 }
 

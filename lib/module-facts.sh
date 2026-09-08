@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 
-if [ "${DEVKIT_FACTS_FILE+x}" = x ]; then
-  DEVKIT_FACTS_FILE_EXPLICIT=true
+if [ "${MEGABRAIN_FACTS_FILE+x}" = x ]; then
+  MEGABRAIN_FACTS_FILE_EXPLICIT=true
 else
-  DEVKIT_FACTS_FILE_EXPLICIT=false
-  DEVKIT_FACTS_FILE="${DEVKIT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}/.megabrain/facts.json"
+  MEGABRAIN_FACTS_FILE_EXPLICIT=false
+  MEGABRAIN_FACTS_FILE="${MEGABRAIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}/.megabrain/facts.json"
 fi
-DEVKIT_FACT_MAX_INJECTED="${DEVKIT_FACT_MAX_INJECTED:-20}"
-DEVKIT_FACT_MAX_PREAMBLE_BYTES="${DEVKIT_FACT_MAX_PREAMBLE_BYTES:-6000}"
+MEGABRAIN_FACT_MAX_INJECTED="${MEGABRAIN_FACT_MAX_INJECTED:-20}"
+MEGABRAIN_FACT_MAX_PREAMBLE_BYTES="${MEGABRAIN_FACT_MAX_PREAMBLE_BYTES:-6000}"
 
 devkit_fact_repository_id() {
   local worktree_path="${1:-.}" remote common_dir
@@ -27,8 +27,8 @@ devkit_fact_repository_id() {
 
 devkit_fact_file_for_worktree() {
   local worktree_path="${1:-.}"
-  if [ "$DEVKIT_FACTS_FILE_EXPLICIT" = true ] || [ "$worktree_path" = . ]; then
-    printf '%s\n' "$DEVKIT_FACTS_FILE"
+  if [ "$MEGABRAIN_FACTS_FILE_EXPLICIT" = true ] || [ "$worktree_path" = . ]; then
+    printf '%s\n' "$MEGABRAIN_FACTS_FILE"
   else
     printf '%s/.megabrain/facts.json\n' "${worktree_path%/}"
   fi
@@ -39,7 +39,7 @@ devkit_fact_empty_store() {
 }
 
 devkit_fact_store_read() {
-  local path="${1:-$DEVKIT_FACTS_FILE}"
+  local path="${1:-$MEGABRAIN_FACTS_FILE}"
   if [ ! -e "$path" ]; then
     devkit_fact_empty_store
     return 0
@@ -105,7 +105,7 @@ devkit_fact_validate() {
 }
 
 devkit_fact_store_write() {
-  local store="$1" path="${2:-$DEVKIT_FACTS_FILE}" directory tmp
+  local store="$1" path="${2:-$MEGABRAIN_FACTS_FILE}" directory tmp
   devkit_fact_validate "$store" || return 1
   directory="$(dirname "$path")"
   mkdir -p "$directory" || return 1
@@ -133,9 +133,9 @@ devkit_dispatch_command_path() {
     return 0
   fi
   # WHY: Children run in arbitrary repositories, so the preamble cannot depend on the checkout as its working directory.
-  root="${DEVKIT_ROOT:-$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}"
-  if [ -n "${DEVKIT_EXECUTABLE:-}" ] && [ -x "$DEVKIT_EXECUTABLE" ]; then
-    printf '%q\n' "$DEVKIT_EXECUTABLE"
+  root="${MEGABRAIN_ROOT:-$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}"
+  if [ -n "${MEGABRAIN_EXECUTABLE:-}" ] && [ -x "$MEGABRAIN_EXECUTABLE" ]; then
+    printf '%q\n' "$MEGABRAIN_EXECUTABLE"
   elif [ -x "$root/megabrain" ]; then
     printf '%q\n' "$root/megabrain"
   else
@@ -166,11 +166,11 @@ devkit_dispatch_preamble() {
   devkit_fact_validate "$store" || return 1
   scoped="$(devkit_fact_in_scope_json "$store" "$worktree_path")" || return 1
   count="$(printf '%s' "$scoped" | jq 'length')"
-  if [ "$count" -gt "$DEVKIT_FACT_MAX_INJECTED" ]; then
-    devkit_error "fact preamble exceeds fact count limit: $count facts (limit: $DEVKIT_FACT_MAX_INJECTED)"
+  if [ "$count" -gt "$MEGABRAIN_FACT_MAX_INJECTED" ]; then
+    devkit_error "fact preamble exceeds fact count limit: $count facts (limit: $MEGABRAIN_FACT_MAX_INJECTED)"
     return 1
   fi
-  protocol="${DEVKIT_SUPERSET_PROTOCOL:-$(devkit_dispatch_protocol)}"
+  protocol="${MEGABRAIN_SUPERSET_PROTOCOL:-$(devkit_dispatch_protocol)}"
   rendered=""
   if [ "$count" -gt 0 ]; then
     rendered="Facts in scope (starting points with provenance, not truth):
@@ -182,8 +182,8 @@ Treat each fact as a starting point with provenance, not as truth. If your own m
     done < <(printf '%s' "$scoped" | jq -c '.[]')
   fi
   if [ -n "$rendered" ]; then
-    if [ "$(devkit_fact_byte_length "$rendered")" -gt "$DEVKIT_FACT_MAX_PREAMBLE_BYTES" ]; then
-      devkit_error "fact preamble exceeds byte limit: $(devkit_fact_byte_length "$rendered") bytes (limit: $DEVKIT_FACT_MAX_PREAMBLE_BYTES)"
+    if [ "$(devkit_fact_byte_length "$rendered")" -gt "$MEGABRAIN_FACT_MAX_PREAMBLE_BYTES" ]; then
+      devkit_error "fact preamble exceeds byte limit: $(devkit_fact_byte_length "$rendered") bytes (limit: $MEGABRAIN_FACT_MAX_PREAMBLE_BYTES)"
       return 1
     fi
     printf '%s\n\n%s' "$protocol" "$rendered"
@@ -204,20 +204,20 @@ devkit_fact_command_add() {
   case "$id" in
     -h|--help) printf 'Usage: megabrain fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]\n'; return 0 ;;
   esac
-  [ -n "$id" ] || { devkit_error 'Usage: megabrain fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$id" ] || { devkit_error 'Usage: megabrain fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
-      --measurement|--measured) value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$DEVKIT_USAGE_ERROR"; }; measurement="$value"; shift 2 ;;
-      --who|--measured-by) value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$DEVKIT_USAGE_ERROR"; }; who="$value"; shift 2 ;;
-      --when|--measured-at) value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$DEVKIT_USAGE_ERROR"; }; when="$value"; shift 2 ;;
-      --command) value="${2:-}"; [ -n "$value" ] || { devkit_error '--command requires a value'; return "$DEVKIT_USAGE_ERROR"; }; command="$value"; shift 2 ;;
-      --scope) value="${2:-}"; [ -n "$value" ] || { devkit_error '--scope requires a value'; return "$DEVKIT_USAGE_ERROR"; }; scope_type="$value"; shift 2 ;;
-      --repository|--repo) value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$DEVKIT_USAGE_ERROR"; }; repository="$value"; scope_type=repository; shift 2 ;;
+      --measurement|--measured) value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$MEGABRAIN_USAGE_ERROR"; }; measurement="$value"; shift 2 ;;
+      --who|--measured-by) value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$MEGABRAIN_USAGE_ERROR"; }; who="$value"; shift 2 ;;
+      --when|--measured-at) value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$MEGABRAIN_USAGE_ERROR"; }; when="$value"; shift 2 ;;
+      --command) value="${2:-}"; [ -n "$value" ] || { devkit_error '--command requires a value'; return "$MEGABRAIN_USAGE_ERROR"; }; command="$value"; shift 2 ;;
+      --scope) value="${2:-}"; [ -n "$value" ] || { devkit_error '--scope requires a value'; return "$MEGABRAIN_USAGE_ERROR"; }; scope_type="$value"; shift 2 ;;
+      --repository|--repo) value="${2:-}"; [ -n "$value" ] || { devkit_error "$arg requires a value"; return "$MEGABRAIN_USAGE_ERROR"; }; repository="$value"; scope_type=repository; shift 2 ;;
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: megabrain fact add <id> --measurement <text> --who <name> --when <timestamp> --command <command> [--scope global|repository] [--repository <id>] [--json]\n'; return 0 ;;
-      *) devkit_error "unknown fact add option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown fact add option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
   devkit_fact_id_valid "$id" || { devkit_error "invalid fact id: $id"; return 1; }
@@ -231,7 +231,7 @@ devkit_fact_command_add() {
       ;;
     *) devkit_error 'fact scope must be global or repository'; return 1 ;;
   esac
-  path="$DEVKIT_FACTS_FILE"
+  path="$MEGABRAIN_FACTS_FILE"
   store="$(devkit_fact_store_read "$path")" || return 1
   devkit_fact_validate "$store" || return 1
   if printf '%s' "$store" | jq -e --arg id "$id" '.facts | any(.[]; .id == $id)' >/dev/null 2>&1; then
@@ -255,7 +255,7 @@ devkit_fact_command_list() {
     case "$arg" in
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: megabrain fact list [--json]\n'; return 0 ;;
-      *) devkit_error "unknown fact list option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown fact list option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
   store="$(devkit_fact_store_read)" || return 1
@@ -276,17 +276,17 @@ devkit_fact_command_edit() {
   case "$id" in
     -h|--help) printf 'Usage: megabrain fact edit <id> [--json]\n'; return 0 ;;
   esac
-  [ -n "$id" ] || { devkit_error 'Usage: megabrain fact edit <id> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$id" ] || { devkit_error 'Usage: megabrain fact edit <id> [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: megabrain fact edit <id> [--json]\n'; return 0 ;;
-      *) devkit_error "unknown fact edit option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown fact edit option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
-  path="$DEVKIT_FACTS_FILE"
+  path="$MEGABRAIN_FACTS_FILE"
   store="$(devkit_fact_store_read "$path")" || return 1
   devkit_fact_validate "$store" || return 1
   if ! printf '%s' "$store" | jq -e --arg id "$id" '.facts | any(.[]; .id == $id)' >/dev/null 2>&1; then
@@ -321,17 +321,17 @@ devkit_fact_command_remove() {
   case "$id" in
     -h|--help) printf 'Usage: megabrain fact remove <id> [--json]\n'; return 0 ;;
   esac
-  [ -n "$id" ] || { devkit_error 'Usage: megabrain fact remove <id> [--json]'; return "$DEVKIT_USAGE_ERROR"; }
+  [ -n "$id" ] || { devkit_error 'Usage: megabrain fact remove <id> [--json]'; return "$MEGABRAIN_USAGE_ERROR"; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
       -h|--help) printf 'Usage: megabrain fact remove <id> [--json]\n'; return 0 ;;
-      *) devkit_error "unknown fact remove option: $arg"; return "$DEVKIT_USAGE_ERROR" ;;
+      *) devkit_error "unknown fact remove option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
-  path="$DEVKIT_FACTS_FILE"
+  path="$MEGABRAIN_FACTS_FILE"
   store="$(devkit_fact_store_read "$path")" || return 1
   devkit_fact_validate "$store" || return 1
   if ! printf '%s' "$store" | jq -e --arg id "$id" '.facts | any(.[]; .id == $id)' >/dev/null 2>&1; then
@@ -358,6 +358,6 @@ command_fact() {
     -h|--help|"")
       printf 'Usage: megabrain fact list|add|edit|remove ...\n'
       ;;
-    *) devkit_error "unknown fact command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
+    *) devkit_error "unknown fact command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }

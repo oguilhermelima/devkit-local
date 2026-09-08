@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
 
-DEVKIT_PLAYWRIGHT_NAME="playwright"
-DEVKIT_PLAYWRIGHT_COMMAND="@playwright/mcp@latest"
+MEGABRAIN_PLAYWRIGHT_NAME="playwright"
+MEGABRAIN_PLAYWRIGHT_COMMAND="@playwright/mcp@latest"
 
 devkit_playwright_ready() {
-  npx -y "$DEVKIT_PLAYWRIGHT_COMMAND" --version >/dev/null 2>&1
+  npx -y "$MEGABRAIN_PLAYWRIGHT_COMMAND" --version >/dev/null 2>&1
 }
 
 devkit_agent_mcp_registered() {
   local agent="$1"
   case "$agent" in
     claude)
-      claude mcp list 2>/dev/null | grep -Eiq "(^|[[:space:]])$DEVKIT_PLAYWRIGHT_NAME([[:space:]]|$).*playwright/mcp|playwright/mcp.*(^|[[:space:]])$DEVKIT_PLAYWRIGHT_NAME([[:space:]]|$)"
+      claude mcp list 2>/dev/null | grep -Eiq "(^|[[:space:]])$MEGABRAIN_PLAYWRIGHT_NAME([[:space:]]|$).*playwright/mcp|playwright/mcp.*(^|[[:space:]])$MEGABRAIN_PLAYWRIGHT_NAME([[:space:]]|$)"
       ;;
     codex)
-      codex mcp list --json 2>/dev/null | jq -e --arg name "$DEVKIT_PLAYWRIGHT_NAME" --arg command "$DEVKIT_PLAYWRIGHT_COMMAND" 'any(.[]?; .name == $name and ((.transport.command // "") == "npx" or ((.transport.args // []) | join(" ") | contains($command))))' >/dev/null 2>&1
+      codex mcp list --json 2>/dev/null | jq -e --arg name "$MEGABRAIN_PLAYWRIGHT_NAME" --arg command "$MEGABRAIN_PLAYWRIGHT_COMMAND" 'any(.[]?; .name == $name and ((.transport.command // "") == "npx" or ((.transport.args // []) | join(" ") | contains($command))))' >/dev/null 2>&1
       ;;
     agy)
-      agy mcp list 2>/dev/null | grep -Eiq "(^|[[:space:]])$DEVKIT_PLAYWRIGHT_NAME([[:space:]]|$).*playwright/mcp|playwright/mcp.*(^|[[:space:]])$DEVKIT_PLAYWRIGHT_NAME([[:space:]]|$)"
+      agy mcp list 2>/dev/null | grep -Eiq "(^|[[:space:]])$MEGABRAIN_PLAYWRIGHT_NAME([[:space:]]|$).*playwright/mcp|playwright/mcp.*(^|[[:space:]])$MEGABRAIN_PLAYWRIGHT_NAME([[:space:]]|$)"
       ;;
     *) return 1 ;;
   esac
@@ -71,13 +71,13 @@ devkit_register_playwright() {
   fi
   case "$agent" in
     claude)
-      claude mcp add --scope user "$DEVKIT_PLAYWRIGHT_NAME" npx -y "$DEVKIT_PLAYWRIGHT_COMMAND"
+      claude mcp add --scope user "$MEGABRAIN_PLAYWRIGHT_NAME" npx -y "$MEGABRAIN_PLAYWRIGHT_COMMAND"
       ;;
     codex)
-      codex mcp add "$DEVKIT_PLAYWRIGHT_NAME" -- npx -y "$DEVKIT_PLAYWRIGHT_COMMAND"
+      codex mcp add "$MEGABRAIN_PLAYWRIGHT_NAME" -- npx -y "$MEGABRAIN_PLAYWRIGHT_COMMAND"
       ;;
     agy)
-      agy mcp add "$DEVKIT_PLAYWRIGHT_NAME" npx -y "$DEVKIT_PLAYWRIGHT_COMMAND"
+      agy mcp add "$MEGABRAIN_PLAYWRIGHT_NAME" npx -y "$MEGABRAIN_PLAYWRIGHT_COMMAND"
       ;;
     *) return 1 ;;
   esac

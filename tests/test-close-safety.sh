@@ -19,7 +19,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export DEVKIT_STATE_DIR="$state_dir"
+export MEGABRAIN_STATE_DIR="$state_dir"
 
 source "$root/lib/common.sh"
 source "$root/lib/module-tmux-runtime.sh"

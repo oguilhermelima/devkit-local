@@ -22,10 +22,10 @@ mkdir -p "$wrapper_dir" "$state_dir/dispatches"
 printf '0\n' >"$count_file"
 
 printf '%s\n' '#!/usr/bin/env bash' \
-  'count=$(cat "$DEVKIT_TEST_JQ_COUNT")' \
+  'count=$(cat "$MEGABRAIN_TEST_JQ_COUNT")' \
   'count=$((count + 1))' \
-  'printf "%s\\n" "$count" >"$DEVKIT_TEST_JQ_COUNT"' \
-  'exec "$DEVKIT_TEST_JQ_REAL" "$@"' >"$wrapper_dir/jq"
+  'printf "%s\\n" "$count" >"$MEGABRAIN_TEST_JQ_COUNT"' \
+  'exec "$MEGABRAIN_TEST_JQ_REAL" "$@"' >"$wrapper_dir/jq"
 chmod +x "$wrapper_dir/jq"
 
 for i in $(seq 1 200); do
@@ -39,17 +39,17 @@ for i in $(seq 1 200); do
     >"$dispatch_dir/meta.json"
 done
 
-export DEVKIT_STATE_DIR="$state_dir"
-export DEVKIT_DISPATCH_DIR="$state_dir/dispatches"
-export DEVKIT_TEST_JQ_COUNT="$count_file"
-export DEVKIT_TEST_JQ_REAL="$real_jq"
+export MEGABRAIN_STATE_DIR="$state_dir"
+export MEGABRAIN_DISPATCH_DIR="$state_dir/dispatches"
+export MEGABRAIN_TEST_JQ_COUNT="$count_file"
+export MEGABRAIN_TEST_JQ_REAL="$real_jq"
 
 source "$root/lib/common.sh"
 source "$root/lib/module-context.sh"
 source "$root/lib/module-orchestrate.sh"
 
 devkit_dispatch_parent_status() {
-  DEVKIT_PARENT_STATUS=unknown
+  MEGABRAIN_PARENT_STATUS=unknown
 }
 
 PATH="$wrapper_dir:$PATH"

@@ -65,13 +65,13 @@ assert_contains "$invalid_agy_error" 'gemini-3.8-flash-high'
 assert_contains "$invalid_agy_error" 'gpt-oss-120b-medium'
 printf 'agy invalid effort: refused with valid model ids\n'
 
-for command_text in 'codex' 'DEVKIT_NO_TMUX=1 codex' 'env FOO=1 codex'; do
+for command_text in 'codex' 'MEGABRAIN_NO_TMUX=1 codex' 'env FOO=1 codex'; do
   assembled="$(devkit_terminal_command_with_agent_permissions "$command_text")"
   printf 'permissions: %s\n' "$assembled"
   assert_contains "$assembled" --dangerously-bypass-approvals-and-sandbox
   case "$command_text" in
     'codex') assert_contains "$assembled" 'codex --' ;;
-    'DEVKIT_NO_TMUX=1 codex') assert_contains "$assembled" 'DEVKIT_NO_TMUX=1 codex --' ;;
+    'MEGABRAIN_NO_TMUX=1 codex') assert_contains "$assembled" 'MEGABRAIN_NO_TMUX=1 codex --' ;;
     'env FOO=1 codex') assert_contains "$assembled" 'env FOO=1 codex --' ;;
   esac
 done
@@ -103,8 +103,8 @@ tmux() {
   esac
 }
 
-export DEVKIT_TMUX_ENTER_TIMEOUT_SECONDS=2
-export DEVKIT_TMUX_ENTER_WAIT=0
+export MEGABRAIN_TMUX_ENTER_TIMEOUT_SECONDS=2
+export MEGABRAIN_TMUX_ENTER_WAIT=0
 devkit_tmux_send_agent '%1' 'agy'
 printf 'tmux launch wait: delayed agent evidence accepted\n'
 substitution_report="$(devkit_tmux_model_substitution_report '%1')"

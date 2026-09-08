@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 devkit_state_migration_source() {
-  if [ "${DEVKIT_STATE_DIR_EXPLICIT:-false}" = true ] && [ "${MEGABRAIN_STATE_DIR_EXPLICIT:-false}" != true ]; then
-    printf '%s\n' "$DEVKIT_STATE_DIR_LEGACY"
+  if [ "${MEGABRAIN_STATE_DIR_LEGACY_EXPLICIT:-false}" = true ]; then
+    printf '%s\n' "$MEGABRAIN_STATE_DIR_LEGACY"
   else
     printf '%s/.devkit\n' "$HOME"
   fi
@@ -21,10 +21,10 @@ devkit_state_migration_verify() {
 devkit_state_migrate() {
   local source target staging entries count
   source="$(devkit_state_migration_source)"
-  if [ "${DEVKIT_STATE_DIR_EXPLICIT:-false}" = true ] && [ "${MEGABRAIN_STATE_DIR_EXPLICIT:-false}" != true ]; then
+  if [ "${MEGABRAIN_STATE_DIR_LEGACY_EXPLICIT:-false}" = true ]; then
     target="$HOME/.megabrain"
   else
-    target="$DEVKIT_STATE_DIR"
+    target="$MEGABRAIN_STATE_DIR"
   fi
   [ "$source" != "$target" ] || {
     devkit_error "migration source and target are the same directory: $source"
@@ -103,7 +103,7 @@ command_migrate() {
     ''|--json)
       [ -z "$arg" ] || {
         devkit_error 'JSON migration output is not supported yet'
-        return "$DEVKIT_USAGE_ERROR"
+        return "$MEGABRAIN_USAGE_ERROR"
       }
       devkit_state_migrate
       ;;
@@ -112,7 +112,7 @@ command_migrate() {
       ;;
     *)
       devkit_error "unknown migrate option: $arg"
-      return "$DEVKIT_USAGE_ERROR"
+      return "$MEGABRAIN_USAGE_ERROR"
       ;;
   esac
 }

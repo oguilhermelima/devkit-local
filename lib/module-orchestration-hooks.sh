@@ -27,7 +27,7 @@ devkit_hooks_event() {
 }
 
 devkit_hooks_command() {
-  local agent="$1" root="${DEVKIT_ROOT:-}"
+  local agent="$1" root="${MEGABRAIN_ROOT:-}"
   if [ -z "$root" ]; then
     # Resolve from the running script so this survives a local repository directory rename.
     root="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd -P)" || return 1

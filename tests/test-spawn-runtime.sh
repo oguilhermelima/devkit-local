@@ -15,7 +15,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export DEVKIT_STATE_DIR="$state_dir"
+export MEGABRAIN_STATE_DIR="$state_dir"
 source "$root/lib/common.sh"
 source "$root/lib/module-context.sh"
 source "$root/lib/module-orchestrate.sh"
@@ -48,7 +48,7 @@ assert_no_creation() {
 
 write_state() {
   mkdir -p "$state_dir"
-  jq -n --argjson installed "$1" '{"tmux-runtime": {installed: $installed}}' >"$DEVKIT_STATE_FILE"
+  jq -n --argjson installed "$1" '{"tmux-runtime": {installed: $installed}}' >"$MEGABRAIN_STATE_FILE"
 }
 
 devkit_tmux_available() {
@@ -58,7 +58,7 @@ devkit_tmux_available() {
 assert_runtime() {
   local expected="$1" requested="$2"
   devkit_resolve_spawn_runtime "$requested"
-  assert_equal "$DEVKIT_SPAWN_RUNTIME" "$expected"
+  assert_equal "$MEGABRAIN_SPAWN_RUNTIME" "$expected"
 }
 
 export SUPERSET_TERMINAL_ID=parent-terminal
@@ -104,8 +104,8 @@ devkit_workspace_id_for_target() {
 }
 devkit_launch_agent() {
   spawn_agent_arg_count="$#"
-  DEVKIT_LAST_DISPATCH=spawn-no-agent-arg
-  DEVKIT_LAST_SPAWN_RUNTIME=host
+  MEGABRAIN_LAST_DISPATCH=spawn-no-agent-arg
+  MEGABRAIN_LAST_SPAWN_RUNTIME=host
 }
 devkit_worktree_create --worktree "$root" --agent codex --model gpt-5 --effort medium \
   --prompt spawn-without-agent-arg --tmux false --orchestrate --json >/dev/null
