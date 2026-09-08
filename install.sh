@@ -559,14 +559,30 @@ installer_prompt_mode() {
   PROMPT_MODE="$INSTALLER_MENU_RESULT"
 }
 
+# WHY: the modules the core workflow needs. Without tmux-runtime every spawn silently
+# falls back to an IDE tab instead of a child pane, and without orchestration-hooks
+# nothing notices a child whose turn ended without reporting. The simulator and adb
+# modules stay out: they are platform specific and pull in extra tooling.
+# tmux-runtime joins the default only when tmux is already on PATH, because the module
+# would otherwise install tmux without being asked.
+installer_default_modules() {
+  local defaults='orchestration,orchestration-hooks,worktree'
+  command -v tmux >/dev/null 2>&1 && defaults="$defaults,tmux-runtime"
+  printf '%s\n' "$defaults"
+}
+
 installer_select_modules() {
   local raw="$MODULES_REQUEST" token normalized
   local -a modules=(orchestration orchestration-hooks worktree simulator-web simulator-native simulator-tv tv-adb tmux-runtime)
   SELECTED_MODULES=""
   if [ -z "$raw" ]; then
-    [ "$INSTALLER_INTERACTIVE" = true ] || return 0
-    installer_menu multi 'Select megabrain modules to install' '' "${modules[@]}" || return $?
-    raw="$INSTALLER_MENU_RESULT"
+    # WHY: selecting nothing here left a fresh machine with the CLI installed and the
+    # tool unable to work the way it documents.
+    raw="$(installer_default_modules)"
+    if [ "$INSTALLER_INTERACTIVE" = true ]; then
+      installer_menu multi 'Select megabrain modules to install' "$raw" "${modules[@]}" || return $?
+      raw="$INSTALLER_MENU_RESULT"
+    fi
   fi
   [ -n "$raw" ] || return 0
   if [ "$raw" = all ]; then
