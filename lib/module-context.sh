@@ -43,6 +43,7 @@ command_orchestrate() {
   case "$subcommand" in
     spawn) command_worktree create --orchestrate "$@" ;;
     list) command_orchestrate_list "$@" ;;
+    prune) megabrain_dispatch_prune "$@" ;;
     reconcile) megabrain_dispatch_reconcile "$@" ;;
     watch) megabrain_dispatch_watch "$@" ;;
     read) megabrain_dispatch_read "$@" ;;
@@ -51,7 +52,7 @@ command_orchestrate() {
     close) megabrain_dispatch_close "$@" ;;
     -h|--help|"")
       megabrain_usage_show orchestrate-spawn orchestrate-list orchestrate-reconcile \
-        orchestrate-watch orchestrate-read orchestrate-ack orchestrate-reply orchestrate-close
+        orchestrate-prune orchestrate-watch orchestrate-read orchestrate-ack orchestrate-reply orchestrate-close
       ;;
     *) megabrain_error "unknown orchestrate command: $subcommand"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
@@ -305,6 +306,10 @@ command_orchestrate_list() {
   caller_host="$MEGABRAIN_SESSION_HOST"
   meta_paths=()
   for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
+    [ -f "$meta_path" ] || continue
+    meta_paths[${#meta_paths[@]}]="$meta_path"
+  done
+  for meta_path in "$MEGABRAIN_DISPATCH_DIR"/archive/*/*/meta.json; do
     [ -f "$meta_path" ] || continue
     meta_paths[${#meta_paths[@]}]="$meta_path"
   done

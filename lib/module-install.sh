@@ -60,13 +60,15 @@ megabrain_doctor_one() {
   local json="${2:-false}"
   MODULE_UNCERTAIN_DISPATCHES=0
   MODULE_RETAINED_TERMINALS=0
+  MODULE_PRUNABLE_DISPATCHES=0
   megabrain_module_doctor "$module"
   local rc=$?
   if [ "$json" = true ]; then
     jq -n --arg module "$module" --arg status "$MODULE_STATUS" --arg reason "$MODULE_REASON" \
       --argjson uncertainDispatches "${MODULE_UNCERTAIN_DISPATCHES:-0}" \
       --argjson retainedTerminals "${MODULE_RETAINED_TERMINALS:-0}" \
-      '{module: $module, status: $status, reason: $reason, uncertainDispatches: $uncertainDispatches, retainedTerminals: $retainedTerminals}'
+      --argjson prunableDispatches "${MODULE_PRUNABLE_DISPATCHES:-0}" \
+      '{module: $module, status: $status, reason: $reason, uncertainDispatches: $uncertainDispatches, retainedTerminals: $retainedTerminals, prunableDispatches: $prunableDispatches}'
   else
     megabrain_status_line "$module" "$MODULE_STATUS" "$MODULE_REASON"
   fi
@@ -197,7 +199,7 @@ command_doctor() {
 module_orchestration_doctor() {
   local orca_status superset_status counts_suffix
   megabrain_dispatch_health_counts
-  counts_suffix="; uncertain dispatches: $MODULE_UNCERTAIN_DISPATCHES; retained terminals: $MODULE_RETAINED_TERMINALS"
+  counts_suffix="; uncertain dispatches: $MODULE_UNCERTAIN_DISPATCHES; retained terminals: $MODULE_RETAINED_TERMINALS; prunable dispatches: $MODULE_PRUNABLE_DISPATCHES"
   if ! megabrain_require_command orca; then
     megabrain_set_status missing "orca CLI is not on PATH$counts_suffix"
     return 1

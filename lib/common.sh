@@ -32,6 +32,7 @@ MODULE_REASON=""
 MODULE_DETAILS=""
 MODULE_UNCERTAIN_DISPATCHES=0
 MODULE_RETAINED_TERMINALS=0
+MODULE_PRUNABLE_DISPATCHES=0
 
 megabrain_error() {
   printf 'megabrain: %s\n' "$*" >&2
@@ -151,6 +152,7 @@ megabrain_usage_line() {
     terminal-create) printf 'terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]' ;;
     orchestrate-spawn) printf 'orchestrate spawn --repo <name|path> --branch <branch> --agent <id> --model <id> [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
     orchestrate-list) printf 'orchestrate list [--all|--orphans] [--json]' ;;
+    orchestrate-prune) printf 'orchestrate prune [--older-than <days>] [--state <list>] [--archive|--delete] [--dry-run] [--json]' ;;
     orchestrate-reconcile) printf 'orchestrate reconcile <dispatch-id> [--all] [--json]' ;;
     orchestrate-watch) printf 'orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--consumer <id>] [--generation <number>] [--json]' ;;
     orchestrate-read) printf 'orchestrate read <dispatch-id> [--lines <count>] [--json]' ;;

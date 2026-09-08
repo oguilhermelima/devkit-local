@@ -10,6 +10,7 @@ MEGABRAIN_PROMPT_BUDGET_ARGV_BYTES=262144
 MEGABRAIN_PROMPT_BUDGET_TMUX_BYTES=12000
 MEGABRAIN_DISPATCH_CLOSE_OUTCOME=unknown
 MEGABRAIN_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS=60
+MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS=7
 
 if ! declare -F megabrain_dispatch_preamble >/dev/null 2>&1; then
   # shellcheck source=local/megabrain/lib/module-facts.sh
@@ -97,14 +98,24 @@ megabrain_dispatch_default_label() {
 }
 
 megabrain_dispatch_dir() {
-  local dispatch_id="$1"
+  local dispatch_id="$1" live_path archive_path
   case "$dispatch_id" in
     ""|*[!A-Za-z0-9._-]*)
       megabrain_error "invalid dispatch id: $dispatch_id"
       return 1
       ;;
   esac
-  printf '%s/%s\n' "$MEGABRAIN_DISPATCH_DIR" "$dispatch_id"
+  live_path="$MEGABRAIN_DISPATCH_DIR/$dispatch_id"
+  if [ -e "$live_path" ]; then
+    printf '%s\n' "$live_path"
+    return 0
+  fi
+  for archive_path in "$MEGABRAIN_DISPATCH_DIR"/archive/*/"$dispatch_id"; do
+    [ -e "$archive_path" ] || continue
+    printf '%s\n' "$archive_path"
+    return 0
+  done
+  printf '%s\n' "$live_path"
 }
 
 megabrain_dispatch_meta_path() { printf '%s/meta.json\n' "$(megabrain_dispatch_dir "$1")"; }
@@ -475,6 +486,7 @@ megabrain_dispatch_health_counts() {
   local meta_path meta records='[]'
   MODULE_UNCERTAIN_DISPATCHES=0
   MODULE_RETAINED_TERMINALS=0
+  MODULE_PRUNABLE_DISPATCHES=0
   for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
     [ -f "$meta_path" ] || continue
     meta="$(cat "$meta_path" 2>/dev/null || true)"
@@ -483,6 +495,154 @@ megabrain_dispatch_health_counts() {
   done
   MODULE_UNCERTAIN_DISPATCHES="$(printf '%s' "$records" | jq '[.[] | select((.processState // "") == "start-unproven" or (.processState // "") == "stop-unproven" or (.processState // "") == "abandoned")] | length')"
   MODULE_RETAINED_TERMINALS="$(printf '%s' "$records" | jq '[.[] | select((.terminalState // "") == "retained")] | length')"
+  MODULE_PRUNABLE_DISPATCHES="$(printf '%s' "$records" | jq --argjson cutoff "$(($(date -u +%s) - MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS * 86400))" '
+    [.[]
+      | select((.state // "") == "closed" or (.state // "") == "done" or (.state // "") == "failed" or (.state // "") == "orphaned" or (.state // "") == "circuit_broken")
+      | ((.updatedAt // .createdAt) // "") as $timestamp
+      | (try ($timestamp | fromdateiso8601) catch null) as $epoch
+      | select($epoch != null and $epoch <= $cutoff)]
+    | length')"
+}
+
+megabrain_dispatch_prune_state_terminal() {
+  case "$1" in
+    closed|done|failed|orphaned|circuit_broken) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+megabrain_dispatch_prune_state_selected() {
+  case ",$2," in
+    *,"$1",*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+megabrain_dispatch_timestamp_epoch() {
+  local timestamp="$1" epoch
+  epoch="$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$timestamp" '+%s' 2>/dev/null || true)"
+  if ! [[ "$epoch" =~ ^[0-9]+$ ]]; then
+    epoch="$(date -u -d "$timestamp" '+%s' 2>/dev/null || true)"
+  fi
+  [[ "$epoch" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$epoch"
+}
+
+megabrain_dispatch_prune() {
+  local older_than="$MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS" state_filter="closed,done,failed,orphaned,circuit_broken"
+  local mode=archive dry_run=false json=false arg now_epoch cutoff archive_month
+  local meta_path dispatch_dir dispatch_id state timestamp timestamp_epoch reason target
+  local archived_ids='[]' deleted_ids='[]' skipped_dispatches='[]'
+  local archived_count=0 deleted_count=0 skipped_count=0
+  case "${1:-}" in
+    -h|--help) megabrain_usage_show orchestrate-prune; return 0 ;;
+  esac
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --older-than) older_than="${2:-}"; shift 2 ;;
+      --state) state_filter="${2:-}"; shift 2 ;;
+      --archive) mode=archive; shift ;;
+      --delete) mode=delete; shift ;;
+      --dry-run) dry_run=true; shift ;;
+      --json) json=true; shift ;;
+      -h|--help) megabrain_usage_show orchestrate-prune; return 0 ;;
+      *) megabrain_error "unknown orchestrate prune option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
+    esac
+  done
+  [[ "$older_than" =~ ^[0-9]+$ ]] || { megabrain_error "--older-than must be a non-negative number of days"; return "$MEGABRAIN_USAGE_ERROR"; }
+  [ -n "$state_filter" ] || { megabrain_error "--state must not be empty"; return "$MEGABRAIN_USAGE_ERROR"; }
+  case "$state_filter" in
+    *[!A-Za-z0-9_,-]*) megabrain_error "--state must be a comma-separated list of dispatch states"; return "$MEGABRAIN_USAGE_ERROR" ;;
+  esac
+  now_epoch="$(date -u +%s)"
+  cutoff=$((now_epoch - older_than * 86400))
+  archive_month="$(date -u '+%Y-%m')"
+  for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
+    [ -f "$meta_path" ] || continue
+    dispatch_dir="${meta_path%/meta.json}"
+    dispatch_id="${dispatch_dir##*/}"
+    state="$(jq -r '.state // empty' "$meta_path" 2>/dev/null || true)"
+    reason=""
+    if ! megabrain_dispatch_prune_state_terminal "$state"; then
+      if [ -n "$state" ]; then
+        reason="state $state is not terminal"
+      else
+        reason="state is missing or unknown"
+      fi
+    elif ! megabrain_dispatch_prune_state_selected "$state" "$state_filter"; then
+      reason="state $state was not selected"
+    elif ! jq -e 'has("updatedAt") and .updatedAt != null and .updatedAt != ""' "$meta_path" >/dev/null 2>&1 &&
+      ! jq -e 'has("createdAt") and .createdAt != null and .createdAt != ""' "$meta_path" >/dev/null 2>&1; then
+      reason="updatedAt and createdAt are missing"
+    else
+      timestamp="$(jq -r 'if has("updatedAt") and .updatedAt != null and .updatedAt != "" then .updatedAt else .createdAt end' "$meta_path" 2>/dev/null || true)"
+      timestamp_epoch="$(megabrain_dispatch_timestamp_epoch "$timestamp" 2>/dev/null || true)"
+      if ! [[ "$timestamp_epoch" =~ ^[0-9]+$ ]]; then
+        reason="invalid timestamp: $timestamp"
+      elif [ "$timestamp_epoch" -gt "$cutoff" ]; then
+        reason="younger than $older_than days"
+      fi
+    fi
+    if [ -n "$reason" ]; then
+      skipped_count=$((skipped_count + 1))
+      skipped_dispatches="$(jq --arg dispatchId "$dispatch_id" --arg state "$state" --arg reason "$reason" '. + [{dispatchId: $dispatchId, state: (if $state == "" then null else $state end), reason: $reason}]' <<<"$skipped_dispatches")"
+      continue
+    fi
+    if [ "$mode" = archive ]; then
+      target="$MEGABRAIN_DISPATCH_DIR/archive/$archive_month/$dispatch_id"
+    else
+      target=""
+    fi
+    if [ "$dry_run" = true ]; then
+      if [ "$mode" = archive ]; then
+        archived_ids="$(jq --arg dispatchId "$dispatch_id" --arg path "$target" '. + [{dispatchId: $dispatchId, path: $path}]' <<<"$archived_ids")"
+      else
+        deleted_ids="$(jq --arg dispatchId "$dispatch_id" '. + [$dispatchId]' <<<"$deleted_ids")"
+      fi
+      continue
+    fi
+    if [ "$mode" = archive ]; then
+      if [ -e "$target" ]; then
+        reason="archive destination already exists"
+      elif mkdir -p "$(dirname "$target")" && mv "$dispatch_dir" "$target"; then
+        archived_count=$((archived_count + 1))
+        archived_ids="$(jq --arg dispatchId "$dispatch_id" --arg path "$target" '. + [{dispatchId: $dispatchId, path: $path}]' <<<"$archived_ids")"
+        continue
+      else
+        reason="could not archive dispatch"
+      fi
+    elif rm -rf "$dispatch_dir"; then
+      deleted_count=$((deleted_count + 1))
+      deleted_ids="$(jq --arg dispatchId "$dispatch_id" '. + [$dispatchId]' <<<"$deleted_ids")"
+      continue
+    else
+      reason="could not delete dispatch"
+    fi
+    skipped_count=$((skipped_count + 1))
+    skipped_dispatches="$(jq --arg dispatchId "$dispatch_id" --arg state "$state" --arg reason "$reason" '. + [{dispatchId: $dispatchId, state: (if $state == "" then null else $state end), reason: $reason}]' <<<"$skipped_dispatches")"
+  done
+  if [ "$dry_run" = true ]; then
+    archived_count="$(printf '%s' "$archived_ids" | jq 'length')"
+    deleted_count="$(printf '%s' "$deleted_ids" | jq 'length')"
+  fi
+  if [ "$json" = true ]; then
+    jq -n --arg mode "$mode" --argjson dryRun "$(megabrain_bool_json "$dry_run")" \
+      --argjson olderThanDays "$older_than" --argjson archived "$archived_ids" \
+      --argjson deleted "$deleted_ids" --argjson skipped "$skipped_dispatches" \
+      --argjson archivedCount "$archived_count" --argjson deletedCount "$deleted_count" \
+      --argjson skippedCount "$skipped_count" \
+      '{mode: $mode, dryRun: $dryRun, olderThanDays: $olderThanDays, archived: $archivedCount, deleted: $deletedCount, skipped: $skippedCount, archivedDispatches: $archived, deletedDispatches: $deleted, skippedDispatches: $skipped}'
+  else
+    printf 'mode: %s\ndry-run: %s\nolder-than-days: %s\n' "$mode" "$dry_run" "$older_than"
+    if [ "$mode" = archive ]; then
+      printf '%s\n' "$archived_ids" | jq -r '.[] | (if .path then (if "'"$dry_run"'" == "true" then "would archive: " else "archived: " end) + .dispatchId else empty end)'
+    else
+      printf '%s\n' "$deleted_ids" | jq -r '.[] | (if "'"$dry_run"'" == "true" then "would delete: " else "deleted: " end) + .'
+    fi
+    printf 'skipped: %s\n' "$skipped_count"
+    printf '%s\n' "$skipped_dispatches" | jq -r '.[] | "skipped: " + .dispatchId + " (" + .reason + ")"'
+  fi
 }
 
 megabrain_dispatch_cursor_read() {
