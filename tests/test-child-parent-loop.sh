@@ -135,6 +135,7 @@ prepare_tmux_parent() {
   tmux_cmd new-session -d -s "$session_name" bash
   parent_pane="$(tmux_cmd display-message -p -t "$session_name" '#{pane_id}')"
   parent_tmux="$(tmux_cmd display-message -p -t "$parent_pane" '#{socket_path},#{pid},#{session_id}')"
+  tmux_cmd set-environment -t "$session_name" DEVKIT_STATE_DIR "$state_dir"
   export TMUX="$parent_tmux" TMUX_PANE="$parent_pane"
   tmux_cmd send-keys -t "$parent_pane" -l "PS1='PARENT$ '; export PS1; printf 'parent-ready\\n'"
   tmux_cmd send-keys -t "$parent_pane" Enter
