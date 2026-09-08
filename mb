@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 
-# Keep scripts using the old command working while they migrate to megabrain.
-printf 'devkit is deprecated; use megabrain instead.\n' >&2
-
 MEGABRAIN_SOURCE="${BASH_SOURCE[0]}"
 while [ -h "$MEGABRAIN_SOURCE" ]; do
   MEGABRAIN_SOURCE_DIR="$(cd -P "$(dirname "$MEGABRAIN_SOURCE")" >/dev/null 2>&1 && pwd)"

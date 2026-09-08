@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+MEGABRAIN_SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$MEGABRAIN_SOURCE" ]; do
+  MEGABRAIN_SOURCE_DIR="$(cd -P "$(dirname "$MEGABRAIN_SOURCE")" >/dev/null 2>&1 && pwd)"
+  MEGABRAIN_SOURCE="$(readlink "$MEGABRAIN_SOURCE")"
+  case "$MEGABRAIN_SOURCE" in
+    /*) ;;
+    *) MEGABRAIN_SOURCE="$MEGABRAIN_SOURCE_DIR/$MEGABRAIN_SOURCE" ;;
+  esac
+done
+DEVKIT_ROOT="$(cd -P "$(dirname "$MEGABRAIN_SOURCE")" && pwd)"
+DEVKIT_LIB_DIR="$DEVKIT_ROOT/lib"
+
+# shellcheck source=local/devkit/lib/common.sh
+source "$DEVKIT_LIB_DIR/common.sh"
+for devkit_module in "$DEVKIT_LIB_DIR"/module-*.sh; do
+  [ -f "$devkit_module" ] || continue
+  # shellcheck disable=SC1090
+  source "$devkit_module"
+done
+
+devkit_usage() {
+  cat <<'EOF'
+Usage: megabrain <command> [options]
+
+Commands:
+  install [module-id] [--yes]           Install one module or choose modules interactively
+  doctor [module-id]                   Check one module or all modules
+  context [--json]                     Detect the current orchestration host
+  worktree create ...                  Create a shared Orca/Superset worktree
+  worktree finish ...                  Finish a shared worktree
+  worktree list [--repo <name|path>]   List shared-root worktrees
+  worktree adopt <path|branch>         Register an existing worktree in Superset
+  terminal create ...                  Open a terminal in the current orchestrator
+  orchestrate spawn ...                Create a worktree and start an agent
+  orchestrate list [--json]            List managed dispatches
+  orchestrate reconcile <dispatch-id>  Reconcile an open dispatch without respawning
+  orchestrate watch <dispatch-id> ...  Watch a dispatch file channel for child messages
+  orchestrate read <dispatch-id> ...   Read a tmux dispatch pane
+  orchestrate ack <dispatch-id> ...    Acknowledge a delivery batch
+  orchestrate reply <dispatch-id> ...  Queue a reply for a child dispatch
+  orchestrate close <dispatch-id> ...  Close a Superset dispatch terminal
+  chain list|limits|add|edit|delete|run ...  Manage ordered child-agent chains
+  model list|add|refresh ...            Manage the versioned model registry
+  fact list|add|edit|remove ...             Manage versioned environment facts
+  ask "question"                       Ask the direct coordinator from a child dispatch
+  done "summary"                        Mark a child dispatch done
+  check [options]                       Check for replies from the direct coordinator
+  ack <delivery-id> [options]          Acknowledge a child reply delivery
+  received                            Confirm receipt of a dispatch prompt
+  native appium start|stop|status      Manage the shared Appium server
+  tv connect <ip> [--port <port>]      Connect an Android TV over adb
+  tv disconnect [<ip>]                 Disconnect an Android TV
+  tmux tune [--yes|--dry-run|--revert] Tune global tmux configuration
+  tmux wrapper [--yes|--dry-run|--revert] Install the zsh agent tmux wrapper
+  migrate                            Move state from ~/.devkit to ~/.megabrain
+EOF
+}
+
+devkit_main() {
+  local command="${1:-help}"
+  shift || true
+
+  case "$command" in
+    install) command_install "$@" ;;
+    migrate) command_migrate "$@" ;;
+    doctor) command_doctor "$@" ;;
+    context) command_context "$@" ;;
+    worktree) command_worktree "$@" ;;
+    terminal) command_terminal "$@" ;;
+  orchestrate) command_orchestrate "$@" ;;
+    chain) command_chain "$@" ;;
+    model|models) command_model "$@" ;;
+    fact) command_fact "$@" ;;
+    ask) command_ask "$@" ;;
+    received) command_received "$@" ;;
+    done) command_done "$@" ;;
+    check) command_check "$@" ;;
+    ack|acknowledge) command_ack "$@" ;;
+    native) command_native "$@" ;;
+    tv) command_tv "$@" ;;
+    tmux) command_tmux "$@" ;;
+    help|-h|--help) devkit_usage ;;
+    version|-V|--version) echo "megabrain 1.0.0" ;;
+    *) devkit_error "unknown command: $command"; devkit_usage >&2; return "$DEVKIT_USAGE_ERROR" ;;
+  esac
+}
+
+devkit_main "$@"
