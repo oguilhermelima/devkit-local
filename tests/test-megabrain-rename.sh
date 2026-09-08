@@ -190,7 +190,11 @@ PATH="$installer_bin:$PATH"
 MODULES_REQUEST=""
 INSTALLER_INTERACTIVE=false
 installer_select_modules
-assert_equal "$SELECTED_MODULES" 'orchestration,orchestration-hooks,worktree,tmux-runtime'
+# WHY the order and not just the set: the orchestration module reports orca and superset as
+# optional only once the tmux runtime is enabled, so installing it first is what lets a machine
+# with neither orchestrator finish the default install at all. With tmux-runtime last, that
+# install fails on its first module.
+assert_equal "$SELECTED_MODULES" 'tmux-runtime,orchestration,orchestration-hooks,worktree'
 MODULES_REQUEST=none
 installer_select_modules
 assert_equal "$SELECTED_MODULES" ''
