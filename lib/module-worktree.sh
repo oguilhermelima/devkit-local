@@ -1014,27 +1014,34 @@ megabrain_worktree_finish() {
   esac
   repo_path="$(dirname "$(realpath "$repo_path")")"
   branch="$(git -C "$path" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  # WHY: under --json the remover's own stdout goes to /dev/null so it cannot corrupt the
+  # JSON, which used to leave a refusal with an empty stdout, an empty stderr and only an
+  # exit code. The output is captured instead, and reported as megabrain's own error when
+  # the removal fails, so the caller learns whether the branch was unmerged or the install
+  # was broken.
+  megabrain_worktree_removal_failed() {
+    local output="$1" reason
+    # The orchestrators answer in JSON, so lift their own message out of it when there is
+    # one and fall back to the raw text for a remover that writes plain lines.
+    reason="$(printf '%s' "$output" | jq -r 'if (.error | type) == "object" then (.error.message // .error.code // empty) else (.error // .message // empty) end' 2>/dev/null || true)"
+    [ -n "$reason" ] || reason="$output"
+    reason="$(printf '%s' "$reason" | tr '\r\n' '  ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')"
+    [ -n "$reason" ] || reason='the remover gave no reason'
+    megabrain_error "could not remove worktree $path: $reason"
+  }
+  local removal_output removal_status=0
   if [ -n "$workspace_id" ]; then
-    local -a delete_args
-    delete_args=(workspaces delete "$workspace_id" --local --json)
-    if [ "$json" = true ]; then
-      megabrain_superset "${delete_args[@]}" >/dev/null || return 1
-    else
-      megabrain_superset "${delete_args[@]}" || return 1
-    fi
+    removal_output="$(megabrain_superset workspaces delete "$workspace_id" --local --json 2>&1)" || removal_status=$?
   elif megabrain_require_command orca; then
-    if [ "$json" = true ]; then
-      orca worktree rm --worktree "path:$path" $([ "$force" = true ] && printf '%s' --force) --json >/dev/null || return 1
-    else
-      orca worktree rm --worktree "path:$path" $([ "$force" = true ] && printf '%s' --force) --json || return 1
-    fi
+    removal_output="$(orca worktree rm --worktree "path:$path" $([ "$force" = true ] && printf '%s' --force) --json 2>&1)" || removal_status=$?
   else
-    if [ "$json" = true ]; then
-      git -C "$repo_path" worktree remove $([ "$force" = true ] && printf '%s' --force) "$path" >/dev/null || return 1
-    else
-      git -C "$repo_path" worktree remove $([ "$force" = true ] && printf '%s' --force) "$path" || return 1
-    fi
+    removal_output="$(git -C "$repo_path" worktree remove $([ "$force" = true ] && printf '%s' --force) "$path" 2>&1)" || removal_status=$?
   fi
+  if [ "$removal_status" -ne 0 ]; then
+    megabrain_worktree_removal_failed "$removal_output"
+    return 1
+  fi
+  [ "$json" = true ] || [ -z "$removal_output" ] || printf '%s\n' "$removal_output"
   if [ "$delete_branch" = true ] && [ -n "$branch" ]; then
     base="$(megabrain_repo_default_base "$repo_path")"
     if [ "$force" != true ]; then
