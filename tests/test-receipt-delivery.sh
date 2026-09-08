@@ -42,4 +42,33 @@ megabrain_dispatch_wait_for_prompt_receipt receipt-retry
 wait
 printf 'receipt wait observes a later queue confirmation\n'
 
-printf 'ok: receipt confirmation timing\n'
+# WHY: the queue receipt is authoritative precisely because pane activity can be faked,
+# so the wait must reject a delivery that is not a receipt instead of treating the first
+# message of any kind as proof the prompt landed.
+create_dispatch_named() {
+  megabrain_dispatch_meta_write "$1" parent-terminal orca orca "" child-terminal "$root" fix/prompt-delivery-proof codex label spawning gpt-5 true codex '' '' host ide >/dev/null
+}
+
+create_dispatch_named receipt-wrong-type
+megabrain_dispatch_message_append receipt-wrong-type child ask 'not a receipt' child-terminal >/dev/null
+if megabrain_dispatch_wait_for_prompt_receipt receipt-wrong-type; then
+  fail 'an ask was accepted as a prompt receipt'
+fi
+printf 'receipt wait rejects a delivery that is not a receipt\n'
+
+# WHY: an oversized prompt is refused before anything is created, never truncated. Both
+# transports are checked because they carry very different limits.
+big="$(head -c $((MEGABRAIN_PROMPT_BUDGET_TMUX_BYTES + 1)) /dev/zero | tr '\0' 'x')"
+if megabrain_validate_prompt_budget "$big" tmux prompt 2>/dev/null; then
+  fail 'a prompt over the tmux budget was accepted'
+fi
+if ! megabrain_validate_prompt_budget "$big" argv prompt 2>/dev/null; then
+  fail 'a prompt inside the argv budget was refused'
+fi
+huge="$(head -c $((MEGABRAIN_PROMPT_BUDGET_ARGV_BYTES + 1)) /dev/zero | tr '\0' 'x')"
+if megabrain_validate_prompt_budget "$huge" argv prompt 2>/dev/null; then
+  fail 'a prompt over the argv budget was accepted'
+fi
+printf 'prompt budgets refuse oversize on both transports\n'
+
+printf 'ok: receipt confirmation timing and prompt budgets\n'
