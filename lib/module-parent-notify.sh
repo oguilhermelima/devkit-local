@@ -53,7 +53,7 @@ megabrain_parent_notify_canonical_dir() {
 }
 
 megabrain_parent_notify_context_matches() {
-  local meta="$1" dispatch_id dispatch_path runtime owner current context session
+  local meta="$1" dispatch_id dispatch_path owner current context session
   MEGABRAIN_PARENT_NOTIFY_STATE_REASON=state-directory-mismatch
   dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty')"
   [ -n "$dispatch_id" ] || return 1
@@ -62,8 +62,7 @@ megabrain_parent_notify_context_matches() {
   owner="$(megabrain_parent_notify_canonical_dir "$(dirname "$(dirname "$(dirname "$dispatch_path")")")")" || return 1
   current="$(megabrain_parent_notify_canonical_dir "$MEGABRAIN_STATE_DIR")" || return 1
   [ "$owner" = "$current" ] || return 1
-  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
-  if [ "$runtime" = tmux ]; then
+  if [ "$(megabrain_parent_notify_channel "$meta")" = tmux ]; then
     session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
     context="$(tmux show-environment -t "$session" MEGABRAIN_STATE_DIR 2>/dev/null | sed 's/^MEGABRAIN_STATE_DIR=//' || true)"
     [ -n "$context" ] || context="$(tmux show-environment -g MEGABRAIN_STATE_DIR 2>/dev/null | sed 's/^MEGABRAIN_STATE_DIR=//' || true)"
@@ -84,9 +83,8 @@ megabrain_parent_notify_pointer() {
 }
 
 megabrain_parent_notify_queues_input() {
-  local meta="$1" runtime session agent
-  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
-  [ "$runtime" = tmux ] || { printf 'false\n'; return 0; }
+  local meta="$1" session agent
+  [ "$(megabrain_parent_notify_channel "$meta")" = tmux ] || { printf 'false\n'; return 0; }
   session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
   [ -n "$session" ] || { printf 'false\n'; return 0; }
   declare -F megabrain_tmux_registry_agent_for_session >/dev/null 2>&1 || { printf 'false\n'; return 0; }
@@ -217,15 +215,30 @@ megabrain_parent_notify_superset_is_idle() {
   printf 'unknown\n'
 }
 
-megabrain_parent_is_idle() {
-  local meta="$1" runtime host
-  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
-  if [ "$runtime" = tmux ]; then
-    megabrain_parent_notify_tmux_is_idle "$meta"
+# WHY: .runtime says how the CHILD was launched. Reaching the PARENT is a property of
+# the parent, and the two are independent: a dispatch started in an IDE tab can have a
+# parent sitting in a tmux pane. Deciding by the child's runtime sent such a notice to
+# the host, whose terminals read answered "not active", which became liveness unknown
+# and silently suppressed the pointer while the tmux coordinates sat unused in the meta.
+# tmux is checked with plain tmux commands so this module keeps working where the tmux
+# runtime module is not sourced.
+megabrain_parent_notify_channel() {
+  local meta="$1" session pane
+  session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
+  pane="$(printf '%s' "$meta" | jq -r '.parentTmuxPane // empty')"
+  if [ -n "$session" ] && [ -n "$pane" ] && megabrain_require_command tmux &&
+    tmux has-session -t "$session" 2>/dev/null &&
+    tmux list-panes -t "$session" -F '#{pane_id}' 2>/dev/null | grep -Fx "$pane" >/dev/null 2>&1; then
+    printf 'tmux\n'
     return 0
   fi
-  host="$(printf '%s' "$meta" | jq -r '.parentHost // empty')"
-  case "$host" in
+  printf '%s\n' "$(printf '%s' "$meta" | jq -r '.parentHost // empty')"
+}
+
+megabrain_parent_is_idle() {
+  local meta="$1"
+  case "$(megabrain_parent_notify_channel "$meta")" in
+    tmux) megabrain_parent_notify_tmux_is_idle "$meta" ;;
     orca) megabrain_parent_notify_orca_is_idle "$meta" ;;
     superset) megabrain_parent_notify_superset_is_idle "$meta" ;;
     *) printf 'unknown\n' ;;
@@ -233,13 +246,12 @@ megabrain_parent_is_idle() {
 }
 
 megabrain_parent_notify() {
-  local meta="$1" pointer="$2" runtime host workspace_id terminal_id
-  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
-  if [ "$runtime" = tmux ]; then
+  local meta="$1" pointer="$2" host workspace_id terminal_id
+  host="$(megabrain_parent_notify_channel "$meta")"
+  if [ "$host" = tmux ]; then
     megabrain_parent_notify_tmux "$meta" "$pointer"
     return $?
   fi
-  host="$(printf '%s' "$meta" | jq -r '.parentHost // empty')"
   workspace_id="$(printf '%s' "$meta" | jq -r '.parentWorkspaceId // empty')"
   terminal_id="$(printf '%s' "$meta" | jq -r '.parentSessionId // empty')"
   case "$host" in

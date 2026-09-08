@@ -169,8 +169,30 @@ assert_equal "$(find "$state_dir/dispatches/tmux-failure/messages" -name '*.json
 assert_equal "$(jq -r '.text' "$state_dir/dispatches/tmux-failure/messages"/*.json)" 'failure body retained'
 printf 'notify failure: child ask succeeded and queue retained\n'
 
-create_meta ide-dispatch "$parent_pane" host superset
+# WHY: the child's runtime and the parent's reachability are independent. This dispatch
+# was launched in an IDE tab, host runtime, but its parent sits in a live tmux pane, and
+# it must still be notified through that pane. Deciding by the child's runtime probed the
+# host instead, which answered that the terminal was not active, so liveness came back
+# unknown and the pointer was silently suppressed. Nothing here stubs the host client:
+# a stub always looks healthy, which is why the earlier IDE case could not catch this.
+create_meta host-runtime-tmux-parent "$parent_pane" host superset
+host_tmux_meta="$(megabrain_dispatch_meta_read host-runtime-tmux-parent)"
+assert_equal "$(megabrain_parent_notify_channel "$host_tmux_meta")" tmux
+assert_equal "$(megabrain_parent_is_idle "$host_tmux_meta")" true
+append_message host-runtime-tmux-parent 'host runtime body'
+megabrain_parent_notify_dispatch "$host_tmux_meta"
+assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
+host_tmux_capture="$(tmux_cmd capture-pane -p -J -t "$parent_pane" -S -20)"
+assert_contains "$host_tmux_capture" '[megabrain] mail available for dispatch host-runtime-tmux-parent'
+assert_not_contains "$host_tmux_capture" 'host runtime body'
+printf 'host runtime with a live tmux parent still notifies through the pane\n'
+
+# The parent pane is deliberately one that does not exist, so this case really is the
+# host path. It used to pass the live pane and still reach the host only because the
+# channel ignored the parent's tmux coordinates entirely.
+create_meta ide-dispatch '%999' host superset '%999'
 host_meta="$(megabrain_dispatch_meta_read ide-dispatch)"
+assert_equal "$(megabrain_parent_notify_channel "$host_meta")" superset
 superset_send_count=0
 megabrain_superset_available() { return 0; }
 megabrain_superset() {
