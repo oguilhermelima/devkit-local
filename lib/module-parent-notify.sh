@@ -42,6 +42,36 @@ devkit_parent_notify_waiter_unregister() {
   rm -f "$path"
 }
 
+devkit_parent_notify_canonical_dir() {
+  local path="$1"
+  [ -n "$path" ] || return 1
+  if [ -d "$path" ]; then
+    (cd "$path" && pwd -P)
+  else
+    printf '%s\n' "$path"
+  fi
+}
+
+devkit_parent_notify_context_matches() {
+  local meta="$1" runtime owner current context
+  DEVKIT_PARENT_NOTIFY_STATE_REASON=state-directory-mismatch
+  owner="$(devkit_parent_notify_canonical_dir "$(dirname "$DEVKIT_DISPATCH_DIR")")" || return 1
+  current="$(devkit_parent_notify_canonical_dir "$DEVKIT_STATE_DIR")" || return 1
+  [ "$owner" = "$current" ] || return 1
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  if [ "$runtime" = tmux ]; then
+    context="$(tmux show-environment -g DEVKIT_STATE_DIR 2>/dev/null | sed 's/^DEVKIT_STATE_DIR=//' || true)"
+    [ -n "$context" ] || {
+      DEVKIT_PARENT_NOTIFY_STATE_REASON=state-directory-unknown
+      return 1
+    }
+    context="$(devkit_parent_notify_canonical_dir "$context")" || return 1
+    # WHY: The tmux server context is authoritative because a child may override its environment.
+    [ "$owner" = "$context" ] || return 1
+  fi
+  return 0
+}
+
 devkit_parent_notify_pointer() {
   local dispatch_id="$1"
   # The pointer keeps message content in the durable queue and delivery path.
@@ -208,6 +238,11 @@ devkit_parent_notify_dispatch() {
   dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty')"
   [ -n "$dispatch_id" ] || { DEVKIT_PARENT_NOTIFY_RESULT=failed; return 1; }
   pointer="$(devkit_parent_notify_pointer "$dispatch_id")"
+  if ! devkit_parent_notify_context_matches "$meta"; then
+    DEVKIT_PARENT_NOTIFY_RESULT=suppressed
+    devkit_parent_notify_wake "$dispatch_id" "$pointer" suppressed "${DEVKIT_PARENT_NOTIFY_STATE_REASON:-state-directory-mismatch}" >/dev/null 2>&1 || true
+    return 0
+  fi
   if devkit_parent_notify_waiter_active "$dispatch_id"; then
     DEVKIT_PARENT_NOTIFY_RESULT=suppressed
     devkit_parent_notify_wake "$dispatch_id" "$pointer" suppressed active-waiter >/dev/null 2>&1 || true
