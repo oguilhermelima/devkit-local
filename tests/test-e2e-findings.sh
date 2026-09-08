@@ -35,7 +35,7 @@ assert_not_contains() {
   esac
 }
 
-export DEVKIT_STATE_DIR="$state_dir/state"
+export MEGABRAIN_STATE_DIR="$state_dir/state"
 export SUPERSET_TERMINAL_ID=parent-terminal
 export PATH="$bin_dir:$PATH"
 
@@ -45,7 +45,7 @@ source "$root/lib/module-orchestrate.sh"
 source "$root/lib/module-parent-notify.sh"
 source "$root/lib/module-worktree.sh"
 
-mkdir -p "$DEVKIT_DISPATCH_DIR"
+mkdir -p "$MEGABRAIN_DISPATCH_DIR"
 host_call_log="$state_dir/host-calls"
 : >"$host_call_log"
 
@@ -123,7 +123,7 @@ printf 'dispatch list uses metadata without host calls\n'
 devkit_dispatch_meta_write stalled-live live-terminal superset superset workspace-test live-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
 devkit_dispatch_message_append stalled-live child received 'prompt received' live-terminal >/dev/null
 env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=live-terminal MEGABRAIN_HOOK_AGENT=codex "$root/hooks/megabrain-turn-end.sh" '{"last_assistant_message":"still working"}' >/dev/null
-assert_equal "$(jq -r '.state' "$DEVKIT_DISPATCH_DIR/stalled-live/meta.json")" running
+assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-live/meta.json")" running
 printf 'live queue activity does not trigger stalled\n'
 
 devkit_superset() {
@@ -135,57 +135,57 @@ devkit_superset() {
 }
 devkit_dispatch_meta_write stalled-missing child-terminal superset superset workspace-test missing-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
 env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=missing-terminal MEGABRAIN_HOOK_AGENT=codex "$root/hooks/megabrain-turn-end.sh" '{"last_assistant_message":"stuck"}' >/dev/null
-assert_equal "$(jq -r '.state' "$DEVKIT_DISPATCH_DIR/stalled-missing/meta.json")" stalled
+assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-missing/meta.json")" stalled
 printf 'missing terminal remains evidence for stalled\n'
 
 devkit_dispatch_meta_write stalled-done done-terminal superset superset workspace-test done-terminal "$root" main codex label stalled gpt-5 true codex '' '' host ide >/dev/null
 env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=done-terminal "$root/devkit" done 'completed after recovery' >/dev/null
-assert_equal "$(jq -r '.state' "$DEVKIT_DISPATCH_DIR/stalled-done/meta.json")" done
+assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-done/meta.json")" done
 printf 'done is accepted from stalled\n'
 
 devkit_dispatch_meta_write stalled-ask parent-terminal superset superset workspace-test stalled-ask-terminal "$root" main codex label stalled gpt-5 true codex '' '' host ide >/dev/null
 TMUX= TMUX_PANE= SUPERSET_TERMINAL_ID=stalled-ask-terminal devkit_dispatch_child_message ask 'question after stall' >/dev/null
-assert_equal "$(jq -r '.state' "$DEVKIT_DISPATCH_DIR/stalled-ask/meta.json")" waiting_for_reply
+assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-ask/meta.json")" waiting_for_reply
 printf 'ask is accepted from stalled\n'
 
 devkit_dispatch_meta_write orphaned-ask parent-terminal superset superset workspace-test orphaned-ask-terminal "$root" main codex label orphaned gpt-5 true codex '' '' host ide >/dev/null
 TMUX= TMUX_PANE= SUPERSET_TERMINAL_ID=orphaned-ask-terminal devkit_dispatch_child_message ask 'question after orphaning' >/dev/null
-assert_equal "$(jq -r '.state' "$DEVKIT_DISPATCH_DIR/orphaned-ask/meta.json")" waiting_for_reply
+assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/orphaned-ask/meta.json")" waiting_for_reply
 printf 'ask is accepted from orphaned\n'
 
 devkit_dispatch_terminal_status() {
-  DEVKIT_TERMINAL_STATUS=unknown
+  MEGABRAIN_TERMINAL_STATUS=unknown
 }
 
 devkit_dispatch_parent_status() {
-  DEVKIT_PARENT_STATUS=alive
+  MEGABRAIN_PARENT_STATUS=alive
 }
 
 devkit_dispatch_native_close() {
-  DEVKIT_DISPATCH_CLOSE_OUTCOME=host
+  MEGABRAIN_DISPATCH_CLOSE_OUTCOME=host
   return 0
 }
 
 devkit_dispatch_meta_write queued-proof parent-terminal superset superset workspace-test queued-proof-terminal "$root" main codex label done gpt-5 true codex '' '' host ide >/dev/null
 devkit_dispatch_message_append queued-proof child done 'finished before close' queued-proof-terminal >/dev/null
 devkit_dispatch_reconcile_one queued-proof
-assert_equal "$DEVKIT_RECONCILE_OUTCOME" adopted
-assert_equal "$(jq -r '.terminalState' "$DEVKIT_DISPATCH_DIR/queued-proof/meta.json")" owned
+assert_equal "$MEGABRAIN_RECONCILE_OUTCOME" adopted
+assert_equal "$(jq -r '.terminalState' "$MEGABRAIN_DISPATCH_DIR/queued-proof/meta.json")" owned
 devkit_dispatch_close queued-proof >/dev/null
-assert_equal "$(jq -r '.terminalState' "$DEVKIT_DISPATCH_DIR/queued-proof/meta.json")" released
+assert_equal "$(jq -r '.terminalState' "$MEGABRAIN_DISPATCH_DIR/queued-proof/meta.json")" released
 printf 'child queue message proves identity for a done dispatch\n'
 
 devkit_dispatch_meta_write queued-unproven parent-terminal superset superset workspace-test queued-unproven-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
 devkit_dispatch_reconcile_one queued-unproven
-assert_equal "$DEVKIT_RECONCILE_OUTCOME" identity-unproven
-assert_equal "$(jq -r '.terminalState' "$DEVKIT_DISPATCH_DIR/queued-unproven/meta.json")" retained
+assert_equal "$MEGABRAIN_RECONCILE_OUTCOME" identity-unproven
+assert_equal "$(jq -r '.terminalState' "$MEGABRAIN_DISPATCH_DIR/queued-unproven/meta.json")" retained
 printf 'unproven terminal without child queue evidence remains retained\n'
 
 devkit_dispatch_meta_write late-reply parent-terminal superset superset workspace-test late-reply-terminal "$root" main codex label done gpt-5 true codex '' '' host ide >/dev/null
 late_reply_output="$(devkit_dispatch_reply late-reply --text 'late answer' --json)"
 assert_equal "$(printf '%s' "$late_reply_output" | jq -r '.status')" queued
-assert_equal "$(jq -r '.state' "$DEVKIT_DISPATCH_DIR/late-reply/meta.json")" done
-late_reply_message="$DEVKIT_DISPATCH_DIR/late-reply/messages/0001-parent-reply.json"
+assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/late-reply/meta.json")" done
+late_reply_message="$MEGABRAIN_DISPATCH_DIR/late-reply/messages/0001-parent-reply.json"
 assert_equal "$(jq -r '.text' "$late_reply_message")" 'late answer'
 printf 'reply to a done dispatch stays queued and keeps done state\n'
 

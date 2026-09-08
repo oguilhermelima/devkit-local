@@ -13,8 +13,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export DEVKIT_STATE_DIR="$state_dir/state"
-export DEVKIT_FACTS_FILE="$facts_file"
+export MEGABRAIN_STATE_DIR="$state_dir/state"
+export MEGABRAIN_FACTS_FILE="$facts_file"
 source "$root/lib/common.sh"
 source "$root/lib/module-orchestrate.sh"
 
@@ -97,19 +97,19 @@ printf 'dispatch receipt works from a non-checkout directory\n'
 no_path_root="$state_dir/no-path"
 mkdir -p "$no_path_root/lib"
 cp "$root/lib/module-facts.sh" "$no_path_root/lib/module-facts.sh"
-no_path_preamble="$(PATH=/usr/bin:/bin DEVKIT_ROOT="$no_path_root" DEVKIT_EXECUTABLE="$no_path_root/megabrain" DEVKIT_FACTS_FILE="$facts_file" bash -c 'source "$1/lib/common.sh"; source "$2/lib/module-facts.sh"; devkit_dispatch_preamble "$1"' _ "$root" "$no_path_root")"
+no_path_preamble="$(PATH=/usr/bin:/bin MEGABRAIN_ROOT="$no_path_root" MEGABRAIN_EXECUTABLE="$no_path_root/megabrain" MEGABRAIN_FACTS_FILE="$facts_file" bash -c 'source "$1/lib/common.sh"; source "$2/lib/module-facts.sh"; devkit_dispatch_preamble "$1"' _ "$root" "$no_path_root")"
 assert_contains "$no_path_preamble" 'could not be resolved through PATH or an absolute executable path'
 assert_not_contains "$no_path_preamble" 'run ./megabrain'
 assert_not_contains "$no_path_preamble" 'run ./devkit'
 printf 'preamble reports an unavailable command instead of an impossible instruction\n'
 
-if limited="$({ DEVKIT_FACT_MAX_INJECTED=1 bash -c 'source "$1/lib/common.sh"; source "$1/lib/module-orchestrate.sh"; devkit_dispatch_preamble "$1";' _ "$root"; } 2>&1)"; then
+if limited="$({ MEGABRAIN_FACT_MAX_INJECTED=1 bash -c 'source "$1/lib/common.sh"; source "$1/lib/module-orchestrate.sh"; devkit_dispatch_preamble "$1";' _ "$root"; } 2>&1)"; then
   fail 'fact count limit unexpectedly accepted the store'
 fi
 assert_contains "$limited" 'fact count limit'
 printf '%s\n' "$limited"
 
-if limited="$({ DEVKIT_FACT_MAX_PREAMBLE_BYTES=10 bash -c 'source "$1/lib/common.sh"; source "$1/lib/module-orchestrate.sh"; devkit_dispatch_preamble "$1";' _ "$root"; } 2>&1)"; then
+if limited="$({ MEGABRAIN_FACT_MAX_PREAMBLE_BYTES=10 bash -c 'source "$1/lib/common.sh"; source "$1/lib/module-orchestrate.sh"; devkit_dispatch_preamble "$1";' _ "$root"; } 2>&1)"; then
   fail 'fact byte limit unexpectedly accepted the store'
 fi
 assert_contains "$limited" 'byte limit'

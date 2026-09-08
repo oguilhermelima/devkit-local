@@ -10,8 +10,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export DEVKIT_STATE_DIR="$state_dir"
-export DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS=1
+export MEGABRAIN_STATE_DIR="$state_dir"
+export MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS=1
 export ORCA_TERMINAL_HANDLE=parent-terminal
 unset SUPERSET_TERMINAL_ID
 source "$root/lib/common.sh"
@@ -83,7 +83,7 @@ tmux() {
 devkit_tmux_session_exists() {
   return 0
 }
-export DEVKIT_TMUX_ENTER_RETRIES=2
+export MEGABRAIN_TMUX_ENTER_RETRIES=2
 create_tmux_dispatch pane-activity-test
 assert_failure devkit_dispatch_wait_for_prompt_receipt pane-activity-test
 devkit_spawn_mark_prompt_failed pane-activity-test prompt-receipt-timeout

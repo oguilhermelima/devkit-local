@@ -10,8 +10,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export DEVKIT_STATE_DIR="$state_dir"
-export DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS=1
+export MEGABRAIN_STATE_DIR="$state_dir"
+export MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS=1
 export ORCA_TERMINAL_HANDLE=parent-terminal
 unset SUPERSET_TERMINAL_ID
 source "$root/lib/common.sh"

@@ -14,7 +14,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export DEVKIT_STATE_DIR="$state_dir/state"
+export MEGABRAIN_STATE_DIR="$state_dir/state"
 export HOME="$home_dir"
 rollouts_dir="$HOME/.codex/sessions/2026/09/07"
 mkdir -p "$rollouts_dir"
@@ -74,7 +74,7 @@ curl() {
 }
 
 write_config() {
-  printf '%s\n' "$1" >"$DEVKIT_CHAIN_FILE"
+  printf '%s\n' "$1" >"$MEGABRAIN_CHAIN_FILE"
 }
 
 write_rollout() {
@@ -85,9 +85,9 @@ write_rollout() {
 future_reset="$(($(date +%s) + 3600))"
 cp "$root/tests/fixtures/codex-rollout-rate-limits.jsonl" "$rollouts_dir/rollout-real-shaped.jsonl"
 devkit_chain_limit_read codex 5h
-assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" current
-assert_equal "$DEVKIT_CHAIN_LIMIT_USED" 73.0
-assert_equal "$DEVKIT_CHAIN_LIMIT_RESETS" 4102444800
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_USED" 73.0
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_RESETS" 4102444800
 printf 'limit real-shaped sample guard: current at 73 percent\n'
 
 write_rollout "$rollouts_dir/rollout-current.jsonl" 97.0 "$future_reset"
@@ -95,31 +95,31 @@ printf '%s\n' '{"timestamp":"2026-09-07T08:15:22.790Z","ordinal":16,"type":"even
 touch -t 202609070101 "$rollouts_dir/rollout-real-shaped.jsonl"
 touch -t 202609070102 "$rollouts_dir/rollout-current.jsonl"
 devkit_chain_limit_read codex 5h
-assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" current
-assert_equal "$DEVKIT_CHAIN_LIMIT_USED" 97.0
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_USED" 97.0
 printf 'limit trailing non-snapshot line: last usable snapshot\n'
 
 printf '%s\n' '{"timestamp":"2026-09-07T08:15:23.790Z","ordinal":17,"type":"event_msg","payload":{"type":"token_count","info":{"model_context_window":258400}}}' >"$rollouts_dir/rollout-empty.jsonl"
 touch -t 202609070103 "$rollouts_dir/rollout-empty.jsonl"
 devkit_chain_limit_read codex 5h
-assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" current
-assert_equal "$DEVKIT_CHAIN_LIMIT_USED" 97.0
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_USED" 97.0
 printf 'limit newest file without snapshot: older usable snapshot\n'
 
-seeded="$(DEVKIT_STATE_DIR="$DEVKIT_STATE_DIR" "$root/devkit" chain list --json)"
+seeded="$(MEGABRAIN_STATE_DIR="$MEGABRAIN_STATE_DIR" "$root/devkit" chain list --json)"
 assert_equal "$(printf '%s' "$seeded" | jq '.chains | length')" 3
 assert_equal "$(printf '%s' "$seeded" | jq -r '[.chains[].when | keys[]] | unique | join(",")')" parentAgent
 printf 'seed and list: passed\n'
 
 config='{"chains":{"parent":{"when":{"parentAgent":"codex"},"steps":[{"agent":"agy","model":"m","effort":"e"}]},"specific":{"when":{"parentAgent":"codex","parentEffort":"high"},"steps":[{"agent":"claude","model":"m","effort":"e"}]}},"defaultSteps":[{"agent":"codex","model":"m","effort":"e"}]}'
 devkit_chain_select "$config" parent codex '' ''
-assert_equal "$DEVKIT_CHAIN_SELECTED_NAME" parent
+assert_equal "$MEGABRAIN_CHAIN_SELECTED_NAME" parent
 printf 'selection explicit name: parent\n'
 devkit_chain_select "$config" '' codex '' ''
-assert_equal "$DEVKIT_CHAIN_SELECTED_NAME" parent
+assert_equal "$MEGABRAIN_CHAIN_SELECTED_NAME" parent
 printf 'selection one selector: parent\n'
 devkit_chain_select "$config" '' codex '' high
-assert_equal "$DEVKIT_CHAIN_SELECTED_NAME" specific
+assert_equal "$MEGABRAIN_CHAIN_SELECTED_NAME" specific
 printf 'selection most specific: specific\n'
 tie_config='{"chains":{"alpha":{"when":{"parentAgent":"codex"},"steps":[{"agent":"agy","model":"m","effort":"e"}]},"beta":{"when":{"parentAgent":"codex"},"steps":[{"agent":"claude","model":"m","effort":"e"}]}},"defaultSteps":[]}'
 if tie_error="$(devkit_chain_select "$tie_config" '' codex '' '' 2>&1)"; then
@@ -129,35 +129,35 @@ assert_contains "$tie_error" 'alpha, beta'
 printf 'selection tie: error lists candidates\n'
 model_config='{"chains":{"model":{"when":{"parentAgent":"codex","parentModel":"known"},"steps":[{"agent":"agy","model":"m","effort":"e"}]}},"defaultSteps":[{"agent":"codex","model":"m","effort":"e"}]}'
 devkit_chain_select "$model_config" '' codex '' ''
-assert_equal "$DEVKIT_CHAIN_SELECTION_DEFAULT" true
+assert_equal "$MEGABRAIN_CHAIN_SELECTION_DEFAULT" true
 printf 'selection unknown parent model: default\n'
 none_config='{"chains":{"claude-only":{"when":{"parentAgent":"claude"},"steps":[{"agent":"agy","model":"m","effort":"e"}]}},"defaultSteps":[{"agent":"codex","model":"m","effort":"e"}]}'
 devkit_chain_select "$none_config" '' agy '' ''
-assert_equal "$DEVKIT_CHAIN_SELECTION_DEFAULT" true
+assert_equal "$MEGABRAIN_CHAIN_SELECTION_DEFAULT" true
 printf 'selection no match: defaultSteps\n'
 
 write_rollout "$rollouts_dir/rollout-under.jsonl" 40.0 "$future_reset"
 printf '%s\n' '{"timestamp":"2026-09-07T08:15:24.790Z","ordinal":18,"type":"event_msg","payload":{"type":"token_count","info":{"model_context_window":258400}}}' >>"$rollouts_dir/rollout-under.jsonl"
 touch -t 202609070104 "$rollouts_dir/rollout-under.jsonl"
 devkit_chain_limit_read codex 5h
-assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" current
-assert_equal "$DEVKIT_CHAIN_LIMIT_USED" 40.0
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_USED" 40.0
 printf 'limit under threshold: current at 40 percent\n'
 past_reset="$(($(date +%s) - 60))"
 write_rollout "$rollouts_dir/rollout-stale.jsonl" 99.0 "$past_reset"
 touch -t 202609070105 "$rollouts_dir/rollout-stale.jsonl"
 devkit_chain_limit_read codex 5h
-assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" unknown
-assert_contains "$DEVKIT_CHAIN_LIMIT_REASON" 'stale'
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
+assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'stale'
 printf 'limit stale snapshot: unknown\n'
 devkit_chain_limit_read claude 5h
-assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" unknown
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
 printf 'limit unavailable provider: unknown and usable\n'
 rm -f "$rollouts_dir"/rollout-*.jsonl
 printf '%s\n' '{"timestamp":"2026-09-07T08:15:25.790Z","ordinal":19,"type":"event_msg","payload":{"type":"token_count","info":{"model_context_window":258400}}}' >"$rollouts_dir/rollout-empty-only.jsonl"
 devkit_chain_limit_read codex 5h
-assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" unknown
-assert_contains "$DEVKIT_CHAIN_LIMIT_REASON" 'no rate limit snapshot'
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
+assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'no rate limit snapshot'
 printf 'limit absent: unknown honestly\n'
 
 write_config '{"chains":{"run":{"when":{"parentAgent":"codex"},"steps":[{"agent":"codex","model":"m1","effort":"e1","until":{"usedPercent":95,"window":"5h"}},{"agent":"agy","model":"m2","effort":"e2"}]}},"defaultSteps":[]}'
@@ -207,10 +207,10 @@ assert_contains "$(printf '%s' "$exhaustion" | jq -r '.skipped[0].reason')" 'res
 assert_contains "$(printf '%s' "$exhaustion" | jq -r '.skipped[1].reason')" 'unknown'
 printf 'run exhaustion: every step reported with reset and unknown\n'
 
-export DEVKIT_CHAIN_NAME=run DEVKIT_CHAIN_STEP=2 DEVKIT_CHAIN_TOTAL=2 DEVKIT_CHAIN_REASON='codex exhausted' DEVKIT_CHAIN_DEFAULT=false
+export MEGABRAIN_CHAIN_NAME=run MEGABRAIN_CHAIN_STEP=2 MEGABRAIN_CHAIN_TOTAL=2 MEGABRAIN_CHAIN_REASON='codex exhausted' MEGABRAIN_CHAIN_DEFAULT=false
 devkit_dispatch_meta_write dispatch-record parent superset superset workspace terminal "$root" main agy label running m true agy '' '' host ide '' '' '' >/dev/null
-assert_equal "$(jq -r '.chain.name' "$DEVKIT_STATE_DIR/dispatches/dispatch-record/meta.json")" run
-assert_equal "$(jq -r '.chain.step' "$DEVKIT_STATE_DIR/dispatches/dispatch-record/meta.json")" 2
+assert_equal "$(jq -r '.chain.name' "$MEGABRAIN_STATE_DIR/dispatches/dispatch-record/meta.json")" run
+assert_equal "$(jq -r '.chain.step' "$MEGABRAIN_STATE_DIR/dispatches/dispatch-record/meta.json")" 2
 printf 'dispatch reporting: chosen chain and step persisted\n'
 
 future_claude_expiry="$(($(date +%s) + 3600))"
@@ -221,28 +221,28 @@ fake_curl_mode=claude
 fake_curl_call_file="$state_dir/curl-calls"
 : >"$fake_curl_call_file"
 devkit_chain_limit_read claude 5h
-assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" current
-assert_equal "$DEVKIT_CHAIN_LIMIT_USED" 11.0
-assert_equal "$DEVKIT_CHAIN_LIMIT_SOURCE" live
-assert_equal "$(printf '%s' "$DEVKIT_CHAIN_LIMIT_RESULT" | jq -r '.windows | length')" 2
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_USED" 11.0
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_SOURCE" live
+assert_equal "$(printf '%s' "$MEGABRAIN_CHAIN_LIMIT_RESULT" | jq -r '.windows | length')" 2
 assert_equal "$(wc -l <"$fake_curl_call_file" | tr -d ' ')" 1
 devkit_chain_limit_read claude weekly
-assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" current
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
 assert_equal "$(wc -l <"$fake_curl_call_file" | tr -d ' ')" 1
 printf 'claude dispatch and cache: normalized response, one request\n'
 
 fake_curl_mode=agy
 devkit_chain_limit_read agy 5h
-assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" current
-assert_equal "$DEVKIT_CHAIN_LIMIT_USED" 20
-assert_equal "$(printf '%s' "$DEVKIT_CHAIN_LIMIT_RESULT" | jq -r '.windows | length')" 4
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_USED" 20
+assert_equal "$(printf '%s' "$MEGABRAIN_CHAIN_LIMIT_RESULT" | jq -r '.windows | length')" 4
 printf 'agy dispatch: named quota buckets normalized\n'
 
 write_config '{"chains":{"provider":{"when":{"parentAgent":"codex"},"steps":[{"agent":"claude","model":"m","effort":"e"}]}},"defaultSteps":[],"usageLimits":{"liveProviders":[],"cacheTtlSeconds":30,"timeoutSeconds":5,"notice":{"enabled":false,"intervalSeconds":3600}}}'
  : >"$fake_curl_call_file"
 devkit_chain_limit_read claude 5h
-assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" unknown
-assert_contains "$DEVKIT_CHAIN_LIMIT_REASON" 'not enabled'
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
+assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'not enabled'
 assert_equal "$(wc -l <"$fake_curl_call_file" | tr -d ' ')" 0
 printf 'opt-in gate: disabled provider made no request\n'
 
@@ -257,15 +257,15 @@ for failure in missing expired timeout non200 garbage; do
     non200) fake_curl_mode=non200 ;;
     garbage) fake_curl_mode=garbage ;;
   esac
-  rm -f "$DEVKIT_STATE_DIR/usage-limits-claude.json"
+  rm -f "$MEGABRAIN_STATE_DIR/usage-limits-claude.json"
   devkit_chain_limit_read claude 5h
-  assert_equal "$DEVKIT_CHAIN_LIMIT_STATUS" unknown
+  assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
   case "$failure" in
-    missing) assert_contains "$DEVKIT_CHAIN_LIMIT_REASON" 'Keychain item is missing' ;;
-    expired) assert_contains "$DEVKIT_CHAIN_LIMIT_REASON" 'expired' ;;
-    timeout) assert_contains "$DEVKIT_CHAIN_LIMIT_REASON" 'timed out' ;;
-    non200) assert_contains "$DEVKIT_CHAIN_LIMIT_REASON" 'HTTP 503' ;;
-    garbage) assert_contains "$DEVKIT_CHAIN_LIMIT_REASON" 'unparseable' ;;
+    missing) assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'Keychain item is missing' ;;
+    expired) assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'expired' ;;
+    timeout) assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'timed out' ;;
+    non200) assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'HTTP 503' ;;
+    garbage) assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'unparseable' ;;
   esac
   printf 'failure %s: unknown with distinct reason\n' "$failure"
 done
@@ -273,7 +273,7 @@ done
 fake_security_mode=ok
 fake_curl_mode=claude
 devkit_chain_limit_read claude 5h
-cache_path="$DEVKIT_STATE_DIR/usage-limits-claude.json"
+cache_path="$MEGABRAIN_STATE_DIR/usage-limits-claude.json"
 old_fetched="$(($(date +%s) - 60))"
 jq --argjson fetchedAt "$old_fetched" '.fetchedAt = $fetchedAt' "$cache_path" >"$cache_path.old"
 mv -f "$cache_path.old" "$cache_path"
@@ -295,7 +295,7 @@ command_orchestrate() {
 devkit_parent_notify_dispatch() { return 1; }
 command_orchestrate >/dev/null
 devkit_chain_usage_notice_maybe notice-dispatch
-notice_message="$(find "$DEVKIT_STATE_DIR/dispatches/notice-dispatch/messages" -name '*.json' -print -quit)"
+notice_message="$(find "$MEGABRAIN_STATE_DIR/dispatches/notice-dispatch/messages" -name '*.json' -print -quit)"
 [ -n "$notice_message" ] || fail 'usage notice was not queued'
 assert_contains "$(jq -r '.text' "$notice_message")" 'Usage limits:'
 printf 'chat notice: queued and delivery failure did not break caller\n'

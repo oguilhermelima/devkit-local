@@ -67,10 +67,26 @@ printf 'state migration: contents preserved and second run is a no-op\n'
 explicit_old="$work/explicit-old"
 mkdir -p "$explicit_old"
 printf '{}\n' >"$explicit_old/state.json"
-old_env_output="$(HOME="$home" DEVKIT_STATE_DIR="$explicit_old" bash -c 'source "$1/lib/common.sh"; printf "%s\n" "$DEVKIT_STATE_DIR"' _ "$root" 2>&1)"
+old_env_output="$(HOME="$home" DEVKIT_STATE_DIR="$explicit_old" bash -c 'source "$1/lib/common.sh"; printf "%s\n" "$MEGABRAIN_STATE_DIR"' _ "$root" 2>&1)"
 assert_contains "$old_env_output" 'DEVKIT_STATE_DIR is deprecated'
 assert_contains "$old_env_output" "$explicit_old"
 printf 'deprecated state override: honored with notice\n'
+
+nested_state="$work/nested-state"
+MEGABRAIN_STATE_DIR="$nested_state" bash -c 'source "$1/lib/common.sh"; source "$1/lib/module-orchestrate.sh"; devkit_dispatch_meta_write nested-dispatch parent-terminal superset superset workspace nested-child "$1" main codex label spawning gpt-5 true codex "" "" host ide >/dev/null' _ "$root"
+nested_output="$(MEGABRAIN_STATE_DIR="$nested_state" SUPERSET_TERMINAL_ID=nested-child bash -c 'MEGABRAIN_STATE_DIR="$1" SUPERSET_TERMINAL_ID="$2" "$3" received' _ "$nested_state" nested-child "$root/megabrain")"
+assert_contains "$nested_output" 'received sent: nested-dispatch'
+assert_equal "$(find "$nested_state/dispatches/nested-dispatch/messages" -name '*-child-received.json' | wc -l | tr -d ' ')" 1
+assert_equal "$(jq -r '.state' "$nested_state/dispatches/nested-dispatch/meta.json")" spawning
+printf 'nested megabrain invocation inherits one state directory\n'
+
+hostile_state="$work/hostile-state"
+hostile_output="$(MEGABRAIN_STATE_DIR="$nested_state" DEVKIT_STATE_DIR="$hostile_state" SUPERSET_TERMINAL_ID=nested-child bash -c 'MEGABRAIN_STATE_DIR="$1" DEVKIT_STATE_DIR="$2" SUPERSET_TERMINAL_ID="$3" "$4" received' _ "$nested_state" "$hostile_state" nested-child "$root/megabrain" 2>&1)"
+assert_contains "$hostile_output" 'DEVKIT_STATE_DIR is deprecated and ignored because MEGABRAIN_STATE_DIR is set'
+assert_contains "$hostile_output" 'received sent: nested-dispatch'
+[ ! -e "$hostile_state" ] || fail 'legacy state directory was used despite the new variable'
+assert_equal "$(find "$nested_state/dispatches/nested-dispatch/messages" -name '*-child-received.json' | wc -l | tr -d ' ')" 2
+printf 'conflicting legacy state is ignored with an explicit warning\n'
 
 integration_home="$work/integration-home"
 mkdir -p "$integration_home"
@@ -94,11 +110,11 @@ for agent in claude codex agy cursor; do
   [ "$agent" = claude ] && config="$integration_home/.$agent/settings.json"
   case "$agent" in
     cursor)
-      jq -n --arg command "DEVKIT_HOOK_AGENT=$agent $legacy_root/hooks/devkit-turn-end.sh" \
+      jq -n --arg command "MEGABRAIN_HOOK_AGENT=$agent $legacy_root/hooks/devkit-turn-end.sh" \
         '{hooks:{afterAgentResponse:[{command:"keep"},{command:$command},{command:$command}]}}' >"$config"
       ;;
     *)
-      jq -n --arg command "DEVKIT_HOOK_AGENT=$agent $legacy_root/hooks/devkit-turn-end.sh" \
+      jq -n --arg command "MEGABRAIN_HOOK_AGENT=$agent $legacy_root/hooks/devkit-turn-end.sh" \
         '{hooks:{Stop:[{hooks:[{type:"command",command:"keep"},{type:"command",command:$command},{type:"command",command:$command}]}]}}' >"$config"
       ;;
   esac
