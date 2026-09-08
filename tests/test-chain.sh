@@ -66,10 +66,10 @@ curl() {
   printf '%s\n' "$fake_curl_mode" >>"$fake_curl_call_file"
   case "$fake_curl_mode" in
     timeout) return 28 ;;
-    non200) printf '{"error":"synthetic"}\nDEVKIT_HTTP_STATUS:503' ;;
-    garbage) printf 'not-json\nDEVKIT_HTTP_STATUS:200' ;;
-    agy) printf '{"quota":{"gemini-5h":{"remaining_fraction":0.80,"reset_time":"2026-09-07T10:00:00Z"},"gemini-weekly":{"remaining_fraction":0.70,"reset_time":"2026-09-10T10:00:00Z"},"3p-5h":{"remaining_fraction":0.60,"reset_time":"2026-09-07T10:00:00Z"},"3p-weekly":{"remaining_fraction":0.50,"reset_time":"2026-09-10T10:00:00Z"}}}\nDEVKIT_HTTP_STATUS:200' ;;
-    *) printf '{"five_hour":{"utilization":11.0,"resets_at":"2026-09-07T10:00:00Z"},"seven_day":{"utilization":48.0,"resets_at":"2026-09-10T16:00:00Z"}}\nDEVKIT_HTTP_STATUS:200' ;;
+    non200) printf '{"error":"synthetic"}\nMEGABRAIN_HTTP_STATUS:503' ;;
+    garbage) printf 'not-json\nMEGABRAIN_HTTP_STATUS:200' ;;
+    agy) printf '{"quota":{"gemini-5h":{"remaining_fraction":0.80,"reset_time":"2026-09-07T10:00:00Z"},"gemini-weekly":{"remaining_fraction":0.70,"reset_time":"2026-09-10T10:00:00Z"},"3p-5h":{"remaining_fraction":0.60,"reset_time":"2026-09-07T10:00:00Z"},"3p-weekly":{"remaining_fraction":0.50,"reset_time":"2026-09-10T10:00:00Z"}}}\nMEGABRAIN_HTTP_STATUS:200' ;;
+    *) printf '{"five_hour":{"utilization":11.0,"resets_at":"2026-09-07T10:00:00Z"},"seven_day":{"utilization":48.0,"resets_at":"2026-09-10T16:00:00Z"}}\nMEGABRAIN_HTTP_STATUS:200' ;;
   esac
 }
 
