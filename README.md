@@ -36,7 +36,7 @@ The child confirms receipt by writing to the durable queue. Messages travel both
 | Runtimes | IDE tabs or tmux child panes | `megabrain orchestrate spawn` |
 | Tmux tuning and wrapper | Predictable terminal setup | `megabrain tmux tune`, `megabrain tmux wrapper` |
 | Emulators and devices | Appium and Android TV setup | `megabrain native appium ...`, `megabrain tv ...` |
-| Web browser testing | Consistent Playwright MCP setup | `megabrain install browser`, `megabrain doctor browser` |
+| Web browser testing | Consistent Playwright MCP setup | `megabrain install simulator-web`, `megabrain doctor simulator-web` |
 | Environment facts | Reusable, scoped measurements | `megabrain fact ...` |
 
 ## Concrete output
