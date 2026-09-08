@@ -1,6 +1,6 @@
 # megabrain recipes
 
-- Read shared worktree, orchestration, simulator, and browser instructions at https://github.com/oguilhermelima/devkit-local/blob/main/AGENTS.md.
+- Read shared worktree, orchestration, simulator, and browser instructions at https://github.com/oguilhermelima/megabrain/blob/main/AGENTS.md.
 - Run megabrain install [module-id] [--yes] [--revert].
 - Run megabrain doctor [module-id] [--json].
 - Run megabrain context [--json].

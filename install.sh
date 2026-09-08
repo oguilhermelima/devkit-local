@@ -2,7 +2,7 @@
 
 set -u
 
-REPOSITORY_URL="https://github.com/oguilhermelima/devkit-local"
+REPOSITORY_URL="https://github.com/oguilhermelima/megabrain"
 REPOSITORY_REF="main"
 TARBALL_URL="$REPOSITORY_URL/archive/refs/heads/$REPOSITORY_REF.tar.gz"
 INSTALL_ROOT="$HOME/.megabrain-local"

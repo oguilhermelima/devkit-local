@@ -6,8 +6,8 @@
     "name": "oguilhermelima",
     "url": "https://github.com/oguilhermelima"
   },
-  "homepage": "https://github.com/oguilhermelima/devkit-local#readme",
-  "repository": "https://github.com/oguilhermelima/devkit-local",
+  "homepage": "https://github.com/oguilhermelima/megabrain#readme",
+  "repository": "https://github.com/oguilhermelima/megabrain",
   "license": "MIT",
   "keywords": [
     "megabrain",
@@ -29,7 +29,7 @@
       "Interactive",
       "Write"
     ],
-    "websiteURL": "https://github.com/oguilhermelima/devkit-local",
+    "websiteURL": "https://github.com/oguilhermelima/megabrain",
     "defaultPrompt": [
       "Create a shared worktree for this branch.",
       "Check the prerequisites for browser testing and install what is missing.",

@@ -5,7 +5,7 @@
   "author": {
     "name": "oguilhermelima"
   },
-  "repository": "https://github.com/oguilhermelima/devkit-local",
+  "repository": "https://github.com/oguilhermelima/megabrain",
   "license": "MIT",
   "keywords": [
     "megabrain",
@@ -16,5 +16,5 @@
     "appium",
     "playwright"
   ],
-  "homepage": "https://github.com/oguilhermelima/devkit-local#readme"
+  "homepage": "https://github.com/oguilhermelima/megabrain#readme"
 }
