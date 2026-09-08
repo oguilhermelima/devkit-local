@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 
 DEVKIT_MODEL_TEMPLATE_FILE="${DEVKIT_ROOT:-$(cd "$(dirname "$(dirname "${BASH_SOURCE[0]}")")" && pwd -P)}/.devkit/models.json"
-DEVKIT_MODEL_FILE="${DEVKIT_MODEL_FILE:-$DEVKIT_STATE_DIR/models.json}"
+if [ "${DEVKIT_MODEL_FILE+x}" = x ]; then
+  DEVKIT_MODEL_FILE_EXPLICIT=true
+else
+  DEVKIT_MODEL_FILE_EXPLICIT=false
+  DEVKIT_MODEL_FILE="$DEVKIT_STATE_DIR/models.json"
+fi
 
 devkit_model_init() {
   local tmp
+  if [ "$DEVKIT_MODEL_FILE_EXPLICIT" = false ]; then
+    DEVKIT_MODEL_FILE="$DEVKIT_STATE_DIR/models.json"
+  fi
   mkdir -p "$DEVKIT_STATE_DIR" || return 1
   if [ ! -f "$DEVKIT_MODEL_FILE" ]; then
     [ -f "$DEVKIT_MODEL_TEMPLATE_FILE" ] || {
