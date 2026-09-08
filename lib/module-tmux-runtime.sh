@@ -843,6 +843,19 @@ megabrain_tmux_wrapper() {
         ;;
     esac
   done
+  # WHY: the wrapper is a zsh function sourced from .zshrc. On any other login shell it
+  # changes nothing the user will ever load, so reporting success would be a lie and
+  # creating a .zshrc for them would be litter. Revert stays allowed, because a shell can
+  # change after the wrapper was installed and the block still needs removing.
+  if [ "$revert" != true ] && [ "$dry_run" != true ]; then
+    case "${SHELL:-}" in
+      *zsh) ;;
+      *)
+        megabrain_error "the agent wrapper is a zsh function and your login shell is ${SHELL:-unknown}; nothing was written"
+        return 1
+        ;;
+    esac
+  fi
   if [ "$dry_run" = true ] && [ "$revert" = true ]; then
     megabrain_error '--dry-run and --revert cannot be combined'
     return "$MEGABRAIN_USAGE_ERROR"
