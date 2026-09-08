@@ -11,13 +11,13 @@ DEVKIT_TMUX_CHILD_SPLIT_FLAG='-v'
 DEVKIT_TMUX_TUNE_START='# >>> megabrain tmux tuning >>>'
 DEVKIT_TMUX_TUNE_END='# <<< megabrain tmux tuning <<<'
 DEVKIT_TMUX_TUNE_SOURCE='source-file ~/.megabrain/tmux/megabrain.tmux.conf'
-DEVKIT_TMUX_TUNE_LEGACY_START='# >>> megabrain tmux tuning >>>'
-DEVKIT_TMUX_TUNE_LEGACY_END='# <<< megabrain tmux tuning <<<'
+DEVKIT_TMUX_TUNE_LEGACY_START='# >>> devkit tmux tuning >>>'
+DEVKIT_TMUX_TUNE_LEGACY_END='# <<< devkit tmux tuning <<<'
 DEVKIT_TMUX_WRAPPER_START='# >>> megabrain tmux wrapper >>>'
 DEVKIT_TMUX_WRAPPER_END='# <<< megabrain tmux wrapper <<<'
 DEVKIT_TMUX_WRAPPER_SOURCE='source ~/.megabrain/zsh/megabrain-agent-tmux.zsh'
-DEVKIT_TMUX_WRAPPER_LEGACY_START='# >>> megabrain tmux wrapper >>>'
-DEVKIT_TMUX_WRAPPER_LEGACY_END='# <<< megabrain tmux wrapper <<<'
+DEVKIT_TMUX_WRAPPER_LEGACY_START='# >>> devkit tmux wrapper >>>'
+DEVKIT_TMUX_WRAPPER_LEGACY_END='# <<< devkit tmux wrapper <<<'
 
 devkit_tmux_available() {
   devkit_require_command tmux
