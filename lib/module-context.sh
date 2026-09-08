@@ -50,13 +50,13 @@ command_orchestrate() {
     reply) devkit_dispatch_reply "$@" ;;
     close) devkit_dispatch_close "$@" ;;
     -h|--help|"")
-      printf 'Usage: megabrain orchestrate spawn ... | devkit orchestrate list [--all|--orphans] [--json]\n'
-      printf '       devkit orchestrate reconcile <dispatch-id> [--all] [--json]\n'
-      printf '       devkit orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--json]\n'
-      printf '       devkit orchestrate read <dispatch-id> [--lines <count>] [--json]\n'
-      printf '       devkit orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json]\n'
-      printf '       devkit orchestrate reply <dispatch-id> --text <answer> [--json]\n'
-      printf '       devkit orchestrate close <dispatch-id> [--json]\n'
+      printf 'Usage: megabrain orchestrate spawn ... | megabrain orchestrate list [--all|--orphans] [--json]\n'
+      printf '       megabrain orchestrate reconcile <dispatch-id> [--all] [--json]\n'
+      printf '       megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--json]\n'
+      printf '       megabrain orchestrate read <dispatch-id> [--lines <count>] [--json]\n'
+      printf '       megabrain orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json]\n'
+      printf '       megabrain orchestrate reply <dispatch-id> --text <answer> [--json]\n'
+      printf '       megabrain orchestrate close <dispatch-id> [--json]\n'
       ;;
     *) devkit_error "unknown orchestrate command: $subcommand"; return "$DEVKIT_USAGE_ERROR" ;;
   esac

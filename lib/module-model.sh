@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-DEVKIT_MODEL_TEMPLATE_FILE="${DEVKIT_ROOT:-$(cd "$(dirname "$(dirname "${BASH_SOURCE[0]}")")" && pwd -P)}/.devkit/models.json"
+DEVKIT_MODEL_TEMPLATE_FILE="${DEVKIT_ROOT:-$(cd "$(dirname "$(dirname "${BASH_SOURCE[0]}")")" && pwd -P)}/.megabrain/models.json"
 if [ "${DEVKIT_MODEL_FILE+x}" = x ]; then
   DEVKIT_MODEL_FILE_EXPLICIT=true
 else

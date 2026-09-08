@@ -71,7 +71,7 @@ command_tv() {
         adb disconnect
       fi
       ;;
-    -h|--help|"") printf 'Usage: megabrain tv connect <ip> [--port 5555] | devkit tv disconnect [<ip>]\n' ;;
+    -h|--help|"") printf 'Usage: megabrain tv connect <ip> [--port 5555] | megabrain tv disconnect [<ip>]\n' ;;
     *) devkit_error "unknown tv command: $operation"; return "$DEVKIT_USAGE_ERROR" ;;
   esac
 }

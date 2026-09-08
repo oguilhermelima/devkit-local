@@ -4,7 +4,7 @@ if [ "${DEVKIT_FACTS_FILE+x}" = x ]; then
   DEVKIT_FACTS_FILE_EXPLICIT=true
 else
   DEVKIT_FACTS_FILE_EXPLICIT=false
-  DEVKIT_FACTS_FILE="${DEVKIT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}/.devkit/facts.json"
+  DEVKIT_FACTS_FILE="${DEVKIT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}/.megabrain/facts.json"
 fi
 DEVKIT_FACT_MAX_INJECTED="${DEVKIT_FACT_MAX_INJECTED:-20}"
 DEVKIT_FACT_MAX_PREAMBLE_BYTES="${DEVKIT_FACT_MAX_PREAMBLE_BYTES:-6000}"
@@ -30,7 +30,7 @@ devkit_fact_file_for_worktree() {
   if [ "$DEVKIT_FACTS_FILE_EXPLICIT" = true ] || [ "$worktree_path" = . ]; then
     printf '%s\n' "$DEVKIT_FACTS_FILE"
   else
-    printf '%s/.devkit/facts.json\n' "${worktree_path%/}"
+    printf '%s/.megabrain/facts.json\n' "${worktree_path%/}"
   fi
 }
 
