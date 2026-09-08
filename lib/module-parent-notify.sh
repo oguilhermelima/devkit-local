@@ -185,11 +185,6 @@ megabrain_parent_notify_dispatch() {
     megabrain_parent_notify_wake "$dispatch_id" "$pointer" suppressed active-waiter >/dev/null 2>&1 || true
     return 0
   fi
-  if megabrain_parent_notify_waiter_active "$dispatch_id"; then
-    MEGABRAIN_PARENT_NOTIFY_RESULT=suppressed
-    megabrain_parent_notify_wake "$dispatch_id" "$pointer" suppressed active-waiter >/dev/null 2>&1 || true
-    return 0
-  fi
   notify_error_path="$(mktemp "$(megabrain_dispatch_dir "$dispatch_id")/.notify-error.XXXXXX" 2>/dev/null || true)"
   notify_status=0
   if [ -n "$notify_error_path" ]; then
