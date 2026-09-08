@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-DEVKIT_DISPATCH_PROTOCOL="This is a managed megabrain dispatch. Before starting work, run ./megabrain received to confirm that you received this prompt. If you need coordinator input, run ./megabrain ask \"your question\" and stop until the coordinator replies. When the requested work is complete, run ./megabrain done \"short outcome summary\". Legacy compatibility remains available: Before starting work, run ./devkit received. Do not print protocol markers and do not continue past an unanswered question."
-DEVKIT_SUPERSET_PROTOCOL="$DEVKIT_DISPATCH_PROTOCOL"
+DEVKIT_DISPATCH_PROTOCOL=""
+DEVKIT_SUPERSET_PROTOCOL=""
 DEVKIT_LAST_DISPATCH=""
 DEVKIT_DISPATCH_CLOSE_LAST_PANE=false
 DEVKIT_DISPATCH_DELIVERY_BATCH_CAP="${DEVKIT_DISPATCH_DELIVERY_BATCH_CAP:-50}"
@@ -15,6 +15,9 @@ if ! declare -F devkit_dispatch_preamble >/dev/null 2>&1; then
   # shellcheck source=local/devkit/lib/module-facts.sh
   source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/module-facts.sh"
 fi
+
+DEVKIT_DISPATCH_PROTOCOL="$(devkit_dispatch_protocol)"
+DEVKIT_SUPERSET_PROTOCOL="$DEVKIT_DISPATCH_PROTOCOL"
 
 devkit_dispatch_transition_allowed() {
   local axis="$1" from="$2" to="$3"
@@ -528,6 +531,28 @@ devkit_dispatch_message_paths() {
     [[ "$seq" =~ ^[0-9]+$ ]] || continue
     printf '%s\t%s\n' "$seq" "$path"
   done | sort -n -k1,1
+}
+
+devkit_dispatch_last_child_message() {
+  local dispatch_id="$1" messages_dir path latest_path=""
+  messages_dir="$(devkit_dispatch_messages_dir "$dispatch_id")" || return 1
+  while IFS=$'\t' read -r _ path; do
+    [ -n "$path" ] || continue
+    jq -e '.from == "child"' "$path" >/dev/null 2>&1 || continue
+    latest_path="$path"
+  done < <(devkit_dispatch_message_paths "$messages_dir")
+  [ -n "$latest_path" ] || return 1
+  jq -r '.text // empty' "$latest_path"
+}
+
+devkit_dispatch_failure_error() {
+  local dispatch_id="$1" reason="$2" message
+  message="$(devkit_dispatch_last_child_message "$dispatch_id" 2>/dev/null || true)"
+  if [ -n "$message" ]; then
+    devkit_error "$reason; child message: \"$message\""
+  else
+    devkit_error "$reason"
+  fi
 }
 
 devkit_dispatch_seq_acknowledged() {

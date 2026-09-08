@@ -15,6 +15,8 @@ trap cleanup EXIT
 
 export DEVKIT_STATE_DIR="$state_dir/state"
 export DEVKIT_FACTS_FILE="$facts_file"
+source "$root/lib/common.sh"
+source "$root/lib/module-orchestrate.sh"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -71,13 +73,35 @@ assert_equal "$("$root/devkit" fact list --json | jq -r '.[] | select(.id == "re
 printf 'edit changes one fact through the validated temporary copy\n'
 
 preamble="$(bash -c 'source "$1/lib/common.sh"; source "$1/lib/module-orchestrate.sh"; devkit_dispatch_preamble "$1"' _ "$root")"
-assert_contains "$preamble" 'Before starting work, run ./devkit received'
+if [ -n "$(type -P megabrain 2>/dev/null || true)" ]; then
+  assert_contains "$preamble" 'Before starting work, run megabrain received'
+else
+  assert_contains "$preamble" "Before starting work, run $root/megabrain received"
+fi
+assert_not_contains "$preamble" './megabrain'
+assert_not_contains "$preamble" './devkit'
 assert_contains "$preamble" 'bash-version'
 assert_contains "$preamble" 'repo-fact'
 assert_contains "$preamble" 'Treat each fact as a starting point with provenance, not as truth.'
 assert_contains "$preamble" 'your measurement wins; report the disagreement.'
 assert_not_contains "$preamble" 'other-repo'
 printf 'preamble keeps protocol, injects matching facts, and excludes another repository\n'
+
+outside="$state_dir/outside-repository"
+mkdir -p "$outside"
+devkit_dispatch_meta_write outside-repository parent-terminal superset superset workspace-test outside-terminal "$outside" main codex label spawning gpt-5 true codex '' '' host ide >/dev/null
+(cd "$outside" && env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir/state" SUPERSET_TERMINAL_ID=outside-terminal "$root/megabrain" received >/dev/null)
+assert_equal "$(find "$state_dir/state/dispatches/outside-repository/messages" -name '*-child-received.json' | wc -l | tr -d ' ')" 1
+printf 'dispatch receipt works from a non-checkout directory\n'
+
+no_path_root="$state_dir/no-path"
+mkdir -p "$no_path_root/lib"
+cp "$root/lib/module-facts.sh" "$no_path_root/lib/module-facts.sh"
+no_path_preamble="$(PATH=/usr/bin:/bin DEVKIT_ROOT="$no_path_root" DEVKIT_EXECUTABLE="$no_path_root/megabrain" DEVKIT_FACTS_FILE="$facts_file" bash -c 'source "$1/lib/common.sh"; source "$2/lib/module-facts.sh"; devkit_dispatch_preamble "$1"' _ "$root" "$no_path_root")"
+assert_contains "$no_path_preamble" 'could not be resolved through PATH or an absolute executable path'
+assert_not_contains "$no_path_preamble" 'run ./megabrain'
+assert_not_contains "$no_path_preamble" 'run ./devkit'
+printf 'preamble reports an unavailable command instead of an impossible instruction\n'
 
 if limited="$({ DEVKIT_FACT_MAX_INJECTED=1 bash -c 'source "$1/lib/common.sh"; source "$1/lib/module-orchestrate.sh"; devkit_dispatch_preamble "$1";' _ "$root"; } 2>&1)"; then
   fail 'fact count limit unexpectedly accepted the store'
