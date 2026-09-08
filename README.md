@@ -4,57 +4,151 @@ megabrain is a local coordination layer for coding agents working across Orca an
 
 It is for developers and agent operators who need parallel work to remain trackable, recoverable, and understandable after a terminal disappears or a provider changes.
 
-## Why it exists
+## Core flow
 
-The project started with a concrete problem: different coding-agent orchestrators could create worktrees and terminals, but they did not share bookkeeping or a reliable conversation channel. The operator became the bottleneck, relaying prompts, checking pixels for replies, and repairing state when one tool knew about a child that the other could not see.
+The queue is the product. Terminals and panes are launch and notification surfaces around it.
 
-megabrain puts that coordination behind one command surface. It creates the shared resources, starts the child, records the dispatch, and keeps the parent and child connected through durable state.
+```text
+Parent --spawn--> tmux split or IDE tab --starts--> Child
+  |                                                   |
+  | parent messages                                   | receipt + child messages
+  v                                                   v
+  +------------------------> DURABLE QUEUE <----------+
+                                  |              |
+                                  | child reads  | parent reads
+                                  v              v
+                                Child          Parent
 
-## The capabilities
+terminal keystroke ---------------------> nudge only
+```
+
+The child confirms receipt by writing to the durable queue. Messages travel both ways through that queue; a terminal keystroke is only a nudge that may wake a participant.
+
+## Capabilities at a glance
+
+| Capability | What it solves | Commands |
+| --- | --- | --- |
+| Orchestration | Durable parent/child delivery | `megabrain orchestrate ...`, `ask`, `done`, `received`, `check` |
+| Chains | Provider fallback with reasons | `megabrain chain ...` |
+| Model registry | Valid model and reasoning choices | `megabrain model ...` |
+| Usage limits | Skip exhausted provider windows | `megabrain chain limits` |
+| Shared worktrees | One checkout in both orchestrators | `megabrain worktree ...` |
+| Runtimes | IDE tabs or tmux child panes | `megabrain orchestrate spawn` |
+| Tmux tuning and wrapper | Predictable terminal setup | `megabrain tmux tune`, `megabrain tmux wrapper` |
+| Emulators and devices | Appium and Android TV setup | `megabrain native appium ...`, `megabrain tv ...` |
+| Web browser testing | Consistent Playwright MCP setup | `megabrain install browser`, `megabrain doctor browser` |
+| Environment facts | Reusable, scoped measurements | `megabrain fact ...` |
+
+## Concrete output
+
+A chain reports both the selected step and the reason earlier steps were skipped. This is captured output from a run where the first step reached its 50% threshold at 73.0%:
+
+```text
+chain readme-demo, step 2 of 2, reason: codex 5h window at 73.0 percent; resets at 2100-01-01T00:00:00Z; explicit name given
+{"dispatch":"dispatch-readme-demo"}
+```
+
+A finished dispatch remains readable as queue data. This is the captured JSON response from watching a completed dispatch and selecting its stable queue fields:
+
+```json
+{
+  "dispatchId": "finished-dispatch",
+  "status": "received",
+  "messageSeqs": [
+    1,
+    2,
+    3
+  ],
+  "messages": [
+    {
+      "seq": 1,
+      "from": "child",
+      "type": "received",
+      "text": "prompt received"
+    },
+    {
+      "seq": 2,
+      "from": "child",
+      "type": "ask",
+      "text": "please confirm the release notes"
+    },
+    {
+      "seq": 3,
+      "from": "child",
+      "type": "done",
+      "text": "release notes confirmed"
+    }
+  ]
+}
+```
+
+## Capability details
 
 ### Orchestration
 
 Orchestration tracks a child agent from launch through completion. A parent can ask a child a question, receive a reply, answer it, and close the dispatch while ownership remains limited to the direct parent.
 
-The durable message queue is the truth. A terminal keystroke is only a notification that may wake a participant; the recipient confirms receipt by publishing a message into the queue. Delivery records replay until they are acknowledged, so a missed terminal nudge does not erase a message and the sender never infers delivery from terminal pixels.
+The durable message queue is the truth. Delivery records replay until acknowledged, so a missed terminal nudge does not erase a message and the sender never infers delivery from terminal pixels.
+
+---
 
 ### Chains
 
-Chains let a parent choose an ordered list of child agents. A step is skipped when its usage limit is exhausted, and the next step is tried when launching it fails. The final dispatch records which chain and step won, along with the reasons earlier steps were skipped.
+Chains choose an ordered list of child agents. A step is skipped when its usage limit is exhausted, and the next step is tried when launching it fails. The final dispatch records which chain and step won, along with the reasons earlier steps were skipped.
 
-This turns provider fallback into a visible decision instead of a manual retry loop. A chain does not hide an exhausted or failed step, and it does not silently rewrite its configuration.
+This makes provider fallback visible instead of turning it into a manual retry loop. A chain does not hide an exhausted or failed step, and it does not silently rewrite its configuration.
+
+---
 
 ### Model registry
 
-The registry describes which model identifiers and reasoning levels each supported agent accepts. Its entries identify whether the knowledge came from a live agent listing, a published provider reference, or local observation. It keeps model provenance separate from reasoning provenance, so a sourced model name is not mistaken for a verified spelling of every reasoning option. Chains validate against this registry before launch and keep unknown exceptions visible when explicitly allowed.
+The registry describes which model identifiers and reasoning levels each supported agent accepts. Entries record whether the knowledge came from a live agent listing, a published provider reference, or local observation.
+
+Model provenance stays separate from reasoning provenance. Chains validate against this registry before launch and keep unknown exceptions visible when explicitly allowed.
+
+---
 
 ### Usage limits
 
 Usage-limit reading gives chains enough information to avoid launching a provider whose window is already exhausted. Codex usage comes from the newest local rollout snapshot; other providers are opt-in and may be unknown, which remains usable rather than being treated as exhausted.
 
+---
+
 ### Shared worktrees
 
 A shared worktree is one physical Git checkout registered with both Orca and Superset. The same identity can therefore be discovered from either orchestrator, while the worktree and dispatch metadata stay together. Existing physical worktrees can also be adopted into the shared registry.
 
+---
+
 ### Runtimes
 
-Children can run in an IDE terminal or inside tmux. IDE mode keeps the child in the host orchestrator; tmux mode gives megabrain direct pane ownership, which makes sibling splits and pane-scoped identity possible. The runtime is chosen for a launch and is recorded with the dispatch.
+Children can run in an IDE terminal or inside tmux. IDE mode keeps the child in the host orchestrator; tmux mode gives megabrain direct pane ownership, which makes sibling splits and pane-scoped identity possible. The runtime is chosen for a launch and recorded with the dispatch.
+
+---
 
 ### Tmux tuning and shell wrapper
 
 The tmux integration can tune colours to match the default terminal and install a shell wrapper for hand-typed agent launches. Managed children and manually started agents can share a predictable session layout, while a direct command remains available when tmux is unavailable or intentionally bypassed.
 
+---
+
 ### Emulators and devices
 
 The native modules connect iOS and tvOS simulator work to Appium and its XCUITest driver. The Android TV module uses adb to connect and disconnect a device. These capabilities keep device setup and health checks in the same module and diagnostic model as orchestration.
+
+---
 
 ### Web browser testing
 
 The browser module installs and registers Playwright MCP with the agent CLIs that are present. It gives an agent a consistent path to browser inspection and interaction without making browser state part of the dispatch protocol.
 
+---
+
 ### Environment facts
 
-Environment facts capture measurements that are expensive to rediscover, such as installed-tool behaviour or third-party file layout. Facts carry scope and provenance, and only facts applicable to the child repository are injected into a dispatch. They are evidence to check, not authority: if a worker measures something different, its measurement wins and the disagreement is reported.
+Environment facts capture measurements that are expensive to rediscover, such as installed-tool behaviour or third-party file layout. Facts carry scope and provenance, and only facts applicable to the child repository are injected into a dispatch.
+
+They are evidence to check, not authority: if a worker measures something different, its measurement wins and the disagreement is reported.
 
 ## Honest limits
 
