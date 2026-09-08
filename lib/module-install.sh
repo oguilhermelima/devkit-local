@@ -64,11 +64,11 @@ megabrain_doctor_one() {
   megabrain_module_doctor "$module"
   local rc=$?
   if [ "$json" = true ]; then
-    jq -n --arg module "$module" --arg status "$MODULE_STATUS" --arg reason "$MODULE_REASON" \
+    jq -n --arg moduleName "$module" --arg status "$MODULE_STATUS" --arg reason "$MODULE_REASON" \
       --argjson uncertainDispatches "${MODULE_UNCERTAIN_DISPATCHES:-0}" \
       --argjson retainedTerminals "${MODULE_RETAINED_TERMINALS:-0}" \
       --argjson prunableDispatches "${MODULE_PRUNABLE_DISPATCHES:-0}" \
-      '{module: $module, status: $status, reason: $reason, uncertainDispatches: $uncertainDispatches, retainedTerminals: $retainedTerminals, prunableDispatches: $prunableDispatches}'
+      '{module: $moduleName, status: $status, reason: $reason, uncertainDispatches: $uncertainDispatches, retainedTerminals: $retainedTerminals, prunableDispatches: $prunableDispatches}'
   else
     megabrain_status_line "$module" "$MODULE_STATUS" "$MODULE_REASON"
   fi

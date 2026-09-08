@@ -449,9 +449,9 @@ megabrain_spawn_mark_running_if_spawning() {
 
 megabrain_launch_agent() {
   local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
-  local context command_text response session_id final_prompt dispatch_preamble parent_id parent_host child_host branch meta
+  local context="" command_text="" response="" session_id="" final_prompt="" dispatch_preamble="" parent_id="" parent_host="" child_host="" branch="" meta=""
   local parent_tmux_session="" parent_tmux_pane="" parent_workspace_id="${SUPERSET_WORKSPACE_ID:-}"
-  local agent_used model_honored=false substitution_report dispatch_id runtime tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false
+  local agent_used="" model_honored=false substitution_report="" dispatch_id="" runtime="" tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false
   local -a passthrough_args=()
   shift 7
   [ "$#" -eq 0 ] || passthrough_args=("$@")

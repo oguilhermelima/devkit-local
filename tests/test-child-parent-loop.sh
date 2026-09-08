@@ -86,6 +86,8 @@ source "$root/lib/module-context.sh"
 source "$root/lib/module-orchestrate.sh"
 source "$root/lib/module-parent-notify.sh"
 source "$root/lib/module-tmux-runtime.sh"
+source "$root/lib/module-model.sh"
+source "$root/lib/module-model-validation.sh"
 source "$root/lib/module-worktree.sh"
 source "$root/lib/module-chain.sh"
 

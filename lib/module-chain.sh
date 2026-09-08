@@ -915,7 +915,7 @@ megabrain_chain_agy_usage() {
 }
 
 megabrain_chain_limit_read() {
-  local agent="$1" window="$2" rollout snapshot field expected_minutes now fetched_at result
+  local agent="$1" window="$2" rollout snapshot="" field expected_minutes now fetched_at result
   MEGABRAIN_CHAIN_LIMIT_STATUS=unknown
   MEGABRAIN_CHAIN_LIMIT_USED=""
   MEGABRAIN_CHAIN_LIMIT_RESETS=""

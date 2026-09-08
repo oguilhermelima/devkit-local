@@ -118,11 +118,11 @@ megabrain_state_set() {
   megabrain_state_init || return 1
   configured_at="$(megabrain_iso_now)"
   tmp="$(mktemp "$MEGABRAIN_STATE_DIR/state.XXXXXX")" || return 1
-  if ! jq --arg module "$module" \
+  if ! jq --arg moduleName "$module" \
     --argjson installed "$installed" \
     --arg configuredAt "$configured_at" \
     --arg details "$details" \
-    '.[$module] = {installed: $installed, configuredAt: $configuredAt, details: $details}' \
+    '.[$moduleName] = {installed: $installed, configuredAt: $configuredAt, details: $details}' \
     "$MEGABRAIN_STATE_FILE" >"$tmp"; then
     rm -f "$tmp"
     return 1
