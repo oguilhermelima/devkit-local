@@ -38,4 +38,21 @@ case "$advice" in
   *) printf 'no operator advice in this environment; stderr stayed empty\n' ;;
 esac
 
+source "$root/lib/common.sh"
+source "$root/lib/module-context.sh"
+source "$root/lib/module-orchestrate.sh"
+source "$root/lib/module-tmux-runtime.sh"
+source "$root/lib/module-install.sh"
+megabrain_require_command() { return 1; }
+megabrain_superset_available() { return 1; }
+megabrain_runtime_enabled() { return 0; }
+megabrain_tmux_available() { return 0; }
+module_orchestration_doctor >/dev/null 2>&1 || fail 'tmux-only orchestration was not usable without host CLIs'
+[ "$MODULE_STATUS" = ok ] || fail "tmux-only orchestration doctor status was $MODULE_STATUS"
+case "$MODULE_REASON" in
+  *optional*) ;;
+  *) fail "tmux-only orchestration doctor did not mark host CLIs optional: $MODULE_REASON" ;;
+esac
+printf 'tmux runtime makes absent orchestration CLIs optional\n'
+
 printf 'ok: doctor --json is machine readable for every module\n'

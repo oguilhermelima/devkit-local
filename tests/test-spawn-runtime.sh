@@ -97,6 +97,17 @@ after_worktrees="$(git -C "$root" worktree list --porcelain)"
 assert_equal "$after_worktrees" "$before_worktrees"
 printf 'IDE from unmanaged shell -> clear failure, nothing created\n'
 
+write_state true
+export TMUX=tmux-parent-server
+export TMUX_PANE=%1
+megabrain_dispatch_tmux_caller_session() {
+  printf 'tmux-parent\n'
+}
+assert_runtime tmux auto
+assert_equal "$MEGABRAIN_SPAWN_CONTEXT" tmux
+printf 'tmux runtime from an unmanaged pane -> resolved runtime: tmux\n'
+unset TMUX TMUX_PANE
+
 export SUPERSET_TERMINAL_ID=parent-terminal
 spawn_agent_arg_count=0
 megabrain_workspace_id_for_target() {

@@ -23,6 +23,7 @@ export MEGABRAIN_STATE_DIR="$state_dir"
 export TMUX_TMPDIR="$state_dir"
 source "$root/lib/common.sh"
 source "$root/lib/module-tmux-runtime.sh"
+source "$root/lib/module-context.sh"
 source "$root/lib/module-orchestrate.sh"
 source "$root/lib/module-worktree.sh"
 
@@ -84,6 +85,30 @@ tmux_pane_one="$(tmux_cmd split-window -h -P -F '#{pane_id}' -t "$session_name" 
 tmux_pane_two="$(tmux_cmd split-window -v -P -F '#{pane_id}' -t "$tmux_pane_one" bash)"
 tmux_session_from_pane="$(tmux_cmd display-message -p -t "$tmux_pane_one" '#{session_name}')"
 assert_equal "$tmux_session_from_pane" "$session_name"
+
+megabrain_dispatch_tmux_caller_session() {
+  printf '%s\n' "$session_name"
+}
+export TMUX=tmux-parent-server
+export TMUX_PANE="$tmux_pane_one"
+unset SUPERSET_TERMINAL_ID ORCA_TERMINAL_HANDLE
+megabrain_session_id >/dev/null
+assert_equal "$MEGABRAIN_SESSION_HOST" tmux
+assert_equal "$MEGABRAIN_SESSION_ID" "$session_name:$tmux_pane_one"
+assert_equal "$(megabrain_context_detect)" tmux
+context_json="$(command_context --json)"
+printf '%s' "$context_json" | jq -e --arg id "$session_name:$tmux_pane_one" '.host == "tmux" and .terminalId == $id' >/dev/null ||
+  fail "tmux context did not report the pane identity: $context_json"
+
+tmux_parent_dispatch="dispatch-tmux-parent"
+megabrain_dispatch_meta_write "$tmux_parent_dispatch" "$session_name:$tmux_pane_one" tmux superset "$workspace_id" host-terminal "$root" main codex label running gpt-5 true codex "" "" host >/dev/null
+megabrain_dispatch_require_parent "$tmux_parent_dispatch" >/dev/null || fail 'tmux parent could not read its own dispatch'
+export TMUX_PANE="$tmux_pane_two"
+if megabrain_dispatch_require_parent "$tmux_parent_dispatch" >/dev/null 2>&1; then
+  fail 'a different tmux pane was accepted as the parent'
+fi
+export TMUX_PANE="$tmux_pane_one"
+export SUPERSET_TERMINAL_ID="$parent_id"
 
 create_tmux_meta "$dispatch_one" "$tmux_pane_one"
 create_tmux_meta "$dispatch_two" "$tmux_pane_two"
@@ -156,5 +181,14 @@ megabrain_agent_command() { printf 'true\n'; }
 SUPERSET_TERMINAL_ID="$parent_id" megabrain_launch_agent "$root" "$workspace_id" codex gpt-5 medium prompt label >/dev/null
 reused_dispatch="$MEGABRAIN_LAST_DISPATCH"
 assert_equal "$(jq -r '.terminalId' "$state_dir/dispatches/$reused_dispatch/meta.json")" "$parent_id"
+
+megabrain_require_command() { return 1; }
+unset SUPERSET_TERMINAL_ID ORCA_TERMINAL_HANDLE
+standalone_dispatch_expected_parent="$session_name:$tmux_pane_one"
+megabrain_launch_agent "$root" "$workspace_id" codex gpt-5 medium prompt label >/dev/null
+standalone_dispatch="$MEGABRAIN_LAST_DISPATCH"
+assert_equal "$(jq -r '.parentHost' "$state_dir/dispatches/$standalone_dispatch/meta.json")" tmux
+assert_equal "$(jq -r '.parentSessionId' "$state_dir/dispatches/$standalone_dispatch/meta.json")" "$standalone_dispatch_expected_parent"
+assert_equal "$(jq -r '.childHost' "$state_dir/dispatches/$standalone_dispatch/meta.json")" tmux
 
 printf 'ok: tmux child identity, ownership, stale pane, tab mode, and reused-session terminal identity\n'
