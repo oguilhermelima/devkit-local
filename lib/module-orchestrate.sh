@@ -1101,16 +1101,18 @@ devkit_dispatch_reply() {
   meta="$(devkit_dispatch_require_parent "$dispatch_id")" || return 1
   state="$(printf '%s' "$meta" | jq -r '.state // empty')"
   case "$state" in
-    running|waiting_for_reply) ;;
+    running|waiting_for_reply|done) ;;
     *) devkit_error "dispatch $dispatch_id cannot receive a reply in state $state"; return 1 ;;
   esac
   devkit_dispatch_message_append "$dispatch_id" parent reply "$answer" "$DEVKIT_SESSION_ID" >/dev/null || return 1
-  idle="$(devkit_dispatch_child_is_idle "$meta" 2>/dev/null || printf 'unknown\n')"
   status=queued
-  if [ "$idle" = true ] && devkit_dispatch_native_send "$meta" "$answer"; then
-    status=replied
+  if [ "$state" != done ]; then
+    idle="$(devkit_dispatch_child_is_idle "$meta" 2>/dev/null || printf 'unknown\n')"
+    if [ "$idle" = true ] && devkit_dispatch_native_send "$meta" "$answer"; then
+      status=replied
+    fi
+    devkit_dispatch_meta_update_state "$dispatch_id" running || return 1
   fi
-  devkit_dispatch_meta_update_state "$dispatch_id" running || return 1
   if [ "$json" = true ]; then
     jq -n --arg dispatchId "$dispatch_id" --arg status "$status" '{dispatchId: $dispatchId, status: $status}'
   else
