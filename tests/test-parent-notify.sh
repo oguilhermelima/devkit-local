@@ -200,6 +200,35 @@ wait "$watch_pid"
 assert_equal "$(jq -r '.messages[0].text' "$watch_output")" 'nudge woke watcher'
 printf 'nudge mode: watch blocked and woke from pointer marker\n'
 
+outside_state_dir="$(mktemp -d /tmp/devkit-nudge-outside.XXXXXX)"
+outside_socket="d"
+outside_session="out-$$"
+env DEVKIT_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" new-session -d -s "$outside_session" bash
+outside_pane="$(tmux -L "$outside_socket" display-message -p -t "$outside_session" '#{pane_id}')"
+outside_tmux="$(tmux -L "$outside_socket" display-message -p -t "$outside_pane" '#{socket_path},#{pid},#{session_id}')"
+env DEVKIT_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" send-keys -t "$outside_pane" -l "PS1='OUTSIDE$ '; export PS1; printf 'outside-ready\\n'"
+env DEVKIT_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" send-keys -t "$outside_pane" Enter
+sleep 0.1
+devkit_dispatch_meta_write cross-context parent-terminal superset superset workspace-test cross-context-child "$root" main codex label running gpt-5 true codex "$outside_session" "$outside_pane" tmux tmux "$outside_session" "$outside_pane" "$workspace_id" >/dev/null
+cross_context_meta="$(devkit_dispatch_meta_read cross-context)"
+export TMUX="$outside_tmux" TMUX_PANE="$outside_pane"
+cross_context_before="$(env DEVKIT_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" capture-pane -p -t "$outside_pane" -S -20)"
+devkit_parent_notify_dispatch "$cross_context_meta"
+cross_context_after="$(env DEVKIT_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" capture-pane -p -t "$outside_pane" -S -20)"
+assert_equal "$DEVKIT_PARENT_NOTIFY_RESULT" suppressed
+assert_equal "$cross_context_before" "$cross_context_after"
+assert_contains "$(cat "$state_dir/dispatches/cross-context/nudge.log")" 'outcome=suppressed reason=state-directory-mismatch'
+printf 'cross-context parent notice is suppressed and logged\n'
+
+export TMUX="$tmux_info" TMUX_PANE="$parent_pane"
+create_meta same-context "$parent_pane"
+same_context_meta="$(devkit_dispatch_meta_read same-context)"
+devkit_parent_notify_dispatch "$same_context_meta"
+assert_equal "$DEVKIT_PARENT_NOTIFY_RESULT" delivered
+same_context_capture="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
+assert_contains "$same_context_capture" '[devkit] mail available for dispatch same-context'
+printf 'same-context parent notice still delivers\n'
+
 final_capture="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
 printf '%s\n' "$final_capture" >/dev/null
 tmux_cmd kill-session -t "$session_name"
