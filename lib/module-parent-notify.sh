@@ -80,7 +80,7 @@ megabrain_parent_notify_context_matches() {
 megabrain_parent_notify_pointer() {
   local dispatch_id="$1"
   # The pointer keeps message content in the durable queue and delivery path.
-  printf '[devkit] mail available for dispatch %s; run megabrain orchestrate watch %s\n' "$dispatch_id" "$dispatch_id"
+  printf '[megabrain] mail available for dispatch %s; run megabrain orchestrate watch %s\n' "$dispatch_id" "$dispatch_id"
 }
 
 megabrain_parent_notify_queues_input() {

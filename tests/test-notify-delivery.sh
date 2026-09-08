@@ -85,7 +85,7 @@ assert_equal "$(megabrain_parent_notify_tmux_is_idle "$queueing_meta")" false
 megabrain_parent_notify_dispatch "$queueing_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 queueing_capture="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
-assert_contains "$queueing_capture" '[devkit] mail available for dispatch queueing-parent'
+assert_contains "$queueing_capture" '[megabrain] mail available for dispatch queueing-parent'
 assert_contains "$(cat "$state_dir/dispatches/queueing-parent/nudge.log")" 'outcome=delivered reason=queueing-parent'
 assert_equal "$(wc -l <"$state_dir/dispatches/queueing-parent/nudge.log" | tr -d ' ')" 1
 printf 'queueing parent receives a notice while busy\n'

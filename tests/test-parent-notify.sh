@@ -89,9 +89,9 @@ append_message tmux-idle 'body must remain in queue'
 megabrain_parent_notify_dispatch "$idle_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 idle_capture="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
-assert_contains "$idle_capture" '[devkit] mail available for dispatch tmux-idle'
+assert_contains "$idle_capture" '[megabrain] mail available for dispatch tmux-idle'
 assert_not_contains "$idle_capture" 'body must remain in queue'
-printf 'tmux idle pointer: %s\n' "$(printf '%s\n' "$idle_capture" | grep -F '[devkit] mail available for dispatch tmux-idle' | tail -n 1)"
+printf 'tmux idle pointer: %s\n' "$(printf '%s\n' "$idle_capture" | grep -F '[megabrain] mail available for dispatch tmux-idle' | tail -n 1)"
 
 delivery="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/megabrain" orchestrate watch tmux-idle --timeout 0 --poll-interval 0 --wait-mode poll --json)"
 assert_equal "$(jq -r '.messages | length' <<<"$delivery")" 1
@@ -111,7 +111,7 @@ busy_before="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
 busy_meta="$(megabrain_dispatch_meta_read tmux-busy)"
 megabrain_parent_notify_dispatch "$busy_meta"
 busy_after="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
-assert_not_contains "$busy_after" '[devkit] mail available for dispatch tmux-busy'
+assert_not_contains "$busy_after" '[megabrain] mail available for dispatch tmux-busy'
 assert_equal "$(find "$state_dir/dispatches/tmux-busy/messages" -name '*.json' | wc -l | tr -d ' ')" 1
 assert_equal "$busy_before" "$busy_after"
 printf 'tmux busy parent: no pointer typed and queue retained\n'
@@ -242,7 +242,7 @@ same_context_meta="$(megabrain_dispatch_meta_read same-context)"
 megabrain_parent_notify_dispatch "$same_context_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 same_context_capture="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
-assert_contains "$same_context_capture" '[devkit] mail available for dispatch same-context'
+assert_contains "$same_context_capture" '[megabrain] mail available for dispatch same-context'
 printf 'same-context parent notice still delivers\n'
 
 tmux_cmd set-environment -gu MEGABRAIN_STATE_DIR >/dev/null 2>&1 || true
