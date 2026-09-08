@@ -667,6 +667,34 @@ installer_copy_skill() {
   installer_summary "Claude Code skill $result at $destination"
 }
 
+# WHY: a machine installed before the rename keeps a devkit-local marketplace whose
+# source directory is usually gone, and that single broken entry makes the whole
+# plugin listing fail, so this cannot be gated on reading the listing first.
+# Removing the marketplace cascades to the plugin it published.
+installer_remove_stale_devkit_plugin() {
+  local agent="$1" removed=false
+  case "$agent" in
+    claude)
+      claude plugin uninstall 'devkit@devkit-local' >/dev/null 2>&1 || true
+      claude plugin marketplace remove devkit-local >/dev/null 2>&1 && removed=true
+      ;;
+    codex)
+      codex plugin remove 'devkit@devkit-local' >/dev/null 2>&1 || true
+      codex plugin marketplace remove devkit-local >/dev/null 2>&1 && removed=true
+      ;;
+    agy)
+      # agy uninstall exits 0 and reports success for a name it never had, so the
+      # listing is the only way to know whether anything was actually removed.
+      agy plugin list 2>/dev/null | grep -q '"name"[[:space:]]*:[[:space:]]*"devkit"' || return 0
+      agy plugin uninstall devkit >/dev/null 2>&1 || true
+      removed=true
+      ;;
+    *) return 0 ;;
+  esac
+  [ "$removed" = true ] && installer_summary "$agent removed the pre-rename devkit-local marketplace"
+  return 0
+}
+
 installer_remove_stale_claude_skill() {
   local stale="$HOME/.claude/skills/devkit" backup
   if [ -e "$stale" ] || [ -L "$stale" ]; then
@@ -698,7 +726,7 @@ installer_marketplace_root() {
     codex) output="$(codex plugin marketplace list 2>/dev/null || true)" ;;
     *) return 1 ;;
   esac
-  line="$(printf '%s\n' "$output" | awk '/devkit-local/ { found=1; if (match($0, /\/[^"]+/)) { print substr($0, RSTART, RLENGTH); exit } next } found && ($0 ~ /^[[:space:]]/ || $0 ~ /^\//) { if (match($0, /\/[^"]+/)) { print substr($0, RSTART, RLENGTH); exit } }')"
+  line="$(printf '%s\n' "$output" | awk '/megabrain-local/ { found=1; if (match($0, /\/[^"]+/)) { print substr($0, RSTART, RLENGTH); exit } next } found && ($0 ~ /^[[:space:]]/ || $0 ~ /^\//) { if (match($0, /\/[^"]+/)) { print substr($0, RSTART, RLENGTH); exit } }')"
   path="$(printf '%s' "$line" | sed -E 's/[),;]+$//')"
   [ -n "$path" ] || return 1
   if [ -d "$path" ]; then
@@ -740,8 +768,10 @@ installer_reconcile_marketplace() {
     installer_menu single "The $agent marketplace name already points elsewhere" '' keep replace || return $?
     choice="$INSTALLER_MENU_RESULT"
   else
-    choice=keep
-    installer_summary "$agent marketplace needs-your-action; kept existing path $existing"
+    # WHY: keeping the old path here left the install to ask a marketplace that was
+    # never registered for the plugin, so --yes could only ever fail.
+    choice=replace
+    installer_summary "$agent marketplace repointed from $existing without asking (--yes)"
   fi
   if [ "$choice" = keep ]; then
     [ "$INSTALLER_INTERACTIVE" = true ] && installer_summary "$agent marketplace already-current; kept existing path $existing"
@@ -781,6 +811,7 @@ installer_install_plugin_command() {
 installer_install_claude() {
   case "$SKILL_MODE" in
     global)
+      installer_remove_stale_devkit_plugin claude || return 1
       installer_reconcile_marketplace claude || return 1
       installer_install_plugin_command claude claude plugin install "megabrain@megabrain-local" || { installer_error "could not install megabrain from the Claude marketplace"; return 1; }
       installer_remove_stale_claude_skill || return 1
@@ -795,11 +826,13 @@ installer_install_claude() {
 }
 
 installer_install_codex() {
+  installer_remove_stale_devkit_plugin codex || return 1
   installer_reconcile_marketplace codex || return 1
   installer_install_plugin_command codex codex plugin add "megabrain@megabrain-local" || { installer_error "could not install megabrain from the Codex marketplace"; return 1; }
 }
 
 installer_install_agy() {
+  installer_remove_stale_devkit_plugin agy || return 1
   installer_install_plugin_command agy agy plugin install "$SOURCE_ROOT" || { installer_error "could not install the agy plugin from $SOURCE_ROOT"; return 1; }
 }
 
