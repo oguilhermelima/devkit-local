@@ -45,6 +45,8 @@ assert_contains "$old_alias_output" 'deprecated'
 assert_contains "$old_alias_output" 'megabrain'
 assert_contains "$("$root/megabrain" --version)" 'megabrain'
 assert_contains "$("$root/mb" --version)" 'megabrain'
+manifest_version="$(jq -r '.version' "$root/.claude-plugin/plugin.json")"
+assert_equal "$("$root/megabrain" --version)" "megabrain $manifest_version"
 printf 'command aliases: megabrain, mb, and deprecated devkit\n'
 
 home="$work/home"
