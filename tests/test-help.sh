@@ -52,7 +52,6 @@ run_help --help
 run_help install --help
 run_help doctor --help
 run_help context --help
-run_help migrate --help
 run_help worktree --help
 run_help worktree create --help
 run_help worktree finish --help
