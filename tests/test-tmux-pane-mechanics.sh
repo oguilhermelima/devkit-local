@@ -89,6 +89,14 @@ if ! megabrain_tmux_send_agent "$child_pane" 'sleep 30'; then
   fail 'the launch command was never submitted from a pane holding a stray keystroke'
 fi
 
+# WHY the wait: send_agent returns once tmux accepted the keys, not once the shell has
+# execed the command, so reading the pane straight away catches zsh about one run in three.
+waited=0
+while [ "$(tmux_cmd display-message -p -t "$child_pane" '#{pane_current_command}')" != sleep ] &&
+  [ "$waited" -lt 40 ]; do
+  sleep 0.25
+  waited=$((waited + 1))
+done
 assert_equal "$(tmux_cmd display-message -p -t "$child_pane" '#{pane_current_command}')" sleep
 child_screen="$(tmux_cmd capture-pane -p -J -t "$child_pane" -S -20)"
 assert_not_contains "$child_screen" 'command not found'
