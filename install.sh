@@ -666,11 +666,10 @@ installer_link_one() {
   installer_summary "$(basename "$link") link $link_status at $link"
 }
 
-installer_link_devkit() {
+installer_link_megabrain() {
   local bin_dir="$HOME/.local/bin"
   mkdir -p "$bin_dir" || { installer_error "could not create $bin_dir"; return 1; }
   installer_link_one "$bin_dir/megabrain" "$SOURCE_ROOT/megabrain" || return 1
-  installer_link_one "$bin_dir/devkit" "$SOURCE_ROOT/devkit" || return 1
   installer_warn_path
 }
 
@@ -1007,7 +1006,7 @@ installer_main() {
       installer_update_from_tarball || return 1
     fi
   fi
-  installer_link_devkit || return 1
+  installer_link_megabrain || return 1
   installer_detect_agents
   installer_select_agents || return $?
   installer_summary "selected agent CLIs: ${SELECTED_AGENTS:-none}"

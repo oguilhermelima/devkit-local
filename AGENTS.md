@@ -4,7 +4,6 @@
 - Run megabrain install [module-id] [--yes] [--revert].
 - Run megabrain doctor [module-id] [--json].
 - Run megabrain context [--json].
-- Run megabrain migrate.
 - Run megabrain worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json].
 - Run megabrain worktree finish <branch|path|slug> [--delete-branch] [--force] [--json].
 - Run megabrain worktree list [--repo <name|path>] [--json].

@@ -58,7 +58,6 @@ Commands:
   tv disconnect [<ip>]                 Disconnect an Android TV
   tmux tune [--yes|--dry-run|--revert] Tune global tmux configuration
   tmux wrapper [--yes|--dry-run|--revert] Install the zsh agent tmux wrapper
-  migrate                            Move state from ~/.devkit to ~/.megabrain
 EOF
 }
 
@@ -68,7 +67,6 @@ megabrain_main() {
 
   case "$command" in
     install) command_install "$@" ;;
-    migrate) command_migrate "$@" ;;
     doctor) command_doctor "$@" ;;
     context) command_context "$@" ;;
     worktree) command_worktree "$@" ;;

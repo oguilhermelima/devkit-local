@@ -2,21 +2,8 @@
 
 MEGABRAIN_USAGE_ERROR=2
 MEGABRAIN_STATE_DIR_EXPLICIT=false
-MEGABRAIN_STATE_DIR_LEGACY=""
-MEGABRAIN_STATE_DIR_LEGACY_EXPLICIT=false
 if [ "${MEGABRAIN_STATE_DIR+x}" = x ]; then
   MEGABRAIN_STATE_DIR_EXPLICIT=true
-  if [ "${DEVKIT_STATE_DIR+x}" = x ]; then
-    printf 'DEVKIT_STATE_DIR is deprecated and ignored because MEGABRAIN_STATE_DIR is set.\n' >&2
-    unset DEVKIT_STATE_DIR
-  fi
-elif [ "${DEVKIT_STATE_DIR+x}" = x ]; then
-  MEGABRAIN_STATE_DIR_EXPLICIT=true
-  MEGABRAIN_STATE_DIR_LEGACY_EXPLICIT=true
-  MEGABRAIN_STATE_DIR_LEGACY="$DEVKIT_STATE_DIR"
-  MEGABRAIN_STATE_DIR="$DEVKIT_STATE_DIR"
-  printf 'DEVKIT_STATE_DIR is deprecated; use MEGABRAIN_STATE_DIR instead.\n' >&2
-  unset DEVKIT_STATE_DIR
 else
   MEGABRAIN_STATE_DIR="$HOME/.megabrain"
 fi
@@ -168,7 +155,6 @@ megabrain_usage_line() {
     install) printf 'install [module-id] [--yes] [--revert]' ;;
     doctor) printf 'doctor [module-id] [--json]' ;;
     context) printf 'context [--json]' ;;
-    migrate) printf 'migrate' ;;
     worktree) printf 'worktree create|finish|list|adopt ...' ;;
     worktree-create) printf 'worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
     worktree-finish) printf 'worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]' ;;

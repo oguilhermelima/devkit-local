@@ -162,7 +162,6 @@ untitled; only Orca tabs carry a title.
 megabrain context [--json]           which orchestration host this session is in
 megabrain doctor [module-id] [--json]
 megabrain install [module-id] [--yes] [--revert]
-megabrain migrate
 megabrain fact list|add|edit|remove ...
 ```
 
@@ -196,5 +195,4 @@ pane; otherwise it opens as a tab in the IDE that launched the session. Override
 ## Where state lives
 
 Dispatch messages are append-only under `$MEGABRAIN_STATE_DIR/dispatches/`, which defaults to
-`~/.megabrain`. Direct-parent ownership is required for `reply` and `close`. `DEVKIT_STATE_DIR`
-is still accepted with a deprecation notice; new work should use `MEGABRAIN_STATE_DIR`.
+`~/.megabrain`. Direct-parent ownership is required for `reply` and `close`.

@@ -27,9 +27,6 @@ _megabrain_tmux_wrap() {
   cwd="$(pwd -P 2>/dev/null || true)"
   if [[ -n ${MEGABRAIN_STATE_DIR+x} ]]; then
     state_dir="$MEGABRAIN_STATE_DIR"
-  elif [[ -n ${DEVKIT_STATE_DIR+x} ]]; then
-    state_dir="$DEVKIT_STATE_DIR"
-    print -u2 'DEVKIT_STATE_DIR is deprecated; use MEGABRAIN_STATE_DIR instead.'
   else
     state_dir="$HOME/.megabrain"
   fi
