@@ -89,11 +89,13 @@ printf 'marked integrations: backed up, replaced once, and reverted\n'
 
 for agent in claude codex agy cursor; do
   mkdir -p "$integration_home/.$agent"
+  config="$integration_home/.$agent/hooks.json"
+  [ "$agent" = claude ] && config="$integration_home/.$agent/settings.json"
   case "$agent" in
-    cursor) printf '{"hooks":{"afterAgentResponse":[{"command":"old"}]}}\n' >"$integration_home/.$agent/hooks.json" ;;
-    *) printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"old"}]}]}}\n' >"$integration_home/.$agent/hooks.json" ;;
+    cursor) printf '{"hooks":{"afterAgentResponse":[{"command":"old"}]}}\n' >"$config" ;;
+    *) printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"old"}]}]}}\n' >"$config" ;;
   esac
-  cp "$integration_home/.$agent/hooks.json" "$work/${agent}-hooks.json"
+  cp "$config" "$work/${agent}-hooks.json"
   mkdir -p "$work/bin"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$work/bin/$agent"
   chmod +x "$work/bin/$agent"
@@ -102,6 +104,7 @@ PATH="$work/bin:$PATH" HOME="$integration_home" MEGABRAIN_STATE_DIR="$integratio
   "$root/megabrain" install orchestration-hooks --yes >/dev/null
 for agent in claude codex agy cursor; do
   config="$integration_home/.$agent/hooks.json"
+  [ "$agent" = claude ] && config="$integration_home/.$agent/settings.json"
   assert_file "$config"
   assert_backup_matches "$config" "$work/${agent}-hooks.json"
   count="$(jq '[.. | objects | .command? // empty | select(test("megabrain-turn-end[.]sh"))] | length' "$config")"
