@@ -79,6 +79,13 @@ megabrain_parent_notify_pointer() {
   printf '[megabrain] mail available for dispatch %s; run megabrain orchestrate watch %s\n' "$dispatch_id" "$dispatch_id"
 }
 
+megabrain_parent_notify_pointer_many() {
+  local count="$1" dispatch_ids="$2" noun
+  noun=dispatches
+  [ "$count" -eq 1 ] && noun=dispatch
+  printf '[megabrain] mail available for %s %s: %s; run megabrain orchestrate watch <id> for each\n' "$count" "$noun" "$dispatch_ids"
+}
+
 megabrain_parent_notify_wake_path() {
   printf '%s/nudge.log\n' "$(megabrain_dispatch_dir "$1")"
 }

@@ -551,6 +551,17 @@ megabrain_dispatch_last_child_message() {
   jq -r '.text // empty' "$latest_path"
 }
 
+megabrain_dispatch_last_child_mail_seq() {
+  local dispatch_id="$1" messages_dir path seq latest=0
+  messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
+  while IFS=$'\t' read -r seq path; do
+    [ -n "$path" ] || continue
+    jq -e '.from == "child" and (.type == "ask" or .type == "done" or .type == "stalled")' "$path" >/dev/null 2>&1 || continue
+    [ "$seq" -gt "$latest" ] && latest="$seq"
+  done < <(megabrain_dispatch_message_paths "$messages_dir")
+  printf '%s\n' "$latest"
+}
+
 megabrain_dispatch_failure_error() {
   local dispatch_id="$1" reason="$2" message
   message="$(megabrain_dispatch_last_child_message "$dispatch_id" 2>/dev/null || true)"

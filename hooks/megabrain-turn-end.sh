@@ -18,7 +18,53 @@ source "$MEGABRAIN_HOOK_ROOT/lib/module-parent-notify.sh" >/dev/null 2>&1 || meg
 
 megabrain_session_id >/dev/null 2>&1 || megabrain_hook_finish
 [ -n "${MEGABRAIN_SESSION_ID:-}" ] || megabrain_hook_finish
-megabrain_dispatch_find_child >/dev/null 2>&1 || megabrain_hook_finish
+
+megabrain_hook_parent_notify() {
+  local meta_path dispatch_id meta state max_seq cursor
+  local dispatch_ids="" dispatch_seq_pairs="" dispatch_count=0 first_meta="" pointer pair seq
+  for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
+    [ -f "$meta_path" ] || continue
+    state="$(jq -r '.state // empty' "$meta_path" 2>/dev/null || true)"
+    case "$state" in
+      spawning|running|waiting_for_reply|stalled) ;;
+      *) continue ;;
+    esac
+    dispatch_id="$(jq -r '.dispatchId // empty' "$meta_path" 2>/dev/null || true)"
+    [ -n "$dispatch_id" ] || continue
+    meta="$(megabrain_dispatch_require_parent "$dispatch_id" 2>/dev/null || true)"
+    [ -n "$meta" ] || continue
+    megabrain_parent_notify_context_matches "$meta" || continue
+    megabrain_parent_notify_waiter_active "$dispatch_id" && continue
+    max_seq="$(megabrain_dispatch_last_child_mail_seq "$dispatch_id" 2>/dev/null || true)"
+    [[ "$max_seq" =~ ^[0-9]+$ ]] || continue
+    [ "$max_seq" -gt 0 ] || continue
+    cursor="$(megabrain_dispatch_cursor_read "$dispatch_id" 2>/dev/null || true)"
+    [[ "$cursor" =~ ^[0-9]+$ ]] || continue
+    [ "$max_seq" -gt "$cursor" ] || continue
+    [ -n "$first_meta" ] || first_meta="$meta"
+    dispatch_count=$((dispatch_count + 1))
+    if [ -n "$dispatch_ids" ]; then
+      dispatch_ids="$dispatch_ids, $dispatch_id"
+    else
+      dispatch_ids="$dispatch_id"
+    fi
+    dispatch_seq_pairs="$dispatch_seq_pairs $dispatch_id:$max_seq"
+  done
+
+  [ "$dispatch_count" -gt 0 ] || return 0
+  pointer="$(megabrain_parent_notify_pointer_many "$dispatch_count" "$dispatch_ids")"
+  megabrain_parent_notify "$first_meta" "$pointer" || return 0
+  for pair in $dispatch_seq_pairs; do
+    dispatch_id="${pair%:*}"
+    seq="${pair#*:}"
+    megabrain_dispatch_cursor_write "$dispatch_id" "$seq" >/dev/null 2>&1 || true
+  done
+}
+
+if ! megabrain_dispatch_find_child >/dev/null 2>&1; then
+  megabrain_hook_parent_notify
+  megabrain_hook_finish
+fi
 
 MEGABRAIN_HOOK_DISPATCH="$MEGABRAIN_FOUND_DISPATCH"
 MEGABRAIN_HOOK_META="$(megabrain_dispatch_meta_read "$MEGABRAIN_HOOK_DISPATCH" 2>/dev/null)" || megabrain_hook_finish
