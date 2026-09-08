@@ -12,6 +12,7 @@ while [ -h "$MEGABRAIN_SOURCE" ]; do
   esac
 done
 DEVKIT_ROOT="$(cd -P "$(dirname "$MEGABRAIN_SOURCE")" && pwd)"
+DEVKIT_EXECUTABLE="$MEGABRAIN_SOURCE"
 DEVKIT_LIB_DIR="$DEVKIT_ROOT/lib"
 
 # shellcheck source=local/devkit/lib/common.sh

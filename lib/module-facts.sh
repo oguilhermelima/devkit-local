@@ -125,10 +125,38 @@ devkit_fact_byte_length() {
   LC_ALL=C printf '%s' "$1" | wc -c | tr -d '[:space:]'
 }
 
+devkit_dispatch_command_path() {
+  local path root
+  path="$(type -P megabrain 2>/dev/null || true)"
+  if [ -n "$path" ] && [ "${path#/}" != "$path" ]; then
+    printf 'megabrain\n'
+    return 0
+  fi
+  # WHY: Children run in arbitrary repositories, so the preamble cannot depend on the checkout as its working directory.
+  root="${DEVKIT_ROOT:-$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}"
+  if [ -n "${DEVKIT_EXECUTABLE:-}" ] && [ -x "$DEVKIT_EXECUTABLE" ]; then
+    printf '%q\n' "$DEVKIT_EXECUTABLE"
+  elif [ -x "$root/megabrain" ]; then
+    printf '%q\n' "$root/megabrain"
+  else
+    return 1
+  fi
+}
+
 devkit_fact_in_scope_json() {
   local store="$1" worktree_path="${2:-.}" repository_id
   repository_id="$(devkit_fact_repository_id "$worktree_path" 2>/dev/null || true)"
   printf '%s' "$store" | jq -c --arg repository "$repository_id" '.facts | map(select(.scope.type == "global" or (.scope.type == "repository" and .scope.repository == $repository)))'
+}
+
+devkit_dispatch_protocol() {
+  local command_path
+  command_path="$(devkit_dispatch_command_path 2>/dev/null || true)"
+  if [ -n "$command_path" ]; then
+    printf 'This is a managed megabrain dispatch. Before starting work, run %s received to confirm that you received this prompt. If you need coordinator input, run %s ask "your question" and stop until the coordinator replies. When the requested work is complete, run %s done "short outcome summary". Do not print protocol markers and do not continue past an unanswered question.\n' "$command_path" "$command_path" "$command_path"
+  else
+    printf 'This is a managed megabrain dispatch. The megabrain command could not be resolved through PATH or an absolute executable path, so receipt, coordinator questions, and completion cannot be recorded. Do not print protocol markers and do not continue past an unanswered question.\n'
+  fi
 }
 
 devkit_dispatch_preamble() {
@@ -142,7 +170,7 @@ devkit_dispatch_preamble() {
     devkit_error "fact preamble exceeds fact count limit: $count facts (limit: $DEVKIT_FACT_MAX_INJECTED)"
     return 1
   fi
-  protocol="${DEVKIT_SUPERSET_PROTOCOL:-${DEVKIT_DISPATCH_PROTOCOL:-}}"
+  protocol="${DEVKIT_SUPERSET_PROTOCOL:-$(devkit_dispatch_protocol)}"
   rendered=""
   if [ "$count" -gt 0 ]; then
     rendered="Facts in scope (starting points with provenance, not truth):
