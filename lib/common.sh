@@ -51,6 +51,14 @@ devkit_require_command() {
   command -v "$1" >/dev/null 2>&1
 }
 
+# WHY: the plugin manifest is the version the marketplaces publish, and it ships
+# next to this script, so reading it keeps one number instead of two that drift.
+devkit_version() {
+  local manifest="${MEGABRAIN_ROOT:-}/.claude-plugin/plugin.json" version=''
+  [ -f "$manifest" ] && version="$(jq -r '.version // empty' "$manifest" 2>/dev/null || true)"
+  printf 'megabrain %s\n' "${version:-unknown}"
+}
+
 devkit_superset_binary() {
   local path
   path="$(type -P superset 2>/dev/null || true)"

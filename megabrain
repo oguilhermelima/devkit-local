@@ -72,7 +72,7 @@ devkit_main() {
     context) command_context "$@" ;;
     worktree) command_worktree "$@" ;;
     terminal) command_terminal "$@" ;;
-  orchestrate) command_orchestrate "$@" ;;
+    orchestrate) command_orchestrate "$@" ;;
     chain) command_chain "$@" ;;
     model|models) command_model "$@" ;;
     fact) command_fact "$@" ;;
@@ -85,7 +85,7 @@ devkit_main() {
     tv) command_tv "$@" ;;
     tmux) command_tmux "$@" ;;
     help|-h|--help) devkit_usage ;;
-    version|-V|--version) echo "megabrain 1.0.0" ;;
+    version|-V|--version) devkit_version ;;
     *) devkit_error "unknown command: $command"; devkit_usage >&2; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }
