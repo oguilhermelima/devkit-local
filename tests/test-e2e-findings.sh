@@ -143,6 +143,16 @@ env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=done-terminal "$root/devkit" done 
 assert_equal "$(jq -r '.state' "$DEVKIT_DISPATCH_DIR/stalled-done/meta.json")" done
 printf 'done is accepted from stalled\n'
 
+devkit_dispatch_meta_write stalled-ask parent-terminal superset superset workspace-test stalled-ask-terminal "$root" main codex label stalled gpt-5 true codex '' '' host ide >/dev/null
+TMUX= TMUX_PANE= SUPERSET_TERMINAL_ID=stalled-ask-terminal devkit_dispatch_child_message ask 'question after stall' >/dev/null
+assert_equal "$(jq -r '.state' "$DEVKIT_DISPATCH_DIR/stalled-ask/meta.json")" waiting_for_reply
+printf 'ask is accepted from stalled\n'
+
+devkit_dispatch_meta_write orphaned-ask parent-terminal superset superset workspace-test orphaned-ask-terminal "$root" main codex label orphaned gpt-5 true codex '' '' host ide >/dev/null
+TMUX= TMUX_PANE= SUPERSET_TERMINAL_ID=orphaned-ask-terminal devkit_dispatch_child_message ask 'question after orphaning' >/dev/null
+assert_equal "$(jq -r '.state' "$DEVKIT_DISPATCH_DIR/orphaned-ask/meta.json")" waiting_for_reply
+printf 'ask is accepted from orphaned\n'
+
 devkit_dispatch_terminal_status() {
   DEVKIT_TERMINAL_STATUS=unknown
 }
