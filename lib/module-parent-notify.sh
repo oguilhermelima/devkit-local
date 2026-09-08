@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 
-MEGABRAIN_PARENT_NOTIFY_TIMEOUT_MS="${MEGABRAIN_PARENT_NOTIFY_TIMEOUT_MS:-1000}"
-MEGABRAIN_PARENT_NOTIFY_SETTLE_MS="${MEGABRAIN_PARENT_NOTIFY_SETTLE_MS:-100}"
-
 megabrain_parent_notify_waiter_path() {
   printf '%s/waiter.json\n' "$(megabrain_dispatch_dir "$1")"
 }
@@ -82,16 +79,6 @@ megabrain_parent_notify_pointer() {
   printf '[megabrain] mail available for dispatch %s; run megabrain orchestrate watch %s\n' "$dispatch_id" "$dispatch_id"
 }
 
-megabrain_parent_notify_queues_input() {
-  local meta="$1" session agent
-  [ "$(megabrain_parent_notify_channel "$meta")" = tmux ] || { printf 'false\n'; return 0; }
-  session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
-  [ -n "$session" ] || { printf 'false\n'; return 0; }
-  declare -F megabrain_tmux_registry_agent_for_session >/dev/null 2>&1 || { printf 'false\n'; return 0; }
-  agent="$(megabrain_tmux_registry_agent_for_session "$session" 2>/dev/null || true)"
-  [ "$agent" = claude ] && printf 'true\n' || printf 'false\n'
-}
-
 megabrain_parent_notify_wake_path() {
   printf '%s/nudge.log\n' "$(megabrain_dispatch_dir "$1")"
 }
@@ -140,79 +127,11 @@ megabrain_parent_notify_wait_for_wake() {
   return "$result"
 }
 
-megabrain_parent_notify_tmux_is_idle() {
-  local meta="$1" session pane first second last_line
-  session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
-  pane="$(printf '%s' "$meta" | jq -r '.parentTmuxPane // empty')"
-  [ -n "$session" ] && [ -n "$pane" ] || { printf 'unknown\n'; return 0; }
-  megabrain_require_command tmux || { printf 'unknown\n'; return 0; }
-  megabrain_tmux_session_exists "$session" || { printf 'unknown\n'; return 0; }
-  tmux list-panes -t "$session" -F '#{pane_id}' 2>/dev/null | grep -Fx "$pane" >/dev/null 2>&1 || { printf 'unknown\n'; return 0; }
-  first="$(megabrain_tmux_capture_pane "$pane" -40 2>/dev/null || true)"
-  sleep "$(awk "BEGIN { printf \"%.3f\", $MEGABRAIN_PARENT_NOTIFY_SETTLE_MS / 1000 }")"
-  second="$(megabrain_tmux_capture_pane "$pane" -40 2>/dev/null || true)"
-  [ "$first" = "$second" ] || { printf 'unknown\n'; return 0; }
-  last_line="$(printf '%s\n' "$second" | tail -n 1 | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
-  case "$last_line" in
-    *Working*|*Thinking*|*Running*|*'esc to interrupt'*|*'ctrl-c to interrupt'*) printf 'false\n' ;;
-    '⏵⏵ bypass permissions on · 1 shell · ← for agents') printf 'true\n' ;;
-    # Unknown is not idle because a failed liveness check must never type into the parent.
-    *'›'|*'❯'|*'$'|*'%'|*'#') printf 'true\n' ;;
-    *) printf 'unknown\n' ;;
-  esac
-}
-
 megabrain_parent_notify_tmux() {
   local meta="$1" pointer="$2" pane
   pane="$(printf '%s' "$meta" | jq -r '.parentTmuxPane // empty')"
   [ -n "$pane" ] || return 1
   megabrain_tmux_send_text "$pane" "$pointer"
-}
-
-megabrain_parent_notify_terminal_text() {
-  local response="$1"
-  printf '%s' "$response" | jq -r '
-    if type == "string" then .
-    elif type == "object" then (.text // .output // .content // .result.text // .result.output // tostring)
-    else tostring
-    end
-  ' 2>/dev/null || true
-}
-
-megabrain_parent_notify_orca_is_idle() {
-  local meta="$1" terminal_id timeout_ms
-  terminal_id="$(printf '%s' "$meta" | jq -r '.parentSessionId // empty')"
-  timeout_ms="$MEGABRAIN_PARENT_NOTIFY_TIMEOUT_MS"
-  [ -n "$terminal_id" ] || { printf 'unknown\n'; return 0; }
-  megabrain_require_command orca || { printf 'unknown\n'; return 0; }
-  if orca terminal wait --terminal "$terminal_id" --for tui-idle --timeout-ms "$timeout_ms" >/dev/null 2>&1; then
-    printf 'true\n'
-  else
-    printf 'unknown\n'
-  fi
-}
-
-megabrain_parent_notify_superset_is_idle() {
-  local meta="$1" workspace_id terminal_id timeout_ms attempts attempt response rendered previous=""
-  workspace_id="$(printf '%s' "$meta" | jq -r '.parentWorkspaceId // empty')"
-  terminal_id="$(printf '%s' "$meta" | jq -r '.parentSessionId // empty')"
-  timeout_ms="$MEGABRAIN_PARENT_NOTIFY_TIMEOUT_MS"
-  [ -n "$workspace_id" ] && [ -n "$terminal_id" ] || { printf 'unknown\n'; return 0; }
-  megabrain_superset_available || { printf 'unknown\n'; return 0; }
-  attempts=$(( (timeout_ms + MEGABRAIN_PARENT_NOTIFY_SETTLE_MS - 1) / MEGABRAIN_PARENT_NOTIFY_SETTLE_MS ))
-  [ "$attempts" -gt 0 ] || attempts=1
-  for ((attempt = 1; attempt <= attempts; attempt++)); do
-    response="$(megabrain_superset terminals read --workspace "$workspace_id" --terminal "$terminal_id" --json 2>/dev/null || true)"
-    printf '%s' "$response" | jq -e . >/dev/null 2>&1 || { printf 'unknown\n'; return 0; }
-    rendered="$(megabrain_parent_notify_terminal_text "$response")"
-    if [ -n "$(printf '%s' "$rendered" | tr -d '[:space:]')" ] && [ "$rendered" = "$previous" ]; then
-      printf 'true\n'
-      return 0
-    fi
-    previous="$rendered"
-    sleep "$(awk "BEGIN { printf \"%.3f\", $MEGABRAIN_PARENT_NOTIFY_SETTLE_MS / 1000 }")"
-  done
-  printf 'unknown\n'
 }
 
 # WHY: .runtime says how the CHILD was launched. Reaching the PARENT is a property of
@@ -235,16 +154,6 @@ megabrain_parent_notify_channel() {
   printf '%s\n' "$(printf '%s' "$meta" | jq -r '.parentHost // empty')"
 }
 
-megabrain_parent_is_idle() {
-  local meta="$1"
-  case "$(megabrain_parent_notify_channel "$meta")" in
-    tmux) megabrain_parent_notify_tmux_is_idle "$meta" ;;
-    orca) megabrain_parent_notify_orca_is_idle "$meta" ;;
-    superset) megabrain_parent_notify_superset_is_idle "$meta" ;;
-    *) printf 'unknown\n' ;;
-  esac
-}
-
 megabrain_parent_notify() {
   local meta="$1" pointer="$2" host workspace_id terminal_id
   host="$(megabrain_parent_notify_channel "$meta")"
@@ -262,7 +171,7 @@ megabrain_parent_notify() {
 }
 
 megabrain_parent_notify_dispatch() {
-  local meta="$1" dispatch_id idle pointer queueing notify_error notify_reason notify_error_path notify_status
+  local meta="$1" dispatch_id pointer notify_error notify_reason notify_error_path notify_status
   MEGABRAIN_PARENT_NOTIFY_RESULT=skipped
   dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty')"
   [ -n "$dispatch_id" ] || { MEGABRAIN_PARENT_NOTIFY_RESULT=failed; return 1; }
@@ -276,24 +185,6 @@ megabrain_parent_notify_dispatch() {
     MEGABRAIN_PARENT_NOTIFY_RESULT=suppressed
     megabrain_parent_notify_wake "$dispatch_id" "$pointer" suppressed active-waiter >/dev/null 2>&1 || true
     return 0
-  fi
-  queueing="$(megabrain_parent_notify_queues_input "$meta")"
-  # Claude Code's TUI queues input while busy.
-  if [ "$queueing" != true ]; then
-    idle="$(megabrain_parent_is_idle "$meta")"
-    case "$idle" in
-      true) ;;
-      false)
-        MEGABRAIN_PARENT_NOTIFY_RESULT=busy
-        megabrain_parent_notify_wake "$dispatch_id" "$pointer" suppressed parent-busy >/dev/null 2>&1 || true
-        return 0
-        ;;
-      *)
-        MEGABRAIN_PARENT_NOTIFY_RESULT=unknown
-        megabrain_parent_notify_wake "$dispatch_id" "$pointer" suppressed parent-liveness-unknown >/dev/null 2>&1 || true
-        return 0
-        ;;
-    esac
   fi
   if megabrain_parent_notify_waiter_active "$dispatch_id"; then
     MEGABRAIN_PARENT_NOTIFY_RESULT=suppressed
@@ -312,11 +203,7 @@ megabrain_parent_notify_dispatch() {
   fi
   if [ "$notify_status" -eq 0 ]; then
     MEGABRAIN_PARENT_NOTIFY_RESULT=delivered
-    if [ "$queueing" = true ]; then
-      megabrain_parent_notify_wake "$dispatch_id" "$pointer" delivered queueing-parent >/dev/null 2>&1 || true
-    else
-      megabrain_parent_notify_wake "$dispatch_id" "$pointer" delivered parent-idle >/dev/null 2>&1 || true
-    fi
+    megabrain_parent_notify_wake "$dispatch_id" "$pointer" delivered parent-notified >/dev/null 2>&1 || true
     return 0
   fi
   MEGABRAIN_PARENT_NOTIFY_RESULT=failed

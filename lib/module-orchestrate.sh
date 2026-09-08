@@ -710,18 +710,6 @@ megabrain_dispatch_find_child() {
   return 1
 }
 
-megabrain_dispatch_child_is_idle() {
-  local meta="$1" child_meta
-  child_meta="$(printf '%s' "$meta" | jq '
-    .parentSessionId = .terminalId
-    | .parentHost = .childHost
-    | .parentWorkspaceId = .workspaceId
-    | .parentTmuxSession = .tmuxSession
-    | .parentTmuxPane = .tmuxPane
-  ')" || return 1
-  megabrain_parent_is_idle "$child_meta"
-}
-
 megabrain_dispatch_native_send() {
   local meta="$1" text="$2" host workspace_id terminal_id runtime tmux_session tmux_pane
   host="$(printf '%s' "$meta" | jq -r '.childHost')"
@@ -1139,7 +1127,7 @@ megabrain_dispatch_child_ack() {
 }
 
 megabrain_dispatch_reply() {
-  local dispatch_id="${1:-}" answer="" json=false arg meta state idle status
+  local dispatch_id="${1:-}" answer="" json=false arg meta state status
   case "$dispatch_id" in
     -h|--help) megabrain_usage_show orchestrate-reply; return 0 ;;
   esac
@@ -1164,8 +1152,7 @@ megabrain_dispatch_reply() {
   megabrain_dispatch_message_append "$dispatch_id" parent reply "$answer" "$MEGABRAIN_SESSION_ID" >/dev/null || return 1
   status=queued
   if [ "$state" != done ]; then
-    idle="$(megabrain_dispatch_child_is_idle "$meta" 2>/dev/null || printf 'unknown\n')"
-    if [ "$idle" = true ] && megabrain_dispatch_native_send "$meta" "$answer"; then
+    if megabrain_dispatch_native_send "$meta" "$answer"; then
       status=replied
     fi
     megabrain_dispatch_meta_update_state "$dispatch_id" running || return 1
