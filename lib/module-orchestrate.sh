@@ -664,12 +664,48 @@ megabrain_dispatch_cursor_write() {
   mv -f "$tmp" "$path"
 }
 
+# WHY: the lock is a directory, so it survives the process that made it. A writer killed
+# between mkdir and rmdir used to jam the mailbox forever, and every ask, done, received
+# and reply for that dispatch waits here. The wait is bounded so a caller gets an error it
+# can report, and a lock older than any real critical section is treated as ownerless and
+# broken. A lock younger than that is never stolen: stealing it would reintroduce the lost
+# message the lock exists to prevent.
+MEGABRAIN_LOCK_WAIT_SECONDS="${MEGABRAIN_LOCK_WAIT_SECONDS:-15}"
+MEGABRAIN_LOCK_STALE_SECONDS="${MEGABRAIN_LOCK_STALE_SECONDS:-30}"
+
+megabrain_dispatch_lock_acquire() {
+  local lock="$1" waited=0 deadline age now
+  deadline=$(( $(date +%s) + MEGABRAIN_LOCK_WAIT_SECONDS ))
+  while ! mkdir "$lock" 2>/dev/null; do
+    now="$(date +%s)"
+    age="$(megabrain_dispatch_path_age_seconds "$lock")"
+    if [ -n "$age" ] && [ "$age" -ge "$MEGABRAIN_LOCK_STALE_SECONDS" ]; then
+      rmdir "$lock" 2>/dev/null || rm -rf "$lock" 2>/dev/null || true
+      continue
+    fi
+    if [ "$now" -ge "$deadline" ]; then
+      megabrain_error "mailbox lock is held by another writer: $lock"
+      return 1
+    fi
+    sleep 0.02
+    waited=$((waited + 1))
+  done
+}
+
+megabrain_dispatch_path_age_seconds() {
+  local path="$1" mtime now
+  mtime="$(stat -f %m "$path" 2>/dev/null || stat -c %Y "$path" 2>/dev/null || true)"
+  [[ "$mtime" =~ ^[0-9]+$ ]] || return 0
+  now="$(date +%s)"
+  printf '%s\n' $((now - mtime))
+}
+
 megabrain_dispatch_message_append() {
   local dispatch_id="$1" from="$2" type="$3" text="$4" session_id="$5"
   local messages_dir lock path tmp seq file_name
   messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
   lock="$messages_dir/.lock"
-  while ! mkdir "$lock" 2>/dev/null; do sleep 0.02; done
+  megabrain_dispatch_lock_acquire "$lock" || return 1
   seq="$(find "$messages_dir" -maxdepth 1 -type f -name '*.json' -print 2>/dev/null | sed 's|.*/||; s|-.*||' | sort -n | tail -n 1)"
   [ -n "$seq" ] || seq=0
   seq=$((10#$seq + 1))
@@ -1114,7 +1150,7 @@ megabrain_dispatch_mailbox_watch() {
   lock="$messages_dir/.lock"
   start_time="$(date +%s)"
   while true; do
-    while ! mkdir "$lock" 2>/dev/null; do sleep 0.02; done
+    megabrain_dispatch_lock_acquire "$lock" || return 1
     outstanding_path=""
     for path in "$deliveries_dir"/*.json; do
       [ -f "$path" ] || continue
@@ -1262,7 +1298,7 @@ megabrain_dispatch_ack_for_owner() {
   path="$(megabrain_dispatch_delivery_path "$dispatch_id" "$delivery_id")" || return 1
   [ -f "$path" ] || { megabrain_error "delivery $delivery_id refused: delivery is unknown"; return 1; }
   lock="$(megabrain_dispatch_messages_dir "$dispatch_id")/.lock"
-  while ! mkdir "$lock" 2>/dev/null; do sleep 0.02; done
+  megabrain_dispatch_lock_acquire "$lock" || return 1
   status="$(jq -r '.status // empty' "$path")"
   case "$status" in
     acknowledged)
