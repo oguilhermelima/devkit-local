@@ -20,16 +20,28 @@ megabrain_session_id >/dev/null 2>&1 || megabrain_hook_finish
 [ -n "${MEGABRAIN_SESSION_ID:-}" ] || megabrain_hook_finish
 
 megabrain_hook_parent_notify() {
-  local meta_path dispatch_id meta state max_seq cursor
+  local meta_path dispatch_id meta state max_seq cursor open_ids
   local dispatch_ids="" dispatch_seq_pairs="" dispatch_count=0 first_meta="" pointer pair seq
-  for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
-    [ -f "$meta_path" ] || continue
-    state="$(jq -r '.state // empty' "$meta_path" 2>/dev/null || true)"
-    case "$state" in
-      spawning|running|waiting_for_reply|stalled) ;;
-      *) continue ;;
-    esac
-    dispatch_id="$(jq -r '.dispatchId // empty' "$meta_path" 2>/dev/null || true)"
+  # WHY: this runs at the end of every turn of every agent, forever, and the dispatch
+  # directory only grows. One jq per file cost 0.8s against the 83 dispatches on the
+  # machine this was written on; one jq over all of them costs 0.007s. Fall back to the
+  # per-file scan if the batch fails, because jq stops at the first unreadable file and
+  # would silently skip every dispatch after it.
+  open_ids="$(jq -r 'select(.state == "spawning" or .state == "running" or .state == "waiting_for_reply" or .state == "stalled") | .dispatchId // empty' "$MEGABRAIN_DISPATCH_DIR"/*/meta.json 2>/dev/null)" || open_ids=""
+  if [ -z "$open_ids" ] && [ -n "$(echo "$MEGABRAIN_DISPATCH_DIR"/*/meta.json)" ]; then
+    for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
+      [ -f "$meta_path" ] || continue
+      state="$(jq -r '.state // empty' "$meta_path" 2>/dev/null || true)"
+      case "$state" in
+        spawning|running|waiting_for_reply|stalled) ;;
+        *) continue ;;
+      esac
+      dispatch_id="$(jq -r '.dispatchId // empty' "$meta_path" 2>/dev/null || true)"
+      [ -n "$dispatch_id" ] && open_ids="$open_ids$dispatch_id
+"
+    done
+  fi
+  for dispatch_id in $open_ids; do
     [ -n "$dispatch_id" ] || continue
     meta="$(megabrain_dispatch_require_parent "$dispatch_id" 2>/dev/null || true)"
     [ -n "$meta" ] || continue

@@ -676,7 +676,7 @@ megabrain_dispatch_tmux_caller_session() {
 }
 
 megabrain_dispatch_find_child() {
-  local meta_path meta dispatch_id tmux_session="" tmux_pane="" tmux_identity=false matched
+  local tmux_session="" tmux_pane="" tmux_identity=false matches dispatch_id second
   MEGABRAIN_FOUND_DISPATCH=""
   megabrain_dispatch_require_session || return 1
   if [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
@@ -684,33 +684,36 @@ megabrain_dispatch_find_child() {
     tmux_pane="$TMUX_PANE"
     tmux_session="$(megabrain_dispatch_tmux_caller_session || true)"
   fi
-  for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
-    [ -f "$meta_path" ] || continue
-    meta="$(cat "$meta_path")"
-    matched=false
+  # WHY: this runs on every ask, done, check, received and turn-end hook, and the
+  # dispatch directory only grows. One jq per meta file cost half a second against the
+  # 83 dispatches on the machine this was written on; one jq over all of them is two
+  # orders of magnitude cheaper. Pane identity replaces terminal identity because tmux
+  # shares the host id across panes.
+  if [ "$tmux_identity" = true ]; then
+    [ -n "$tmux_session" ] || {
+      megabrain_error "no managed dispatch belongs to tmux session ${tmux_session:-unknown} pane $tmux_pane"
+      return 1
+    }
+    matches="$(jq -r --arg host "$MEGABRAIN_SESSION_HOST" --arg session "$tmux_session" --arg pane "$tmux_pane" \
+      'select(.childHost == $host and .runtime == "tmux" and .tmuxSession == $session and .tmuxPane == $pane) | .dispatchId // empty' \
+      "$MEGABRAIN_DISPATCH_DIR"/*/meta.json 2>/dev/null)" || matches=""
+  else
+    matches="$(jq -r --arg id "$MEGABRAIN_SESSION_ID" --arg host "$MEGABRAIN_SESSION_HOST" \
+      'select(.terminalId == $id and .childHost == $host) | .dispatchId // empty' \
+      "$MEGABRAIN_DISPATCH_DIR"/*/meta.json 2>/dev/null)" || matches=""
+  fi
+  dispatch_id="$(printf '%s\n' "$matches" | sed -n '1p')"
+  second="$(printf '%s\n' "$matches" | sed -n '2p')"
+  if [ -n "$second" ]; then
     if [ "$tmux_identity" = true ]; then
-      # Pane identity replaces terminal identity because tmux shares the host id across panes.
-      [ -n "$tmux_session" ] && printf '%s' "$meta" | jq -e \
-        --arg host "$MEGABRAIN_SESSION_HOST" --arg session "$tmux_session" --arg pane "$tmux_pane" \
-        '.childHost == $host and .runtime == "tmux" and .tmuxSession == $session and .tmuxPane == $pane' >/dev/null 2>&1 && matched=true
-    elif printf '%s' "$meta" | jq -e --arg id "$MEGABRAIN_SESSION_ID" --arg host "$MEGABRAIN_SESSION_HOST" \
-      '.terminalId == $id and .childHost == $host' >/dev/null 2>&1; then
-      matched=true
+      megabrain_error "tmux identity matches multiple dispatches for session ${tmux_session:-unknown} pane $tmux_pane: $dispatch_id, $second"
+    else
+      megabrain_error "terminal identity matches multiple dispatches for $MEGABRAIN_SESSION_HOST/$MEGABRAIN_SESSION_ID: $dispatch_id, $second"
     fi
-    if [ "$matched" = true ]; then
-      dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId')"
-      if [ -n "$MEGABRAIN_FOUND_DISPATCH" ]; then
-        if [ "$tmux_identity" = true ]; then
-          megabrain_error "tmux identity matches multiple dispatches for session ${tmux_session:-unknown} pane $tmux_pane: $MEGABRAIN_FOUND_DISPATCH, $dispatch_id"
-        else
-          megabrain_error "terminal identity matches multiple dispatches for $MEGABRAIN_SESSION_HOST/$MEGABRAIN_SESSION_ID: $MEGABRAIN_FOUND_DISPATCH, $dispatch_id"
-        fi
-        return 1
-      fi
-      MEGABRAIN_FOUND_DISPATCH="$dispatch_id"
-    fi
-  done
-  if [ -n "$MEGABRAIN_FOUND_DISPATCH" ]; then
+    return 1
+  fi
+  if [ -n "$dispatch_id" ]; then
+    MEGABRAIN_FOUND_DISPATCH="$dispatch_id"
     return 0
   fi
   if [ "$tmux_identity" = true ]; then
