@@ -74,14 +74,14 @@ printf 'deprecated state override: honored with notice\n'
 
 nested_state="$work/nested-state"
 MEGABRAIN_STATE_DIR="$nested_state" bash -c 'source "$1/lib/common.sh"; source "$1/lib/module-orchestrate.sh"; devkit_dispatch_meta_write nested-dispatch parent-terminal superset superset workspace nested-child "$1" main codex label spawning gpt-5 true codex "" "" host ide >/dev/null' _ "$root"
-nested_output="$(MEGABRAIN_STATE_DIR="$nested_state" SUPERSET_TERMINAL_ID=nested-child bash -c 'MEGABRAIN_STATE_DIR="$1" SUPERSET_TERMINAL_ID="$2" "$3" received' _ "$nested_state" nested-child "$root/megabrain")"
+nested_output="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$nested_state" SUPERSET_TERMINAL_ID=nested-child bash -c 'MEGABRAIN_STATE_DIR="$1" SUPERSET_TERMINAL_ID="$2" "$3" received' _ "$nested_state" nested-child "$root/megabrain")"
 assert_contains "$nested_output" 'received sent: nested-dispatch'
 assert_equal "$(find "$nested_state/dispatches/nested-dispatch/messages" -name '*-child-received.json' | wc -l | tr -d ' ')" 1
 assert_equal "$(jq -r '.state' "$nested_state/dispatches/nested-dispatch/meta.json")" spawning
 printf 'nested megabrain invocation inherits one state directory\n'
 
 hostile_state="$work/hostile-state"
-hostile_output="$(MEGABRAIN_STATE_DIR="$nested_state" DEVKIT_STATE_DIR="$hostile_state" SUPERSET_TERMINAL_ID=nested-child bash -c 'MEGABRAIN_STATE_DIR="$1" DEVKIT_STATE_DIR="$2" SUPERSET_TERMINAL_ID="$3" "$4" received' _ "$nested_state" "$hostile_state" nested-child "$root/megabrain" 2>&1)"
+hostile_output="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$nested_state" DEVKIT_STATE_DIR="$hostile_state" SUPERSET_TERMINAL_ID=nested-child bash -c 'MEGABRAIN_STATE_DIR="$1" DEVKIT_STATE_DIR="$2" SUPERSET_TERMINAL_ID="$3" "$4" received' _ "$nested_state" "$hostile_state" nested-child "$root/megabrain" 2>&1)"
 assert_contains "$hostile_output" 'DEVKIT_STATE_DIR is deprecated and ignored because MEGABRAIN_STATE_DIR is set'
 assert_contains "$hostile_output" 'received sent: nested-dispatch'
 [ ! -e "$hostile_state" ] || fail 'legacy state directory was used despite the new variable'
