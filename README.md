@@ -2,7 +2,7 @@
 
 megabrain is one command surface for keeping Orca and Superset.sh aligned around Git worktrees and coding agents.
 Both tools create worktrees but do not share bookkeeping: a worktree made in one is invisible to the other until it is imported by hand.
-Devkit owns agent launch and uses either tmux or one host terminal primitive for the child process.
+Megabrain owns agent launch and uses either tmux or one host terminal primitive for the child process.
 
 ## Before and after
 
@@ -276,7 +276,7 @@ the waiter reads the queued Delivery normally.
 
 The parent nudge contract has two operations, parent_is_idle and parent_notify. Both must prove
 idle before sending input; unknown liveness is treated as not idle. In tmux-runtime, metadata
-records the parent pane. Devkit compares two tmux capture-pane snapshots and accepts an explicit
+records the parent pane. Megabrain compares two tmux capture-pane snapshots and accepts an explicit
 stable shell or agent prompt marker; an active marker such as Working, Thinking, Running, or an
 interrupt hint is busy, while missing or changing evidence is unknown. Input is sent with two
 separate tmux send-keys calls so text and Enter cannot be coalesced.
