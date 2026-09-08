@@ -19,9 +19,9 @@ module_tv_adb_install() {
     return $?
   fi
   if devkit_require_command brew; then
-    devkit_info "adb is missing. Install Android platform-tools with: brew install android-platform-tools"
+    devkit_notice "adb is missing. Install Android platform-tools with: brew install android-platform-tools"
   else
-    devkit_info "adb is missing. Install Android platform-tools with your OS package manager (for example: apt-get install adb)"
+    devkit_notice "adb is missing. Install Android platform-tools with your OS package manager (for example: apt-get install adb)"
   fi
   devkit_set_status missing "adb is not on PATH"
   return 1

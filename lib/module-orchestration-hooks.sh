@@ -75,14 +75,14 @@ devkit_hooks_trust_warning() {
     devkit_hooks_codex_trust_note
     return 0
   fi
-  devkit_info "Warning: $agent may require a one-time human trust action for the megabrain hook; $(devkit_hooks_trust_detail "$agent")."
+  devkit_notice "Warning: $agent may require a one-time human trust action for the megabrain hook; $(devkit_hooks_trust_detail "$agent")."
 }
 
 devkit_hooks_codex_trust_note() {
-  devkit_info ""
-  devkit_info "CODEX ACTION REQUIRED: the megabrain hook needs one-time trust in Codex."
-  devkit_info "Open a plain terminal, run codex, and choose \"Trust all and continue\"."
-  devkit_info "Opening Codex through Superset will not complete this step because Superset passes --dangerously-bypass-hook-trust."
+  devkit_notice ""
+  devkit_notice "CODEX ACTION REQUIRED: the megabrain hook needs one-time trust in Codex."
+  devkit_notice "Open a plain terminal, run codex, and choose \"Trust all and continue\"."
+  devkit_notice "Opening Codex through Superset will not complete this step because Superset passes --dangerously-bypass-hook-trust."
 }
 
 devkit_hooks_repair_config() {

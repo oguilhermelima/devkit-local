@@ -41,6 +41,12 @@ devkit_info() {
   printf '%s\n' "$*"
 }
 
+# WHY: advice is not a result. Keeping it off stdout is what lets --json callers
+# capture a module's output without a human sentence landing inside the JSON.
+devkit_notice() {
+  printf '%s\n' "$*" >&2
+}
+
 devkit_require_command() {
   command -v "$1" >/dev/null 2>&1
 }
