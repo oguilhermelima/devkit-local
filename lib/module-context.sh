@@ -309,8 +309,33 @@ command_orchestrate_list() {
       | (($item.state // "") == "orphaned") as $orphan
       | $item + {ownedByCaller: $owned, orphan: $orphan, reconcileResult: ($item.reconcileOutcome // "unchanged")})
     | map(select(($all or $orphans or .ownedByCaller) and (($orphans | not) or .orphan)))
-  ' "${meta_paths[@]}")" || {
-    return 1
+  ' "${meta_paths[@]}" 2>/dev/null)" || {
+    # WHY: one unreadable meta aborts the whole batch, and the fast path must stay a
+    # single jq. So the per-file walk runs only once something is already wrong, drops
+    # exactly the files that cannot be parsed, and says which on stderr, where it cannot
+    # corrupt the --json a caller is about to parse.
+    local -a readable=()
+    for meta_path in "${meta_paths[@]}"; do
+      if jq empty "$meta_path" >/dev/null 2>&1; then
+        readable[${#readable[@]}]="$meta_path"
+      else
+        megabrain_notice "skipping unreadable dispatch metadata: $meta_path"
+      fi
+    done
+    if [ "${#readable[@]}" -eq 0 ]; then
+      [ "$json" = true ] && printf '[]\n'
+      return 0
+    fi
+    entries="$(jq -s \
+      --arg callerId "$caller_id" --arg callerHost "$caller_host" \
+      --argjson all "$all" --argjson orphans "$orphans" '
+      map(. as $item
+        | ($item.parentHost // "") as $parentHost
+        | (($callerId != "") and ($item.parentSessionId == $callerId) and ($parentHost == $callerHost)) as $owned
+        | (($item.state // "") == "orphaned") as $orphan
+        | $item + {ownedByCaller: $owned, orphan: $orphan, reconcileResult: ($item.reconcileOutcome // "unchanged")})
+      | map(select(($all or $orphans or .ownedByCaller) and (($orphans | not) or .orphan)))
+    ' "${readable[@]}")" || return 1
   }
   if [ "$json" = true ]; then
     printf '%s\n' "$entries"
