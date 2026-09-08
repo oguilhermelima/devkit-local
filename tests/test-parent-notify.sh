@@ -5,17 +5,26 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 state_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-nudge.XXXXXX")"
 socket_name=devkitnudge
+# Short on purpose: TMUX_TMPDIR sits under a long mktemp path and the socket path
+# has to stay inside the 104-byte Unix socket limit.
+outside_socket=dnout
 session_name=devkit-nudge-test
 no_context_session=devkit-nudge-no-context
 parent_id=parent-terminal
 workspace_id=workspace-test
 parent_pane=""
 tmux_info=""
+outside_state_dir=""
 
+# Killing the sessions is not enough: TMUX_TMPDIR points inside the state
+# directory, so a surviving server is stranded on a socket path that is about to
+# be removed and can never be reached again.
 cleanup() {
-  tmux -L "$socket_name" kill-session -t "$session_name" >/dev/null 2>&1 || true
-  tmux -L "$socket_name" kill-session -t "$no_context_session" >/dev/null 2>&1 || true
+  tmux -L "$socket_name" kill-server >/dev/null 2>&1 || true
+  tmux -L "$outside_socket" kill-server >/dev/null 2>&1 || true
   rm -rf "$state_dir"
+  [ -n "$outside_state_dir" ] && rm -rf "$outside_state_dir"
+  return 0
 }
 trap cleanup EXIT
 
@@ -207,8 +216,7 @@ assert_equal "$(pgrep -f "tail -n \+[0-9]* -f $state_dir/dispatches/$nudged_id/n
 assert_equal "$(ls -d "${TMPDIR:-/tmp}"/megabrain-wake.* 2>/dev/null | wc -l | tr -d ' ')" 0
 printf 'nudge mode: watch blocked, woke from pointer marker, and left no follower\n'
 
-outside_state_dir="$(mktemp -d /tmp/devkit-nudge-outside.XXXXXX)"
-outside_socket="d"
+outside_state_dir="$(mktemp -d "${TMPDIR:-/tmp}/devkit-nudge-outside.XXXXXX")"
 outside_session="out-$$"
 env MEGABRAIN_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" new-session -d -s "$outside_session" bash
 env MEGABRAIN_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" set-environment -t "$outside_session" MEGABRAIN_STATE_DIR "$outside_state_dir"
@@ -276,7 +284,6 @@ printf 'renamed state directory still delivers without a fixed path\n'
 
 final_capture="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
 printf '%s\n' "$final_capture" >/dev/null
-tmux_cmd kill-session -t "$session_name"
 trap - EXIT
-rm -rf "$state_dir"
+cleanup
 printf 'ok: parent notify tmux, IDE, suppression, queue safety, and wake behavior\n'
