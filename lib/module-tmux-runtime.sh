@@ -217,18 +217,18 @@ devkit_tmux_split_pane() {
   worktree_path="$2"
   main_pane="$(devkit_tmux_registry_main_pane_for_session "$session" 2>/dev/null || true)"
   if [ -z "$main_pane" ]; then
-    tmux split-window -t "$session" -c "$worktree_path" -P -F '#{pane_id}' 2>/dev/null
+    tmux split-window -d -t "$session" -c "$worktree_path" -P -F '#{pane_id}' 2>/dev/null
     return
   fi
   right_pane="$(devkit_tmux_last_right_pane "$session" 2>/dev/null || true)"
   if [ -n "$right_pane" ]; then
     target="$right_pane"
     split_flag="$MEGABRAIN_TMUX_CHILD_SPLIT_FLAG"
-    pane="$(tmux split-window "$split_flag" -t "$target" -c "$worktree_path" -P -F '#{pane_id}' 2>/dev/null)" || return 1
+    pane="$(tmux split-window -d "$split_flag" -t "$target" -c "$worktree_path" -P -F '#{pane_id}' 2>/dev/null)" || return 1
   else
     target="$main_pane"
     split_flag="$MEGABRAIN_TMUX_MAIN_SPLIT_FLAG"
-    pane="$(tmux split-window "$split_flag" -p "$MEGABRAIN_TMUX_MAIN_PANE_PERCENT" -t "$target" -c "$worktree_path" -P -F '#{pane_id}' 2>/dev/null)" || return 1
+    pane="$(tmux split-window -d "$split_flag" -p "$MEGABRAIN_TMUX_MAIN_PANE_PERCENT" -t "$target" -c "$worktree_path" -P -F '#{pane_id}' 2>/dev/null)" || return 1
   fi
   devkit_tmux_resize_main_pane "$session" || return 1
   printf '%s\n' "$pane"
@@ -240,6 +240,10 @@ devkit_tmux_send_agent() {
     devkit_tmux_send_text "$pane" "$command_text"
     return $?
   fi
+  # WHY: the child shell can still hold startup noise or a stray keystroke, and typing
+  # onto a non-empty line produced "mocd <path>" once, which died as command not found.
+  # Only the shell branch is cleared; C-u in an agent composer is not a line kill.
+  tmux send-keys -t "$pane" C-u || return 1
   tmux send-keys -t "$pane" -l "$command_text" || return 1
   # Enter is deliberately a separate call; some host terminal layers lose it when combined with text.
   case "$MEGABRAIN_TMUX_ENTER_TIMEOUT_SECONDS" in
