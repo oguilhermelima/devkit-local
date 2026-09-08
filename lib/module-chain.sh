@@ -9,18 +9,16 @@ MEGABRAIN_CHAIN_AGENTS='codex claude agy'
 MEGABRAIN_CHAIN_WINDOWS='5h weekly'
 
 megabrain_chain_seed() {
-  cat <<'EOF'
-{
-  "chains": {},
-  "defaultSteps": [],
-  "usageLimits": {
-    "liveProviders": [],
-    "cacheTtlSeconds": 30,
-    "timeoutSeconds": 5,
-    "notice": {"enabled": false, "intervalSeconds": 3600}
-  }
-}
-EOF
+  jq -n '{
+    chains: {},
+    defaultSteps: [],
+    usageLimits: {
+      liveProviders: [],
+      cacheTtlSeconds: 30,
+      timeoutSeconds: 5,
+      notice: {enabled: false, intervalSeconds: 3600}
+    }
+  }'
 }
 
 megabrain_chain_init() {
