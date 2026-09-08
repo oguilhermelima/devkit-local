@@ -588,8 +588,8 @@ ${prompt}"
     fi
     if ! devkit_tmux_agent_output_clean "$tmux_pane"; then
       devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
-      devkit_error "agent output contains terminal-identification escape leakage in pane $tmux_pane"
       devkit_spawn_mark_prompt_failed "$dispatch_id" readiness-output-invalid
+      devkit_dispatch_failure_error "$dispatch_id" "agent output contains terminal-identification escape leakage in pane $tmux_pane"
       return 1
     fi
     if ! devkit_tmux_send_agent "$tmux_pane" "$final_prompt" prompt; then
@@ -610,7 +610,7 @@ ${prompt}"
     devkit_spawn_mark_running_if_spawning "$dispatch_id" || {
       devkit_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
       devkit_spawn_mark_prompt_failed "$dispatch_id" state-persist-failed
-      devkit_error "could not persist tmux dispatch state: $dispatch_id"
+      devkit_dispatch_failure_error "$dispatch_id" "could not persist tmux dispatch state: $dispatch_id"
       return 1
     }
     DEVKIT_LAST_DISPATCH="$dispatch_id"
@@ -673,50 +673,50 @@ ${prompt}"
   meta="$(devkit_dispatch_meta_read "$dispatch_id")" || {
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     devkit_spawn_mark_prompt_failed "$dispatch_id" metadata-read-failed
-    devkit_error "could not read dispatch metadata: $dispatch_id"
+    devkit_dispatch_failure_error "$dispatch_id" "could not read dispatch metadata: $dispatch_id"
     return 1
   }
   if ! devkit_dispatch_native_send "$meta" "$command_text"; then
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     devkit_spawn_mark_prompt_failed "$dispatch_id" command-not-submitted
-    devkit_error "could not start agent in $child_host terminal $session_id"
+    devkit_dispatch_failure_error "$dispatch_id" "could not start agent in $child_host terminal $session_id"
     return 1
   fi
   if [ "$child_host" = orca ]; then
     if ! orca terminal wait --terminal "$session_id" --for tui-idle --timeout-ms "$DEVKIT_AGENT_READY_TIMEOUT_MS" >/dev/null; then
       devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
       devkit_spawn_mark_prompt_failed "$dispatch_id" readiness-timeout
-      devkit_error "orca terminal $session_id did not become ready within ${DEVKIT_AGENT_READY_TIMEOUT_MS}ms"
+      devkit_dispatch_failure_error "$dispatch_id" "orca terminal $session_id did not become ready within ${DEVKIT_AGENT_READY_TIMEOUT_MS}ms"
       return 1
     fi
   elif ! devkit_superset_wait_for_terminal_ready "$workspace_id" "$session_id"; then
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     devkit_spawn_mark_prompt_failed "$dispatch_id" readiness-timeout
-    devkit_error "Superset terminal $session_id did not become ready"
+    devkit_dispatch_failure_error "$dispatch_id" "Superset terminal $session_id did not become ready"
     return 1
   fi
   meta="$(devkit_dispatch_meta_read "$dispatch_id")" || return 1
   if ! devkit_dispatch_native_send "$meta" "$final_prompt"; then
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-send-failed
-    devkit_error "could not send prompt to $child_host terminal $session_id"
+    devkit_dispatch_failure_error "$dispatch_id" "could not send prompt to $child_host terminal $session_id"
     return 1
   fi
   if ! devkit_dispatch_wait_for_prompt_receipt "$dispatch_id"; then
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-receipt-timeout
-    devkit_error "dispatch $dispatch_id did not receive a prompt receipt within ${DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS}s"
+    devkit_dispatch_failure_error "$dispatch_id" "dispatch $dispatch_id did not receive a prompt receipt within ${DEVKIT_PROMPT_RECEIPT_TIMEOUT_SECONDS}s"
     return 1
   fi
   if ! devkit_spawn_mark_prompt_delivered "$dispatch_id"; then
     devkit_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     devkit_spawn_mark_prompt_failed "$dispatch_id" prompt-confirmation-failed
-    devkit_error "could not record prompt delivery for dispatch $dispatch_id"
+    devkit_dispatch_failure_error "$dispatch_id" "could not record prompt delivery for dispatch $dispatch_id"
     return 1
   fi
   devkit_spawn_mark_running_if_spawning "$dispatch_id" || {
     devkit_spawn_mark_prompt_failed "$dispatch_id" state-persist-failed
-    devkit_error "could not persist host dispatch state: $session_id"
+    devkit_dispatch_failure_error "$dispatch_id" "could not persist host dispatch state: $session_id"
     return 1
   }
   DEVKIT_LAST_DISPATCH="$dispatch_id"

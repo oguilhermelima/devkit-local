@@ -533,6 +533,28 @@ devkit_dispatch_message_paths() {
   done | sort -n -k1,1
 }
 
+devkit_dispatch_last_child_message() {
+  local dispatch_id="$1" messages_dir path latest_path=""
+  messages_dir="$(devkit_dispatch_messages_dir "$dispatch_id")" || return 1
+  while IFS=$'\t' read -r _ path; do
+    [ -n "$path" ] || continue
+    jq -e '.from == "child"' "$path" >/dev/null 2>&1 || continue
+    latest_path="$path"
+  done < <(devkit_dispatch_message_paths "$messages_dir")
+  [ -n "$latest_path" ] || return 1
+  jq -r '.text // empty' "$latest_path"
+}
+
+devkit_dispatch_failure_error() {
+  local dispatch_id="$1" reason="$2" message
+  message="$(devkit_dispatch_last_child_message "$dispatch_id" 2>/dev/null || true)"
+  if [ -n "$message" ]; then
+    devkit_error "$reason; child message: \"$message\""
+  else
+    devkit_error "$reason"
+  fi
+}
+
 devkit_dispatch_seq_acknowledged() {
   local deliveries_dir="$1" seq="$2" path
   for path in "$deliveries_dir"/*.json; do
