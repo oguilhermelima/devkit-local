@@ -177,4 +177,40 @@ assert_symlink_target "$install_home/.local/bin/devkit" "$root/devkit"
 [ -d "$install_home/.devkit-local" ] || fail 'legacy install directory was removed'
 printf 'installer: new command and deprecated alias links are present\n'
 
+installer_source="$work/install-functions.sh"
+sed '$d' "$root/install.sh" >"$installer_source"
+source "$installer_source"
+SOURCE_ROOT="$root"
+installer_bin="$work/installer-bin"
+mkdir -p "$installer_bin"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$installer_bin/tmux"
+chmod +x "$installer_bin/tmux"
+saved_path="$PATH"
+PATH="$installer_bin:$PATH"
+MODULES_REQUEST=""
+INSTALLER_INTERACTIVE=false
+installer_select_modules
+assert_equal "$SELECTED_MODULES" 'orchestration,orchestration-hooks,worktree,tmux-runtime'
+MODULES_REQUEST=none
+installer_select_modules
+assert_equal "$SELECTED_MODULES" ''
+PATH="$saved_path"
+printf 'installer modules: default core set includes tmux and none stays empty\n'
+
+cache_home="$work/cache-home"
+cached_skill="$cache_home/.claude/plugins/cache/megabrain-local/megabrain/0.1.0/skills/megabrain/SKILL.md"
+mkdir -p "$(dirname "$cached_skill")"
+cp "$root/skills/megabrain/SKILL.md" "$cached_skill"
+saved_home="$HOME"
+export HOME="$cache_home"
+if installer_plugin_cache_stale claude; then
+  fail 'matching cached skill was incorrectly detected as stale'
+fi
+printf '\nfixture edit\n' >>"$cached_skill"
+if ! installer_plugin_cache_stale claude; then
+  fail 'edited cached skill was not detected as stale'
+fi
+export HOME="$saved_home"
+printf 'installer cache: matching fixture is current and edited fixture is stale\n'
+
 printf 'ok: megabrain rename and migration scenarios\n'
