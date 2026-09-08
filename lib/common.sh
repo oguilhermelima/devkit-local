@@ -86,6 +86,7 @@ megabrain_iso_now() {
 }
 
 megabrain_session_id() {
+  local tmux_session
   MEGABRAIN_SESSION_ID=""
   MEGABRAIN_SESSION_HOST="unknown"
   if [ -n "${SUPERSET_TERMINAL_ID:-}" ]; then
@@ -94,6 +95,12 @@ megabrain_session_id() {
   elif [ -n "${ORCA_TERMINAL_HANDLE:-}" ]; then
     MEGABRAIN_SESSION_ID="$ORCA_TERMINAL_HANDLE"
     MEGABRAIN_SESSION_HOST="orca"
+  elif [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
+    tmux_session="$(megabrain_dispatch_tmux_caller_session 2>/dev/null || true)"
+    if [ -n "$tmux_session" ]; then
+      MEGABRAIN_SESSION_ID="$tmux_session:$TMUX_PANE"
+      MEGABRAIN_SESSION_HOST="tmux"
+    fi
   fi
   printf '%s\n' "$MEGABRAIN_SESSION_ID"
 }

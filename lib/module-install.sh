@@ -197,24 +197,41 @@ command_doctor() {
 }
 
 module_orchestration_doctor() {
-  local orca_status superset_status counts_suffix
+  local orca_status superset_status counts_suffix tmux_runtime=false
   megabrain_dispatch_health_counts
   counts_suffix="; uncertain dispatches: $MODULE_UNCERTAIN_DISPATCHES; retained terminals: $MODULE_RETAINED_TERMINALS; prunable dispatches: $MODULE_PRUNABLE_DISPATCHES"
-  if ! megabrain_require_command orca; then
-    megabrain_set_status missing "orca CLI is not on PATH$counts_suffix"
-    return 1
+  if megabrain_runtime_enabled && megabrain_tmux_available; then
+    tmux_runtime=true
   fi
-  if ! orca status --json >/dev/null 2>&1; then
+  if ! megabrain_require_command orca; then
+    if [ "$tmux_runtime" = true ]; then
+      orca_status=optional
+    else
+      megabrain_set_status missing "orca CLI is not on PATH$counts_suffix"
+      return 1
+    fi
+  elif ! orca status --json >/dev/null 2>&1; then
     megabrain_set_status misconfigured "orca status --json failed$counts_suffix"
     return 1
+  else
+    orca_status=ok
   fi
   if ! megabrain_superset_available; then
-    megabrain_set_status missing "superset CLI is not on PATH and $HOME/.superset/bin/superset is unavailable$counts_suffix"
-    return 1
-  fi
-  if ! megabrain_superset workspaces list --json >/dev/null 2>&1; then
+    if [ "$tmux_runtime" = true ]; then
+      superset_status=optional
+    else
+      megabrain_set_status missing "superset CLI is not on PATH and $HOME/.superset/bin/superset is unavailable$counts_suffix"
+      return 1
+    fi
+  elif ! megabrain_superset workspaces list --json >/dev/null 2>&1; then
     megabrain_set_status misconfigured "superset workspaces list --json failed$counts_suffix"
     return 1
+  else
+    superset_status=ok
+  fi
+  if [ "$tmux_runtime" = true ] && { [ "$orca_status" = optional ] || [ "$superset_status" = optional ]; }; then
+    megabrain_set_status ok "tmux runtime is usable; missing orchestrator CLIs are optional$counts_suffix"
+    return 0
   fi
   megabrain_set_status ok "orca and superset status checks passed$counts_suffix"
   return 0

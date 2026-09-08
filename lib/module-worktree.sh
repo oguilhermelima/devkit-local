@@ -335,6 +335,9 @@ megabrain_resolve_spawn_runtime() {
   MEGABRAIN_SPAWN_CONTEXT="$MEGABRAIN_SESSION_HOST"
   case "$MEGABRAIN_SPAWN_CONTEXT" in
     orca|superset) ;;
+    tmux)
+      [ "$requested" = tmux ] || { megabrain_error "IDE spawn runtime requires a managed Orca or Superset terminal"; return 1; }
+      ;;
     *) megabrain_error "cannot launch agent from unknown orchestration host"; return 1 ;;
   esac
 }
@@ -464,7 +467,7 @@ megabrain_launch_agent() {
     parent_tmux_pane="$TMUX_PANE"
   fi
   [ -n "$parent_id" ] || { megabrain_error "cannot spawn a managed dispatch from an unmanaged shell"; return 1; }
-  if [ -z "${MEGABRAIN_SPAWN_RUNTIME:-}" ] || [ -z "${MEGABRAIN_SPAWN_CONTEXT:-}" ]; then
+  if [ -z "${MEGABRAIN_SPAWN_RUNTIME:-}" ] || [ -z "${MEGABRAIN_SPAWN_CONTEXT:-}" ] || [ "$MEGABRAIN_SPAWN_CONTEXT" != "$parent_host" ]; then
     megabrain_resolve_spawn_runtime auto || return 1
   fi
   runtime="$MEGABRAIN_SPAWN_RUNTIME"
@@ -496,11 +499,17 @@ ${prompt}"
     dispatch_id="$(megabrain_dispatch_new_id)" || return 1
     if [ "$context" = superset ]; then
       megabrain_superset_available || { megabrain_error "superset CLI is not available"; return 1; }
-    else
+    elif [ "$context" = orca ]; then
       megabrain_require_command orca || { megabrain_error "orca CLI is not available"; return 1; }
+    elif [ "$context" != tmux ]; then
+      megabrain_error "cannot launch agent from unknown orchestration host"
+      return 1
     fi
     megabrain_tmux_existing_session_for_worktree "$worktree_path" || true
     existing_session="${MEGABRAIN_TMUX_EXISTING_SESSION:-}"
+    if [ -z "$existing_session" ] && [ "$context" = tmux ]; then
+      existing_session="$parent_tmux_session"
+    fi
     if [ -n "$existing_session" ]; then
       tmux_session="$existing_session"
       session_id="$(megabrain_tmux_host_terminal_for_session "$tmux_session" 2>/dev/null || true)"
