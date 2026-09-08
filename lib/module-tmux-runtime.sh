@@ -990,7 +990,7 @@ module_tmux_runtime_doctor() {
     server_running=true
     megabrain_tmux_tuning_server_has_rgb && server_rgb=true
   fi
-  detail="$version; runtime $enabled; tuning block $tuning_block; tuning file current $tuning_file; wrapper block in zshrc $wrapper_block; wrapper file current $wrapper_file"
+  detail="$version; runtime $enabled; tuning block $tuning_block; tuning file current $tuning_file; wrapper block in $(basename "$(megabrain_tmux_wrapper_config_path)") $wrapper_block; wrapper file current $wrapper_file"
   if [ "$server_running" = true ]; then
     detail="$detail; running server RGB $server_rgb"
   else
