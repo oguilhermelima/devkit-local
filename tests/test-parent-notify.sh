@@ -88,7 +88,7 @@ assert_equal "$(megabrain_parent_is_idle "$idle_meta")" true
 append_message tmux-idle 'body must remain in queue'
 megabrain_parent_notify_dispatch "$idle_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
-idle_capture="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
+idle_capture="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 assert_contains "$idle_capture" '[megabrain] mail available for dispatch tmux-idle'
 assert_not_contains "$idle_capture" 'body must remain in queue'
 printf 'tmux idle pointer: %s\n' "$(printf '%s\n' "$idle_capture" | grep -F '[megabrain] mail available for dispatch tmux-idle' | tail -n 1)"
@@ -107,10 +107,10 @@ tmux_cmd send-keys -t "$parent_pane" Enter
 sleep 0.1
 create_meta tmux-busy "$parent_pane"
 append_message tmux-busy 'busy body'
-busy_before="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
+busy_before="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 busy_meta="$(megabrain_dispatch_meta_read tmux-busy)"
 megabrain_parent_notify_dispatch "$busy_meta"
-busy_after="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
+busy_after="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 assert_not_contains "$busy_after" '[megabrain] mail available for dispatch tmux-busy'
 assert_equal "$(find "$state_dir/dispatches/tmux-busy/messages" -name '*.json' | wc -l | tr -d ' ')" 1
 assert_equal "$busy_before" "$busy_after"
@@ -128,9 +128,9 @@ create_meta tmux-waiter "$parent_pane"
 waiter_meta="$(megabrain_dispatch_meta_read tmux-waiter)"
 megabrain_parent_notify_waiter_register tmux-waiter "$waiter_meta"
 append_message tmux-waiter 'waiter body'
-waiter_before="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
+waiter_before="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 megabrain_parent_notify_dispatch "$waiter_meta"
-waiter_after="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
+waiter_after="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" suppressed
 assert_equal "$waiter_before" "$waiter_after"
 megabrain_parent_notify_waiter_unregister tmux-waiter
@@ -144,12 +144,12 @@ tmux_cmd send-keys -t "$parent_pane" Enter
 sleep 0.1
 broken_meta="$(megabrain_dispatch_meta_read tmux-broken)"
 broken_pointer="$(megabrain_parent_notify_pointer tmux-broken)"
-broken_before="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
+broken_before="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 broken_parent_notify() {
   megabrain_parent_notify_tmux "$broken_meta" "$broken_pointer"
 }
 if broken_parent_notify; then
-  broken_after="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
+  broken_after="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
   if [ "$broken_before" = "$broken_after" ]; then
     fail 'deliberately broken busy-parent test did not detect a violation'
   fi
@@ -228,9 +228,9 @@ sleep 0.1
 megabrain_dispatch_meta_write cross-context parent-terminal superset superset workspace-test cross-context-child "$root" main codex label running gpt-5 true codex "$outside_session" "$outside_pane" tmux tmux "$outside_session" "$outside_pane" "$workspace_id" >/dev/null
 cross_context_meta="$(megabrain_dispatch_meta_read cross-context)"
 export TMUX="$outside_tmux" TMUX_PANE="$outside_pane"
-cross_context_before="$(env MEGABRAIN_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" capture-pane -p -t "$outside_pane" -S -20)"
+cross_context_before="$(env MEGABRAIN_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" capture-pane -J -p -t "$outside_pane" -S -20)"
 megabrain_parent_notify_dispatch "$cross_context_meta"
-cross_context_after="$(env MEGABRAIN_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" capture-pane -p -t "$outside_pane" -S -20)"
+cross_context_after="$(env MEGABRAIN_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" capture-pane -J -p -t "$outside_pane" -S -20)"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" suppressed
 assert_equal "$cross_context_before" "$cross_context_after"
 assert_contains "$(cat "$state_dir/dispatches/cross-context/nudge.log")" 'outcome=suppressed reason=state-directory-mismatch'
@@ -241,7 +241,7 @@ create_meta same-context "$parent_pane"
 same_context_meta="$(megabrain_dispatch_meta_read same-context)"
 megabrain_parent_notify_dispatch "$same_context_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
-same_context_capture="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
+same_context_capture="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 assert_contains "$same_context_capture" '[megabrain] mail available for dispatch same-context'
 printf 'same-context parent notice still delivers\n'
 
@@ -282,7 +282,7 @@ MEGABRAIN_STATE_DIR="$saved_state_dir"
 MEGABRAIN_DISPATCH_DIR="$saved_dispatch_dir"
 printf 'renamed state directory still delivers without a fixed path\n'
 
-final_capture="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
+final_capture="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 printf '%s\n' "$final_capture" >/dev/null
 trap - EXIT
 cleanup

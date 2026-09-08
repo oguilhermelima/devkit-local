@@ -84,7 +84,7 @@ queueing_meta="$(megabrain_dispatch_meta_read queueing-parent)"
 assert_equal "$(megabrain_parent_notify_tmux_is_idle "$queueing_meta")" false
 megabrain_parent_notify_dispatch "$queueing_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
-queueing_capture="$(tmux_cmd capture-pane -p -t "$parent_pane" -S -20)"
+queueing_capture="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 assert_contains "$queueing_capture" '[megabrain] mail available for dispatch queueing-parent'
 assert_contains "$(cat "$state_dir/dispatches/queueing-parent/nudge.log")" 'outcome=delivered reason=queueing-parent'
 assert_equal "$(wc -l <"$state_dir/dispatches/queueing-parent/nudge.log" | tr -d ' ')" 1
@@ -94,9 +94,9 @@ tmux_cmd new-session -d -s "$unknown_session" "printf '%s' 'Working · esc to in
 unknown_pane="$(tmux_cmd display-message -p -t "$unknown_session" '#{pane_id}')"
 create_meta unrecognised-parent "$unknown_session" "$unknown_pane"
 unknown_meta="$(megabrain_dispatch_meta_read unrecognised-parent)"
-unknown_before="$(tmux_cmd capture-pane -p -t "$unknown_pane" -S -20)"
+unknown_before="$(tmux_cmd capture-pane -J -p -t "$unknown_pane" -S -20)"
 megabrain_parent_notify_dispatch "$unknown_meta"
-unknown_after="$(tmux_cmd capture-pane -p -t "$unknown_pane" -S -20)"
+unknown_after="$(tmux_cmd capture-pane -J -p -t "$unknown_pane" -S -20)"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" busy
 assert_equal "$unknown_before" "$unknown_after"
 assert_contains "$(cat "$state_dir/dispatches/unrecognised-parent/nudge.log")" 'outcome=suppressed reason=parent-busy'
