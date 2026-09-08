@@ -788,9 +788,43 @@ installer_reconcile_marketplace() {
   installer_summary "$agent marketplace updated to $SOURCE_ROOT"
 }
 
+# WHY: the plugin cache is keyed by version, and the version does not move while the
+# tool is being developed, so an edited skill never reaches a new session. Measured:
+# claude plugin update answers "already at the latest version" and copies nothing, which
+# is how a machine ended up serving a months-old snapshot of the skill. Compare the
+# cached skill against the source instead of trusting the version.
+installer_plugin_cache_stale() {
+  local agent="$1" source_skill="$SOURCE_ROOT/skills/megabrain/SKILL.md" cached found=false
+  [ -f "$source_skill" ] || return 1
+  case "$agent" in
+    claude) set -- "$HOME"/.claude/plugins/cache/megabrain-local/megabrain/*/skills/megabrain/SKILL.md ;;
+    codex) set -- "$HOME"/.codex/plugins/cache/megabrain-local/megabrain/*/skills/megabrain/SKILL.md ;;
+    *) return 1 ;;
+  esac
+  for cached in "$@"; do
+    [ -f "$cached" ] || continue
+    found=true
+    cmp -s "$source_skill" "$cached" || return 0
+  done
+  [ "$found" = true ] || return 1
+  return 1
+}
+
+installer_refresh_plugin_cache() {
+  local agent="$1"
+  installer_plugin_cache_stale "$agent" || return 0
+  case "$agent" in
+    claude) claude plugin uninstall 'megabrain@megabrain-local' >/dev/null 2>&1 || true ;;
+    codex) codex plugin remove 'megabrain@megabrain-local' >/dev/null 2>&1 || true ;;
+    *) return 0 ;;
+  esac
+  installer_summary "$agent plugin cache was stale and is being reinstalled from $SOURCE_ROOT"
+}
+
 installer_install_plugin_command() {
   local agent="$1" output rc=0
   shift
+  installer_refresh_plugin_cache "$agent"
   if installer_verify_plugin "$agent"; then
     installer_summary "$agent plugin already-current"
     return 0
