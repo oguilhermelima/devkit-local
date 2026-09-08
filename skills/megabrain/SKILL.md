@@ -37,7 +37,13 @@ megabrain orchestrate spawn --repo <name|path> --branch <branch> --agent <id> --
 ```
 
 Either way: pass `--worktree <path>` to reuse a checkout that already exists, or `--repo` plus
-`--branch` to have one created. Prompt budgets are 262144 bytes through argv and 12000 bytes
+`--branch` to have one created.
+
+A dispatch runs either as a tmux split or as a tab in the orchestrator that owns the session.
+**tmux needs neither Orca nor Superset**: inside tmux a session identifies itself by its own
+session and pane, so the whole loop works on any machine that has tmux, and the child pane is
+removed outright when you close it. The orchestrators are what an IDE-tab dispatch needs, and
+what shared worktrees need. `megabrain context` reports which of the three a session is in. Prompt budgets are 262144 bytes through argv and 12000 bytes
 through tmux; over the limit is refused before anything is created, never truncated.
 
 ## Supervising what you started
@@ -75,9 +81,24 @@ Reading the dispatch record is not reading the message. A failure's `reason` fie
 symptom; the child's own message in the queue is usually the cause. Look at the messages before
 concluding anything about a failed dispatch.
 
+**Closing a finished dispatch is your job, not the child's.** When a child reports `done`, read
+what it says, verify what you can, and then close it. Nothing closes it for you: the child cannot,
+because it would be killing the pane it is running in, and `close` refuses that unconditionally.
+A dispatch left open holds a pane and keeps appearing in `orchestrate list`.
+
+Close after you have read the pane, not before. `orchestrate read` reads the terminal's own
+scrollback, and closing destroys it: the queue keeps every message, but the transcript that shows
+what the agent actually did is gone. A `done` is a claim, and the pane is where you check it.
+
+```sh
+megabrain orchestrate read <dispatch-id>    # what the agent really did
+megabrain orchestrate close <dispatch-id>   # then take the pane back
+```
+
 `close` refuses to close the pane it is running in, and `--force-release` does not override that.
-Close only dispatches you started, one at a time. Superset leaves the closed pane visible as
-`Desconectado` until the human dismisses it with the pane X, because no CLI verb removes it.
+Close only dispatches you started, one at a time. In tmux the pane is removed outright; Superset
+leaves it visible as `Desconectado` until the human dismisses it with the pane X, because no CLI
+verb removes it.
 
 ## If you are the child
 
@@ -91,7 +112,9 @@ megabrain done "summary"           report the outcome and what you verified
 
 A reply reaches you only if you look for it. `ask` queues the question and returns; it does not
 block. Poll with `check` and do not proceed on a default when the answer would change the work.
-`done` is not optional: the task is not finished until the signal is sent.
+`done` is not optional: the task is not finished until the signal is sent. Sending it does not
+close your pane and is not meant to: the coordinator closes you once it has read what you left
+behind.
 
 ## Chains, limits and models
 
