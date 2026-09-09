@@ -67,7 +67,7 @@ megabrain_validate_prompt_budget() {
   esac
   actual="$(megabrain_prompt_byte_length "$text")"
   if [ "$actual" -gt "$limit" ]; then
-    megabrain_error "$labelText is too large for $path delivery: $actual bytes (limit: $limit bytes)"
+    megabrain_error "$label is too large for $path delivery: $actual bytes (limit: $limit bytes)"
     return 1
   fi
 }
