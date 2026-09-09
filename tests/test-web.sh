@@ -90,12 +90,36 @@ assert.throws(
 console.log('ok: web profile, manifest, and userscript scenarios');
 NODE
 
-if [ "${MEGABRAIN_WEB_E2E:-false}" != true ]; then
-  printf 'skip: web end-to-end proof requires MEGABRAIN_WEB_E2E=true\n'
+web_root="$HOME/.megabrain/playwright"
+web_install='megabrain install simulator-web --browser chromium'
+
+if [ "${MEGABRAIN_WEB_E2E:-true}" = false ]; then
+  printf 'skip: web end-to-end proof disabled by MEGABRAIN_WEB_E2E=false\n'
+elif [ ! -d "$web_root/node_modules/playwright" ]; then
+  printf 'skip: pinned Playwright is not installed at %s; run %s\n' \
+    "$web_root/node_modules/playwright" "$web_install"
+elif [ ! -f "$web_root/manifest.json" ]; then
+  printf 'skip: browser manifest is missing at %s; run %s\n' \
+    "$web_root/manifest.json" "$web_install"
+elif [ ! -d "$web_root/profiles/chromium" ]; then
+  printf 'skip: Chromium profile is missing at %s; run %s\n' \
+    "$web_root/profiles/chromium" "$web_install"
+elif [ ! -d "$web_root/extensions/chromium/ublock-origin-lite" ]; then
+  printf 'skip: uBlock Origin Lite is missing at %s; run %s\n' \
+    "$web_root/extensions/chromium/ublock-origin-lite" "$web_install"
+elif [ ! -d "$web_root/extensions/chromium/violentmonkey" ]; then
+  printf 'skip: Violentmonkey is missing at %s; run %s\n' \
+    "$web_root/extensions/chromium/violentmonkey" "$web_install"
 else
-  [ -d "$HOME/.megabrain/playwright/node_modules/playwright" ] || {
-    printf 'skip: pinned Playwright is not installed\n'
-    exit 0
-  }
-  node "$root/scripts/playwright-web.mjs" e2e-proof
+  web_browser_path="$(node --input-type=module - "$web_root/node_modules/playwright/index.mjs" <<'NODE'
+const { chromium } = await import(process.argv[2]);
+process.stdout.write(chromium.executablePath());
+NODE
+)"
+  if [ -z "$web_browser_path" ] || [ ! -x "$web_browser_path" ]; then
+    printf 'skip: pinned Chromium binary is missing at %s; run %s\n' \
+      "${web_browser_path:-<unknown path>}" "$web_install"
+  else
+    node "$root/scripts/playwright-web.mjs" e2e-proof
+  fi
 fi
