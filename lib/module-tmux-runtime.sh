@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 
-MEGABRAIN_TMUX_SETTLE_ATTEMPTS="${MEGABRAIN_TMUX_SETTLE_ATTEMPTS:-20}"
+# WHY: settle now waits for a rendered composer, not merely a running process, and an
+# agent takes seconds to boot its TUI. Measured on this machine 2026-09-09: a Codex pane
+# exposed its composer about 3 seconds after launch, so 20 checks at 0.1s (2 seconds)
+# refused every real launch. 600 checks is 60 seconds of headroom for a loaded machine.
+MEGABRAIN_TMUX_SETTLE_ATTEMPTS="${MEGABRAIN_TMUX_SETTLE_ATTEMPTS:-600}"
 MEGABRAIN_TMUX_SETTLE_SECONDS="${MEGABRAIN_TMUX_SETTLE_SECONDS:-0.1}"
 MEGABRAIN_TMUX_ENTER_RETRIES="${MEGABRAIN_TMUX_ENTER_RETRIES:-3}"
 MEGABRAIN_TMUX_ENTER_WAIT="${MEGABRAIN_TMUX_ENTER_WAIT:-0.5}"
@@ -102,7 +106,11 @@ megabrain_tmux_composer_ready() {
   composer="$(megabrain_tmux_capture_composer "$pane")"
   case "$agent" in
     codex)
-      printf '%s\n' "$composer" | grep -Eq '^[[:space:]]*›[[:space:]]+Ask Codex to do anything[[:space:]]*$'
+      # WHY: measured on two real panes 2026-09-09. A ready Codex composer renders the
+      # marker alone once the session has content, and only a freshly opened pane carries
+      # the placeholder. Text after the marker means the composer holds a draft, which is
+      # not ready, so both accepted forms end the line.
+      printf '%s\n' "$composer" | grep -Eq '^[[:space:]]*›([[:space:]]+Ask Codex to do anything)?[[:space:]]*$'
       ;;
     claude)
       printf '%s\n' "$composer" | grep -Eq '^[[:space:]]*❯[[:space:]]*$'
@@ -388,20 +396,22 @@ megabrain_tmux_send_literal() {
 }
 
 megabrain_tmux_capture_composer() {
-  local pane="$1" pane_height start
-  # Negative -S values address scrollback, not rows above the visible bottom. Resolve
-  # the visible height so this bounded region excludes submitted transcript messages.
-  pane_height="$(tmux display-message -p -t "$pane" '#{pane_height}' 2>/dev/null || true)"
-  case "$pane_height" in
-    ''|*[!0-9]*)
-      tmux capture-pane -p -J -t "$pane" -S -4 2>/dev/null | tail -n 4
-      ;;
-    *)
-      start=$((pane_height - 4))
-      [ "$start" -ge 0 ] || start=0
-      tmux capture-pane -p -J -t "$pane" -S "$start" -E - 2>/dev/null || true
-      ;;
-  esac
+  local pane="$1"
+  # WHY: an agent TUI does not anchor its composer to the last row. Measured on a real
+  # Codex pane 2026-09-09: content ended on row 25 of a 37-row pane and rows 26 to 37
+  # were blank, so a fixed window over the final rows captured nothing and readiness
+  # could never be observed. Trailing blank rows are dropped first, then the region is
+  # bounded to the last few rendered rows so submitted transcript text stays out.
+  tmux capture-pane -p -J -t "$pane" 2>/dev/null | awk '
+    { line[NR] = $0 }
+    END {
+      last = 0
+      for (i = 1; i <= NR; i++) if (line[i] ~ /[^[:space:]]/) last = i
+      start = last - 3
+      if (start < 1) start = 1
+      for (i = start; i <= last; i++) print line[i]
+    }
+  '
 }
 
 megabrain_tmux_nudge_text_for_pane() {
