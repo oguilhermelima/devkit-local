@@ -704,7 +704,16 @@ installer_verify_plugin() {
       codex plugin list 2>/dev/null | grep -Eq 'megabrain@megabrain-local[[:space:]]+installed, enabled' || return 1
       ;;
     agy)
-      agy plugin list 2>/dev/null | grep -Eq '"name"[[:space:]]*:[[:space:]]*"megabrain"' || return 1
+      # Agy imports the Claude Code plugin instead of storing a local copy. Measured
+      # on 2026-09-09: plugin list exposes name, source and components only, with no
+      # agy plugin path or skill content to compare.
+      agy plugin list 2>/dev/null | jq -e '
+        [.. | objects
+          | select(.name? == "megabrain")
+          | select(.source? == "claude-code")
+          | select((.components? | type == "array") and ((.components | index("skills")) != null))]
+        | length > 0
+      ' >/dev/null 2>&1 || return 1
       ;;
   esac
 }
@@ -789,6 +798,12 @@ installer_plugin_cache_stale() {
   case "$agent" in
     claude) set -- "$HOME"/.claude/plugins/cache/megabrain-local/megabrain/*/skills/megabrain/SKILL.md ;;
     codex) set -- "$HOME"/.codex/plugins/cache/megabrain-local/megabrain/*/skills/megabrain/SKILL.md ;;
+    agy)
+      if installer_verify_plugin agy; then
+        return 1
+      fi
+      return 0
+      ;;
     *) return 1 ;;
   esac
   for cached in "$@"; do
@@ -806,6 +821,7 @@ installer_refresh_plugin_cache() {
   case "$agent" in
     claude) claude plugin uninstall 'megabrain@megabrain-local' >/dev/null 2>&1 || true ;;
     codex) codex plugin remove 'megabrain@megabrain-local' >/dev/null 2>&1 || true ;;
+    agy) agy plugin uninstall megabrain >/dev/null 2>&1 || true ;;
     *) return 0 ;;
   esac
   installer_summary "$agent plugin cache was stale and is being reinstalled from $SOURCE_ROOT"
