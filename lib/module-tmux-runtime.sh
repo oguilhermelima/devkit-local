@@ -68,17 +68,50 @@ megabrain_tmux_first_pane() {
 }
 
 megabrain_tmux_settle_pane() {
-  local pane="$1" attempt current
+  local pane="$1" agent="${2:-}" attempt current
   for ((attempt = 1; attempt <= MEGABRAIN_TMUX_SETTLE_ATTEMPTS; attempt++)); do
     current="$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null || true)"
     case "$current" in
       bash|zsh|sh|dash|fish|ksh|tcsh|login|-zsh|-bash|"") ;;
-      *) return 0 ;;
+      *)
+        if [ -z "$agent" ] || ! megabrain_tmux_agent_has_composer_signal "$agent"; then
+          return 0
+        fi
+        megabrain_tmux_composer_ready "$pane" "$agent" && return 0
+        ;;
     esac
     sleep "$MEGABRAIN_TMUX_SETTLE_SECONDS"
   done
-  megabrain_error "tmux pane $pane did not start an agent within ${MEGABRAIN_TMUX_SETTLE_ATTEMPTS} checks"
+  if [ -n "$agent" ] && megabrain_tmux_agent_has_composer_signal "$agent"; then
+    megabrain_error "tmux pane $pane did not expose a ready $agent composer within ${MEGABRAIN_TMUX_SETTLE_ATTEMPTS} checks"
+  else
+    megabrain_error "tmux pane $pane did not start an agent within ${MEGABRAIN_TMUX_SETTLE_ATTEMPTS} checks"
+  fi
   return 1
+}
+
+megabrain_tmux_agent_has_composer_signal() {
+  case "$1" in
+    codex|claude|agy) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+megabrain_tmux_composer_ready() {
+  local pane="$1" agent="$2" composer
+  composer="$(megabrain_tmux_capture_composer "$pane")"
+  case "$agent" in
+    codex)
+      printf '%s\n' "$composer" | grep -Eq '^[[:space:]]*›[[:space:]]+Ask Codex to do anything[[:space:]]*$'
+      ;;
+    claude)
+      printf '%s\n' "$composer" | grep -Eq '^[[:space:]]*❯[[:space:]]*$'
+      ;;
+    agy)
+      printf '%s\n' "$composer" | grep -Eq '^[[:space:]]*>[[:space:]]*$'
+      ;;
+    *) return 1 ;;
+  esac
 }
 
 megabrain_tmux_session_registry_prune() {

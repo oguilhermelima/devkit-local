@@ -732,7 +732,7 @@ ${prompt}"
       megabrain_spawn_mark_prompt_failed "$dispatch_id" command-not-submitted
       return 1
     fi
-    if ! megabrain_tmux_settle_pane "$tmux_pane"; then
+    if ! megabrain_tmux_settle_pane "$tmux_pane" "$agent_used"; then
       megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
       megabrain_spawn_mark_prompt_failed "$dispatch_id" readiness-timeout
       return 1
