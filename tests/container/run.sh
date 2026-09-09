@@ -18,7 +18,15 @@ exec docker run --rm \
   "$image" -c '
     set -uo pipefail
     [ "${1:-}" = -- ] && shift
-    cp -r /src "$HOME/work" && cd "$HOME/work"
+    mkdir -p "$HOME/work"
+    tar -C /src --exclude=.git -cf - . | tar -C "$HOME/work" -xf -
+    git -C "$HOME/work" init -q
+    origin_url="$(git -C /src config --get remote.origin.url 2>/dev/null || true)"
+    if [ -n "$origin_url" ]; then
+      git -C "$HOME/work" remote add origin "$origin_url"
+    fi
+    git -C "$HOME/work" symbolic-ref HEAD refs/heads/main
+    cd "$HOME/work"
     printf "bash %s on %s\n\n" "$BASH_VERSION" "$(uname -sm)"
     selected_tests=""
     if [ "$#" -eq 0 ]; then
