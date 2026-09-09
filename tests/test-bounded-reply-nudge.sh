@@ -105,10 +105,10 @@ tmux() {
 }
 repaint_answer='TEXTO QUE NAO SUBMETE'
 repaint_output="$(megabrain_tmux_send_text "$repaint_pane" "$repaint_answer" claude; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
-assert_equal "$repaint_output" queued
+assert_equal "$repaint_output" not-typed
 repaint_capture="$(cat "$repaint_composer_file")"
-assert_contains "$repaint_capture" "$repaint_answer"
-printf 'tmux transport: queued the nudge without inferring composer delivery\n'
+assert_equal "$repaint_capture" ''
+printf 'tmux transport: failed nudge leaves no composer draft\n'
 unset -f tmux
 
 # A process that never reads stdin exercises the real pty backpressure. This is a
@@ -155,7 +155,7 @@ mock_mode=stuck
 mock_pane_file="$state_root/mock-pane"
 mock_keys="$state_root/mock-keys"
 : >"$mock_keys"
-printf 'draft\n' >"$mock_pane_file"
+: >"$mock_pane_file"
 tmux() {
   local command="${1:-}"
   case "$command" in
@@ -166,6 +166,9 @@ tmux() {
       case "${4:-}" in
         -l) printf '%s\n' "${5:-}" >"$mock_pane_file" ;;
         C-e) : ;;
+        Tab)
+          if [ "$mock_mode" = accept ]; then : >"$mock_pane_file"; fi
+          ;;
         Enter)
           if [ "$mock_mode" = accept ]; then : >"$mock_pane_file"; fi
           ;;
@@ -188,7 +191,7 @@ create_meta "$dispatch_id" '%stuck' claude
 stuck_answer='reply stays durable when claude composer does not submit'
 stuck_output="$(megabrain_dispatch_reply "$dispatch_id" --text "$stuck_answer" --json)"
 assert_equal "$(jq -r '.status' <<<"$stuck_output")" queued
-assert_equal "$(cat "$mock_pane_file")" '[megabrain] reply available; run megabrain check'
+assert_equal "$(cat "$mock_pane_file")" ''
 assert_not_contains "$(cat "$mock_keys")" 'Tab'
 stuck_message="$state_root/state/dispatches/$dispatch_id/messages"/*.json
 assert_equal "$(find "$state_root/state/dispatches/$dispatch_id/messages" -name '*.json' | wc -l | tr -d ' ')" 1
@@ -304,5 +307,138 @@ pointer_message="$state_root/state/dispatches/$dispatch_id/messages"/*.json
 assert_equal "$(jq -r '.text' $pointer_message)" "$pointer_answer"
 assert_contains "$(jq -r '.sessionId' $pointer_message)" ':'
 printf 'reply transport: pointer excludes the answer and parent provenance is recorded\n'
+
+# A busy Codex pane ignores Enter, but its documented Tab affordance queues the current
+# input. A failed affordance must remove exactly the text this call typed, leaving no draft.
+nudge_composer_file="$state_root/nudge-composer"
+nudge_queue_file="$state_root/nudge-queue"
+nudge_keys_file="$state_root/nudge-keys"
+nudge_agent=codex
+nudge_mode=accept
+: >"$nudge_composer_file"
+: >"$nudge_queue_file"
+: >"$nudge_keys_file"
+tmux() {
+  local command="${1:-}" count
+  case "$command" in
+    display-message) printf '120\n' ;;
+    send-keys)
+      printf '%s\n' "$*" >>"$nudge_keys_file"
+      case "${4:-}" in
+        -l)
+          # The delay makes overlapping writers reproduce a pane-level race if no lock
+          # serializes the complete text-plus-affordance transaction.
+          sleep 0.1
+          printf '%s' "${5:-}" >"$nudge_composer_file"
+          ;;
+        Enter)
+          if [ "$nudge_agent" = claude ] && [ "$nudge_mode" = accept ]; then
+            cat "$nudge_composer_file" >>"$nudge_queue_file"
+            printf '\n' >>"$nudge_queue_file"
+            : >"$nudge_composer_file"
+          fi
+          ;;
+        Tab)
+          if [ "$nudge_agent" = codex ] && [ "$nudge_mode" = accept ]; then
+            cat "$nudge_composer_file" >>"$nudge_queue_file"
+            printf '\n' >>"$nudge_queue_file"
+            : >"$nudge_composer_file"
+          else
+            return 1
+          fi
+          ;;
+        -N)
+          count="${3:-0}"
+          if [ "${6:-}" = BSpace ]; then
+            printf '%s\n' "backspaces=$count" >>"$nudge_keys_file"
+            : >"$nudge_composer_file"
+          fi
+          ;;
+      esac
+      ;;
+    *) return 0 ;;
+  esac
+}
+
+busy_codex='codex reply queued separately from the busy composer'
+nudge_agent=codex
+nudge_mode=accept
+: >"$nudge_composer_file"
+: >"$nudge_queue_file"
+busy_status="$(megabrain_tmux_send_nudge %busy "$busy_codex" codex; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
+assert_equal "$busy_status" queued
+assert_equal "$(cat "$nudge_composer_file")" ''
+assert_equal "$(cat "$nudge_queue_file")" "$busy_codex"
+assert_contains "$(cat "$nudge_keys_file")" ' Tab'
+assert_not_contains "$(cat "$nudge_keys_file")" ' Enter'
+printf 'busy Codex: Tab queues the nudge while Enter is ignored\n'
+
+failed_codex='codex text is removed when its queue affordance fails'
+nudge_agent=codex
+nudge_mode=reject
+: >"$nudge_composer_file"
+: >"$nudge_queue_file"
+: >"$nudge_keys_file"
+failed_status="$(megabrain_tmux_send_nudge %busy "$failed_codex" codex; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
+assert_equal "$failed_status" not-typed
+assert_equal "$(cat "$nudge_composer_file")" ''
+assert_equal "$(cat "$nudge_queue_file")" ''
+assert_contains "$(cat "$nudge_keys_file")" 'backspaces='
+assert_not_contains "$(cat "$nudge_keys_file")" ' C-u'
+printf 'failed Codex queue: exactly typed text is removed\n'
+
+claude_nudge='claude Enter queues a busy follow-up'
+nudge_agent=claude
+nudge_mode=accept
+: >"$nudge_composer_file"
+: >"$nudge_queue_file"
+: >"$nudge_keys_file"
+claude_status="$(megabrain_tmux_send_nudge %busy "$claude_nudge" claude; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
+assert_equal "$claude_status" queued
+assert_equal "$(cat "$nudge_composer_file")" ''
+assert_equal "$(cat "$nudge_queue_file")" "$claude_nudge"
+assert_contains "$(cat "$nudge_keys_file")" ' Enter'
+assert_not_contains "$(cat "$nudge_keys_file")" ' Tab'
+printf 'busy Claude: Enter queues the nudge\n'
+
+# No affordance has been established for agy. It is safer to leave the durable queue as
+# the only path than to put an unsubmitted pointer into an unknown composer.
+nudge_agent=agy
+nudge_mode=accept
+: >"$nudge_composer_file"
+: >"$nudge_queue_file"
+: >"$nudge_keys_file"
+unknown_status="$(megabrain_tmux_send_nudge %busy 'agy pointer is not typed without a proven queue' agy; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
+assert_equal "$unknown_status" not-typed
+assert_equal "$(cat "$nudge_composer_file")" ''
+assert_equal "$(cat "$nudge_queue_file")" ''
+assert_equal "$(cat "$nudge_keys_file")" ''
+printf 'unknown agy queue: nudge is not typed\n'
+
+# Two nudges to one busy pane are independent queue entries, never one concatenated draft.
+nudge_agent=codex
+nudge_mode=accept
+: >"$nudge_composer_file"
+: >"$nudge_queue_file"
+: >"$nudge_keys_file"
+(
+  megabrain_tmux_send_nudge %busy 'first concurrent nudge' codex
+  printf '%s\n' "$MEGABRAIN_TMUX_SEND_STATUS" >"$state_root/first-status"
+) &
+first_pid=$!
+(
+  megabrain_tmux_send_nudge %busy 'second concurrent nudge' codex
+  printf '%s\n' "$MEGABRAIN_TMUX_SEND_STATUS" >"$state_root/second-status"
+) &
+second_pid=$!
+wait "$first_pid"
+wait "$second_pid"
+assert_equal "$(wc -l <"$nudge_queue_file" | tr -d ' ')" 2
+grep -Fx 'first concurrent nudge' "$nudge_queue_file" >/dev/null || fail 'first concurrent nudge was not a separate queue entry'
+grep -Fx 'second concurrent nudge' "$nudge_queue_file" >/dev/null || fail 'second concurrent nudge was not a separate queue entry'
+assert_equal "$(cat "$nudge_composer_file")" ''
+assert_equal "$(cat "$state_root/first-status")" queued
+assert_equal "$(cat "$state_root/second-status")" queued
+printf 'concurrent busy pane: nudges remain ordered queue entries\n'
 
 printf 'ok: bounded reply nudge scenarios\n'
