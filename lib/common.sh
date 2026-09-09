@@ -171,7 +171,7 @@ megabrain_state_recorded_status() {
 
 megabrain_state_reconcile() {
   local module="$1"
-  local installed="$2"
+  local observed_status="$2"
   local details="$3"
   local recorded_status checked_at tmp
 
@@ -181,29 +181,38 @@ megabrain_state_reconcile() {
   checked_at="$(megabrain_iso_now)"
   tmp="$(mktemp "$MEGABRAIN_STATE_DIR/state.XXXXXX")" || return 1
   if ! jq --arg moduleName "$module" \
-    --argjson installed "$installed" \
+    --arg observedStatus "$observed_status" \
     --arg checkedAt "$checked_at" \
     --arg details "$details" \
     'if (._meta // null) == null then
        ._meta = {kind: "installation-record", recordedAt: $checkedAt, source: "megabrain doctor", liveStatusCommand: "megabrain doctor"}
      else . end |
-     .[$moduleName] = ((.[$moduleName] // {}) + {
-       installed: $installed,
-       checkedAt: $checkedAt,
-       statusSource: "megabrain doctor",
-       details: $details
-     })' \
+     .[$moduleName] = ((.[$moduleName] // {}) +
+       (if $observedStatus == "unknown" then {}
+        else {installed: ($observedStatus == "ok")}
+        end) + {
+          checkedAt: $checkedAt,
+          status: $observedStatus,
+          statusSource: "megabrain doctor",
+          details: $details
+        })' \
     "$MEGABRAIN_STATE_FILE" >"$tmp"; then
     rm -f "$tmp"
     return 1
   fi
   mv -f "$tmp" "$MEGABRAIN_STATE_FILE" || return 1
 
-  if [ "$recorded_status" != "$installed" ]; then
-    if [ "$recorded_status" = unknown ]; then
-      MEGABRAIN_STATE_RECONCILIATION="state reconciled: $module recorded as installed=$installed"
-    else
-      MEGABRAIN_STATE_RECONCILIATION="state reconciled: $module installed $recorded_status -> $installed"
+  if [ "$observed_status" = unknown ]; then
+    MEGABRAIN_STATE_RECONCILIATION="state check unknown: $module installed state preserved"
+  else
+    local installed=false
+    [ "$observed_status" = ok ] && installed=true
+    if [ "$recorded_status" != "$installed" ]; then
+      if [ "$recorded_status" = unknown ]; then
+        MEGABRAIN_STATE_RECONCILIATION="state reconciled: $module recorded as installed=$installed"
+      else
+        MEGABRAIN_STATE_RECONCILIATION="state reconciled: $module installed $recorded_status -> $installed"
+      fi
     fi
   fi
 }
