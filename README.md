@@ -216,7 +216,7 @@ drive. Each is a module, so you install only what you use and `doctor` tells you
 
 | Module | What it sets up | Platform |
 | --- | --- | --- |
-| `simulator-web` | Playwright MCP for browser testing | macOS, Linux |
+| `simulator-web` | Playwright MCP with pinned Chromium and Firefox profiles | macOS, Linux |
 | `tv-adb` | Android TV over adb | macOS, Linux |
 | `simulator-native` | iOS and tvOS simulators, via Appium and XCUITest | **macOS only** |
 | `simulator-tv` | the Apple TV simulator on the same toolchain | **macOS only** |
@@ -224,6 +224,8 @@ drive. Each is a module, so you install only what you use and `doctor` tells you
 ```sh
 megabrain install simulator-web
 megabrain install tv-adb
+# Or install only one browser: --browser chromium, --browser firefox, or --browser both
+megabrain install simulator-web --browser chromium
 ```
 
 ```sh
@@ -235,9 +237,26 @@ megabrain doctor simulator-native           # what is missing and how to get it
 
 The two simulator modules need the Xcode Simulator, Appium and the XCUITest driver, so they exist
 only on macOS; asked for elsewhere they report `unsupported: macOS only` rather than half
-installing. `tv-adb` needs Android platform-tools and `simulator-web` needs npx, and both work on
-Linux. `doctor` names the missing piece and the command that installs it rather than failing
-silently.
+installing. `tv-adb` needs Android platform-tools and `simulator-web` uses pinned Playwright 1.62.1;
+it needs Node.js, npm, npx, and
+the selected Playwright browser. Chromium uses a fixed 1280x720 viewport, uBlock Origin Lite,
+and Violentmonkey; Firefox uses its own persistent profile with full uBlock Origin and the signed
+Violentmonkey add-on. Extension versions are resolved and pinned when the module is installed,
+so a browser run does not change behavior behind the operator's back. Chromium is the profile
+that supports userscripts: Playwright can reach its extension options page and enable Chrome's
+userScripts permission. Firefox's moz-extension pages are not reachable through Playwright, so
+userscripts are intentionally Chromium-only.
+
+Userscripts live in `~/.megabrain/userscripts/`. The module enables the one-time Chrome
+userScripts permission automatically when installing or refreshing a script:
+
+```sh
+megabrain web userscript install hello.user.js
+megabrain web userscript list
+megabrain web userscript remove hello.user.js
+```
+
+`doctor` names the missing piece and the command that installs it rather than failing silently.
 
 ## Examples
 

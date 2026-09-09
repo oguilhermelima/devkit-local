@@ -176,7 +176,19 @@ megabrain tv disconnect [<ip>]
 megabrain doctor simulator-native      iOS and tvOS simulators, macOS only
 megabrain doctor simulator-tv          Apple TV simulator
 megabrain install simulator-web        Playwright MCP browser testing
+megabrain install simulator-web --browser chromium|firefox|both
+megabrain web userscript install <file.user.js>
+megabrain web userscript list
+megabrain web userscript remove <file.user.js>
 ```
+
+`simulator-web` uses pinned Playwright 1.62.1 and keeps separate persistent Chromium and Firefox profiles under
+`~/.megabrain/playwright`, with a fixed Chromium viewport and extension versions pinned at
+install time. Chromium is the userscript profile. To install or refresh a script, place it in
+`~/.megabrain/userscripts/` and run `megabrain web userscript install <file.user.js>`; the tool
+enables Chrome's one-time userScripts permission and sends the script through Violentmonkey.
+`list` reports scripts installed in the Chromium profile, and `remove` removes one from that
+profile while leaving the source file available for editing. Firefox has no userscript command.
 
 ## tmux
 
