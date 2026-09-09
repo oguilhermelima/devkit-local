@@ -116,8 +116,9 @@ source "$root/lib/module-context.sh"
 source "$root/lib/module-orchestrate.sh"
 mkdir -p "$MEGABRAIN_DISPATCH_DIR"
 megabrain_dispatch_meta_write missing-terminal parent-terminal superset superset workspace child-terminal \
-  "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
+  "$root" main codex label spawning gpt-5 true codex '' '' host ide >/dev/null
 megabrain_dispatch_meta_update_process_state missing-terminal start-unproven
+megabrain_dispatch_meta_update_state missing-terminal running
 megabrain_dispatch_meta_update_terminal_state missing-terminal retained
 megabrain_dispatch_terminal_status() { MEGABRAIN_TERMINAL_STATUS=missing; }
 megabrain_dispatch_reconcile_one missing-terminal
