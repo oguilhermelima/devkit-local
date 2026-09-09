@@ -90,7 +90,7 @@ queueing_meta="$(megabrain_dispatch_meta_read queueing-parent)"
 megabrain_parent_notify_dispatch "$queueing_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 queueing_capture="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
-assert_contains "$queueing_capture" '[megabrain] mail available for dispatch queueing-parent'
+assert_contains "$queueing_capture" 'mail: megabrain orchestrate watch queueing-parent'
 assert_contains "$(cat "$state_dir/dispatches/queueing-parent/nudge.log")" 'outcome=delivered reason=parent-notified'
 assert_equal "$(wc -l <"$state_dir/dispatches/queueing-parent/nudge.log" | tr -d ' ')" 1
 printf 'busy parent receives a notice without liveness probing\n'
@@ -103,7 +103,7 @@ unknown_before="$(tmux_cmd capture-pane -J -p -t "$unknown_pane" -S -20)"
 megabrain_parent_notify_dispatch "$unknown_meta"
 unknown_after="$(tmux_cmd capture-pane -J -p -t "$unknown_pane" -S -20)"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
-assert_contains "$unknown_after" '[megabrain] mail available for dispatch unrecognised-parent'
+assert_contains "$unknown_after" 'mail: megabrain orchestrate watch unrecognised-parent'
 assert_not_equal "$unknown_before" "$unknown_after"
 assert_contains "$(cat "$state_dir/dispatches/unrecognised-parent/nudge.log")" 'outcome=delivered reason=parent-notified'
 assert_equal "$(wc -l <"$state_dir/dispatches/unrecognised-parent/nudge.log" | tr -d ' ')" 1

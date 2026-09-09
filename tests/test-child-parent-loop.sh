@@ -257,7 +257,7 @@ run_flow() {
   if [ "$runtime" = tmux ]; then
     receipt_after="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -30)"
     assert_equal "$receipt_after" "$receipt_before"
-    assert_not_contains "$receipt_after" "[megabrain] mail available for dispatch $dispatch_id"
+    assert_not_contains "$receipt_after" "mail: megabrain orchestrate watch $dispatch_id"
   fi
   receipt_delivery="$(parent_watch)"
   receipt_delivery_id="$(jq -r '.deliveryId' <<<"$receipt_delivery")"
@@ -265,7 +265,7 @@ run_flow() {
   child_command ask "$runtime-question" >/dev/null
   if [ "$runtime" = tmux ]; then
     ask_capture="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -30)"
-    assert_contains "$ask_capture" "[megabrain] mail available for dispatch $dispatch_id"
+    assert_contains "$ask_capture" "mail: megabrain orchestrate watch $dispatch_id"
   fi
   delivery="$(parent_watch)"
   replay="$(parent_watch)"

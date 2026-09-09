@@ -77,9 +77,9 @@ append_message() {
 }
 
 single_pointer="$(megabrain_parent_notify_pointer dispatch-id)"
-assert_equal "$single_pointer" '[megabrain] mail: megabrain orchestrate watch <id>'
+assert_equal "$single_pointer" 'mail: megabrain orchestrate watch dispatch-id'
 many_pointer="$(megabrain_parent_notify_pointer_many 3 'dispatch-one, dispatch-two, dispatch-three')"
-assert_equal "$many_pointer" '[megabrain] 3 mails: megabrain orchestrate watch <id>'
+assert_equal "$many_pointer" '3 mails: run megabrain orchestrate list'
 assert_not_contains "$many_pointer" dispatch-one
 printf 'pointer format: one-line actionable text caps multi-dispatch detail by count\n'
 
@@ -99,9 +99,9 @@ append_message tmux-idle 'body must remain in queue'
 megabrain_parent_notify_dispatch "$idle_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 idle_capture="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
-assert_contains "$idle_capture" '[megabrain] mail available for dispatch tmux-idle'
+assert_contains "$idle_capture" 'mail: megabrain orchestrate watch tmux-idle'
 assert_not_contains "$idle_capture" 'body must remain in queue'
-printf 'tmux parent pointer: %s\n' "$(printf '%s\n' "$idle_capture" | grep -F '[megabrain] mail available for dispatch tmux-idle' | tail -n 1)"
+printf 'tmux parent pointer: %s\n' "$(printf '%s\n' "$idle_capture" | grep -F 'mail: megabrain orchestrate watch tmux-idle' | tail -n 1)"
 
 delivery="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID="$parent_id" "$root/megabrain" orchestrate watch tmux-idle --timeout 0 --poll-interval 0 --wait-mode poll --json)"
 assert_equal "$(jq -r '.messages | length' <<<"$delivery")" 1
@@ -121,7 +121,7 @@ busy_before="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 busy_meta="$(megabrain_dispatch_meta_read tmux-busy)"
 megabrain_parent_notify_dispatch "$busy_meta"
 busy_after="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
-assert_contains "$busy_after" '[megabrain] mail available for dispatch tmux-busy'
+assert_contains "$busy_after" 'mail: megabrain orchestrate watch tmux-busy'
 assert_equal "$(find "$state_dir/dispatches/tmux-busy/messages" -name '*.json' | wc -l | tr -d ' ')" 1
 assert_not_equal "$busy_before" "$busy_after"
 printf 'tmux busy parent: pointer typed and queue retained\n'
@@ -189,7 +189,7 @@ append_message host-runtime-tmux-parent 'host runtime body'
 megabrain_parent_notify_dispatch "$host_tmux_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 host_tmux_capture="$(tmux_cmd capture-pane -p -J -t "$parent_pane" -S -20)"
-assert_contains "$host_tmux_capture" '[megabrain] mail available for dispatch host-runtime-tmux-parent'
+assert_contains "$host_tmux_capture" 'mail: megabrain orchestrate watch host-runtime-tmux-parent'
 assert_not_contains "$host_tmux_capture" 'host runtime body'
 printf 'host runtime with a live tmux parent still notifies through the pane\n'
 
@@ -266,7 +266,7 @@ same_context_meta="$(megabrain_dispatch_meta_read same-context)"
 megabrain_parent_notify_dispatch "$same_context_meta"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 same_context_capture="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
-assert_contains "$same_context_capture" '[megabrain] mail available for dispatch same-context'
+assert_contains "$same_context_capture" 'mail: megabrain orchestrate watch same-context'
 printf 'same-context parent notice still delivers\n'
 
 tmux_cmd set-environment -gu MEGABRAIN_STATE_DIR >/dev/null 2>&1 || true

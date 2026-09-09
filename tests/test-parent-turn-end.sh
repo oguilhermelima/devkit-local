@@ -87,9 +87,9 @@ append_ask orphaned 'orphaned question'
 run_hook
 assert_equal "$(send_count)" 1
 first_notice="$(cat "$send_log")"
-assert_contains "$first_notice" 'mail available for 2 dispatches'
-assert_contains "$first_notice" alpha
-assert_contains "$first_notice" beta
+assert_contains "$first_notice" '2 mails: run megabrain orchestrate list'
+assert_not_contains "$first_notice" alpha
+assert_not_contains "$first_notice" beta
 assert_not_contains "$first_notice" closed
 assert_not_contains "$first_notice" done
 assert_not_contains "$first_notice" failed
@@ -106,8 +106,7 @@ append_ask alpha 'alpha follow-up'
 run_hook
 assert_equal "$(send_count)" 2
 latest_notice="$(tail -n 1 "$send_log")"
-assert_contains "$latest_notice" 'mail available for 1 dispatch'
-assert_contains "$latest_notice" alpha
+assert_contains "$latest_notice" '1 mails: run megabrain orchestrate list'
 assert_equal "$(jq -r '.lastReadSeq' "$MEGABRAIN_DISPATCH_DIR/alpha/cursor.json")" 2
 assert_equal "$(jq -r '.lastReadSeq' "$MEGABRAIN_DISPATCH_DIR/beta/cursor.json")" 1
 printf 'new child mail: pointer delivered again\n'
@@ -125,8 +124,7 @@ megabrain_parent_notify_waiter_unregister waiter
 run_hook
 assert_equal "$(send_count)" 3
 latest_notice="$(tail -n 1 "$send_log")"
-assert_contains "$latest_notice" 'mail available for 1 dispatch'
-assert_contains "$latest_notice" waiter
+assert_contains "$latest_notice" '1 mails: run megabrain orchestrate list'
 assert_equal "$(jq -r '.lastReadSeq' "$MEGABRAIN_DISPATCH_DIR/waiter/cursor.json")" 1
 run_hook
 assert_equal "$(send_count)" 3
