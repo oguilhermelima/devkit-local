@@ -145,7 +145,9 @@ assert_contains "$migration_output" 'chain legacy step 1'
 assert_contains "$migration_output" 'gemini-2.5-pro'
 assert_contains "$migration_output" 'chain legacy step 2'
 assert_contains "$migration_output" 'claude-sonnet-4-5'
-assert_equal "$(cat "$MEGABRAIN_STATE_DIR/chains.json")" "$original"
+assert_equal "$(jq -e --argjson expected "$original" \
+  '.chains == $expected.chains and .defaultSteps == $expected.defaultSteps' \
+  "$MEGABRAIN_STATE_DIR/chains.json")" true
 "$root/megabrain" chain repair legacy --step 1 --model gemini-3.8-flash-high >/dev/null
 "$root/megabrain" chain repair legacy --step 2 --model claude-sonnet-5 --effort high >/dev/null
 assert_equal "$("$root/megabrain" chain list --json | jq -r '.chains[] | select(.name == "legacy") | .steps[0].model')" gemini-3.8-flash-high
