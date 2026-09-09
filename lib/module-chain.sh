@@ -878,7 +878,11 @@ megabrain_chain_agy_credentials() {
     go-keyring-base64:*) encoded="${credentials#go-keyring-base64:}" ;;
     *) unset credentials; return 2 ;;
   esac
-  credentials="$(printf '%s' "$encoded" | base64 -D 2>/dev/null)" || { unset encoded; return 2; }
+  # BSD base64 calls decode -D; GNU base64 uses the lowercase -d spelling.
+  credentials="$(printf '%s' "$encoded" | base64 -D 2>/dev/null || printf '%s' "$encoded" | base64 -d 2>/dev/null)" || {
+    unset encoded
+    return 2
+  }
   MEGABRAIN_CHAIN_AGY_TOKEN="$(printf '%s' "$credentials" | jq -r '.token // empty' 2>/dev/null)"
   unset credentials encoded
   [ -n "$MEGABRAIN_CHAIN_AGY_TOKEN" ] || return 3
