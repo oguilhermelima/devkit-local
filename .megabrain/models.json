@@ -226,7 +226,7 @@
           "ultra"
         ],
         "provenance": {
-          "kind": "inferred",
+          "kind": "verified",
           "source": "installed CLI binary",
           "method": "embedded model_reasoning_effort enum",
           "command": "/Users/gui/.local/bin/codex",
@@ -268,7 +268,7 @@
           "ultra"
         ],
         "provenance": {
-          "kind": "inferred",
+          "kind": "verified",
           "source": "installed CLI binary",
           "method": "embedded model_reasoning_effort enum",
           "command": "/Users/gui/.local/bin/codex",
@@ -310,7 +310,7 @@
           "ultra"
         ],
         "provenance": {
-          "kind": "inferred",
+          "kind": "verified",
           "source": "installed CLI binary",
           "method": "embedded model_reasoning_effort enum",
           "command": "/Users/gui/.local/bin/codex",
@@ -352,7 +352,7 @@
           "ultra"
         ],
         "provenance": {
-          "kind": "inferred",
+          "kind": "verified",
           "source": "installed CLI binary",
           "method": "embedded model_reasoning_effort enum",
           "command": "/Users/gui/.local/bin/codex",
@@ -394,7 +394,7 @@
           "ultra"
         ],
         "provenance": {
-          "kind": "inferred",
+          "kind": "verified",
           "source": "installed CLI binary",
           "method": "embedded model_reasoning_effort enum",
           "command": "/Users/gui/.local/bin/codex",
@@ -436,7 +436,7 @@
           "ultra"
         ],
         "provenance": {
-          "kind": "inferred",
+          "kind": "verified",
           "source": "installed CLI binary",
           "method": "embedded model_reasoning_effort enum",
           "command": "/Users/gui/.local/bin/codex",
@@ -478,7 +478,7 @@
           "ultra"
         ],
         "provenance": {
-          "kind": "inferred",
+          "kind": "verified",
           "source": "installed CLI binary",
           "method": "embedded model_reasoning_effort enum",
           "command": "/Users/gui/.local/bin/codex",
@@ -521,7 +521,7 @@
           "ultra"
         ],
         "provenance": {
-          "kind": "inferred",
+          "kind": "verified",
           "source": "installed CLI binary",
           "method": "embedded model_reasoning_effort enum",
           "command": "/Users/gui/.local/bin/codex",
@@ -564,7 +564,7 @@
           "ultra"
         ],
         "provenance": {
-          "kind": "inferred",
+          "kind": "verified",
           "source": "installed CLI binary",
           "method": "embedded model_reasoning_effort enum",
           "command": "/Users/gui/.local/bin/codex",
@@ -606,7 +606,7 @@
           "ultra"
         ],
         "provenance": {
-          "kind": "inferred",
+          "kind": "verified",
           "source": "installed CLI binary",
           "method": "embedded model_reasoning_effort enum",
           "command": "/Users/gui/.local/bin/codex",
