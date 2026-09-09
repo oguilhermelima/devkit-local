@@ -315,25 +315,19 @@ megabrain_workspace_create() {
     fi
   else
     command_status=0
-    if [ -n "$tag" ]; then
-      response="$(megabrain_superset workspaces create --local --project "$project_id" --branch "$branch" --name "$slug" --tag "$tag" --json 2>/dev/null)" || command_status=$?
-    else
-      response="$(megabrain_superset workspaces create --local --project "$project_id" --branch "$branch" --name "$slug" --json 2>/dev/null)" || command_status=$?
-    fi
+    response="$(megabrain_superset workspaces create --local --project "$project_id" --branch "$branch" --name "$slug" --json 2>/dev/null)" || command_status=$?
     id="$(printf '%s' "$response" | jq -r '.result.workspace.id // .result.id // .workspace.id // .id // empty' 2>/dev/null)"
     [ -n "$id" ] && created=true
     if [ -z "$id" ]; then
       id="$(megabrain_workspace_id_for_target "$branch")"
     fi
-    if [ -n "$id" ] && [ -n "$tag" ] && [ "$command_status" -eq 0 ]; then
-      MEGABRAIN_WORKSPACE_TAG_SET=true
-    elif [ -n "$tag" ] && [ "$command_status" -ne 0 ]; then
-      MEGABRAIN_WORKSPACE_TAG_ERROR="Superset workspace tag was not set for $branch"
-      if [ -z "$id" ]; then
-        response="$(megabrain_superset workspaces create --local --project "$project_id" --branch "$branch" --name "$slug" --json 2>/dev/null)" || command_status=$?
-        id="$(printf '%s' "$response" | jq -r '.result.workspace.id // .result.id // .workspace.id // .id // empty' 2>/dev/null)"
-        [ -n "$id" ] && created=true
-        [ -n "$id" ] || id="$(megabrain_workspace_id_for_target "$branch")"
+    if [ -n "$id" ] && [ -n "$tag" ]; then
+      command_status=0
+      response="$(megabrain_superset workspaces update "$id" --tag "$tag" --json 2>/dev/null)" || command_status=$?
+      if [ "$command_status" -eq 0 ]; then
+        MEGABRAIN_WORKSPACE_TAG_SET=true
+      else
+        MEGABRAIN_WORKSPACE_TAG_ERROR="Superset workspace tag was not set for $branch"
       fi
     fi
   fi
