@@ -105,16 +105,16 @@ scenario_missing_meta_is_reported() {
   megabrain_require_command() { return 1; }
   megabrain_superset_available() { return 1; }
   megabrain_dispatch_health_counts
-  output="$MODULE_UNTRACKED_DISPATCHES"
+  output="${MODULE_UNTRACKED_DISPATCHES:-}"
   assert_contains "$output" 'dispatch-without-meta'
   printf 'doctor inventory reports dispatch-without-meta\n'
 }
 
 setup_fake_superset() {
-  local shared_root="$1"
-  mkdir -p "$shared_root" "$state_root/superset"
+  fake_shared_root="$1"
+  mkdir -p "$fake_shared_root" "$state_root/superset"
   megabrain_superset_available() { return 0; }
-  megabrain_worktree_root() { printf '%s\n' "$shared_root"; }
+  megabrain_worktree_root() { printf '%s\n' "$fake_shared_root"; }
   megabrain_context_detect() { printf 'superset\n'; }
   megabrain_resolve_spawn_runtime() {
     MEGABRAIN_SPAWN_RUNTIME=ide
