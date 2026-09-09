@@ -352,9 +352,9 @@ megabrain_tmux_send_text() {
       return 0
     fi
   fi
-  # A failed nudge is normal because the durable queue already has the message. Clear
-  # the unsubmitted draft so a later human or automated command cannot inherit it.
-  tmux send-keys -t "$pane" C-c || return 1
+  # A failed nudge is normal because the durable queue already has the message. C-u
+  # clears a line-editor draft without interrupting a running process, unlike C-c.
+  tmux send-keys -t "$pane" C-u || return 1
   tmux capture-pane -p -J -t "$pane" -S -4 >/dev/null 2>&1 || true
   return 0
 }
