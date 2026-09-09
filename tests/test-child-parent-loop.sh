@@ -139,7 +139,15 @@ megabrain_agent_command() {
 }
 
 megabrain_dispatch_send_prompt_with_receipt() {
-  return 0
+  local dispatch_id="$1" text="$2" meta pane
+  if [ "${MEGABRAIN_TEST_RUNTIME:-}" = tmux ]; then
+    meta="$(megabrain_dispatch_meta_read "$dispatch_id")"
+    pane="$(printf '%s' "$meta" | jq -r '.tmuxPane')"
+    megabrain_tmux_send_agent "$pane" "$text" prompt
+    return $?
+  fi
+  meta="$(megabrain_dispatch_meta_read "$dispatch_id")"
+  megabrain_dispatch_native_send "$meta" "$text"
 }
 
 megabrain_superset_available() {
