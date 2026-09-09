@@ -349,8 +349,11 @@ Parent --spawn--> tmux split or IDE tab --starts--> Child
 terminal keystroke ---------------------> nudge only
 ```
 
-A child confirms receipt by writing to the queue. A keystroke typed into a terminal is only a
-nudge that may wake a participant; the message it points at is already durable.
+Prompt delivery is confirmed mechanically by the transport: tmux observes the prompt leaving the
+composer, and native terminal transports report a successful send. The child may still write a
+received message to the durable queue as a fast protocol path, but launch does not depend on that
+command. A keystroke typed into a terminal is only a nudge that may wake a participant; the
+message it points at is already durable.
 
 ## Testing
 
@@ -362,7 +365,9 @@ bash tests/container/run.sh               # the safety net: nothing of yours to 
 The container mounts the checkout read-only and copies it in, so a test cannot reach the host
 tree, your tmux server or your agent configuration. It runs bash 5 on Linux, which catches
 portability bugs macOS hides, but it is not the target platform, so the local run stays the
-authority.
+authority. Each run preserves per-test output in a unique directory under
+${MEGABRAIN_TEST_OUTPUT_DIR:-/tmp/megabrain-suite-results}; failures.log names every failing test
+and contains its complete output, so failure evidence survives piping the command's stdout.
 
 > [!WARNING]
 > A run is only fully isolated with all three of `HOME`, `MEGABRAIN_STATE_DIR` and
