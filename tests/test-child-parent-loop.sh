@@ -13,6 +13,7 @@ child_pane=""
 child_session=""
 fake_send_mode=ok
 fake_close=false
+MEGABRAIN_TEST_RECEIPT_DELAY=0.2
 
 cleanup_tmux_server() {
   local directory="${1:-}"
@@ -135,19 +136,46 @@ megabrain_workspace_id_for_target() {
 }
 
 megabrain_agent_command() {
-  printf '%s\n' "awk 'BEGIN { fflush() } { for (i = 1; i <= 20; i++) print \"\"; print \"agent-response:\" \$0; print \"CHILD$\"; print \"› Ask Codex to do anything\"; fflush() }'"
+  printf '%s\n' "awk '{ print \"agent-response:\" \$0; print \"CHILD$\"; fflush() }'"
 }
 
-megabrain_dispatch_send_prompt_with_receipt() {
-  local dispatch_id="$1" text="$2" meta pane
-  if [ "${MEGABRAIN_TEST_RUNTIME:-}" = tmux ]; then
-    meta="$(megabrain_dispatch_meta_read "$dispatch_id")"
-    pane="$(printf '%s' "$meta" | jq -r '.tmuxPane')"
-    megabrain_tmux_send_agent "$pane" "$text" prompt
-    return $?
+schedule_receipt() {
+  local dispatch_id="$1"
+  (
+    sleep "$MEGABRAIN_TEST_RECEIPT_DELAY"
+    megabrain_dispatch_message_append "$dispatch_id" child received 'prompt received' child-terminal >/dev/null
+  ) &
+}
+
+eval "$(declare -f megabrain_tmux_send_agent | sed 's/^megabrain_tmux_send_agent /megabrain_test_tmux_send_agent /')"
+megabrain_tmux_send_agent() {
+  local pane="$1" mode="${3:-command}" dispatch_id meta_path meta
+  megabrain_test_tmux_send_agent "$@" || return $?
+  if [ "$mode" = prompt ]; then
+    for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
+      [ -f "$meta_path" ] || continue
+      meta="$(cat "$meta_path")"
+      dispatch_id="$(printf '%s' "$meta" | jq -r --arg pane "$pane" 'select(.state == "spawning" and .runtime == "tmux" and .tmuxPane == $pane) | .dispatchId // empty')"
+      if [ -n "$dispatch_id" ]; then
+        schedule_receipt "$dispatch_id"
+        return 0
+      fi
+    done
   fi
-  meta="$(megabrain_dispatch_meta_read "$dispatch_id")"
-  megabrain_dispatch_native_send "$meta" "$text"
+  return 0
+}
+
+eval "$(declare -f megabrain_dispatch_native_send | sed 's/^megabrain_dispatch_native_send /megabrain_test_native_send /')"
+megabrain_dispatch_native_send() {
+  local meta="$1" text="$2" dispatch_id
+  megabrain_test_native_send "$@" || return $?
+  case "$text" in
+    '[megabrain dispatch:'*)
+      dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty')"
+      [ -n "$dispatch_id" ] && schedule_receipt "$dispatch_id"
+      ;;
+  esac
+  return 0
 }
 
 megabrain_superset_available() {
@@ -234,6 +262,8 @@ run_flow() {
   local busy_pane busy_before receipt_before receipt_after ask_capture reply_capture reply_send_log
   MEGABRAIN_TEST_RUNTIME="$runtime"
   fake_send_mode=ok
+  export MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS=1
+  export MEGABRAIN_PROMPT_RECEIPT_POLL_INTERVAL=0.05
   fake_close=false
   set_state_dir "$(mktemp -d "/tmp/mblp-$runtime.XXXXXX")"
   export MEGABRAIN_TEST_CONTEXT
@@ -271,15 +301,8 @@ run_flow() {
     assert_contains "$(cat "$state_dir/fake-sends.log")" "MEGABRAIN_DISPATCH_ID=$dispatch_id"
     assert_contains "$(cat "$state_dir/fake-sends.log")" "MEGABRAIN_STATE_DIR=$state_dir"
   fi
-  if [ "$runtime" = tmux ]; then
-    receipt_before="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -30)"
-  fi
-  child_command received >/dev/null
-  if [ "$runtime" = tmux ]; then
-    receipt_after="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -30)"
-    assert_equal "$receipt_after" "$receipt_before"
-    assert_not_contains "$receipt_after" "mail: megabrain orchestrate watch $dispatch_id"
-  fi
+  receipt_message="$(find "$state_dir/dispatches/$dispatch_id/messages" -name '*-child-received.json' -print -quit)"
+  [ -n "$receipt_message" ] || fail 'spawn returned before the delayed child receipt reached the queue'
   receipt_delivery="$(parent_watch)"
   receipt_delivery_id="$(jq -r '.deliveryId' <<<"$receipt_delivery")"
   parent_ack "$receipt_delivery_id" >/dev/null
