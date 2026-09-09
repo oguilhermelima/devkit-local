@@ -73,6 +73,7 @@ printf 'scenario 3: chain initialization reconciles newly seeded usage-limit fie
 tmux_state="$work/tmux-state"
 mkdir -p "$tmux_state/sessions"
 export MEGABRAIN_STATE_DIR="$tmux_state"
+MEGABRAIN_TMUX_SESSION_DIR="$tmux_state/sessions"
 source "$root/lib/module-tmux-runtime.sh"
 printf '%s\n' '{"tmuxSession":"broken"}' >"$MEGABRAIN_TMUX_SESSION_DIR/broken.json"
 assert_contains "$(megabrain_tmux_session_registry_drift)" broken.json
