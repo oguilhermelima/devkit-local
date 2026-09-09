@@ -5,6 +5,8 @@ MEGABRAIN_TMUX_SETTLE_SECONDS="${MEGABRAIN_TMUX_SETTLE_SECONDS:-0.1}"
 MEGABRAIN_TMUX_ENTER_RETRIES="${MEGABRAIN_TMUX_ENTER_RETRIES:-3}"
 MEGABRAIN_TMUX_ENTER_WAIT="${MEGABRAIN_TMUX_ENTER_WAIT:-0.5}"
 MEGABRAIN_TMUX_ENTER_TIMEOUT_SECONDS="${MEGABRAIN_TMUX_ENTER_TIMEOUT_SECONDS:-30}"
+MEGABRAIN_TMUX_WRITE_TIMEOUT_SECONDS="${MEGABRAIN_TMUX_WRITE_TIMEOUT_SECONDS:-2}"
+MEGABRAIN_TMUX_WRITE_POLL_INTERVAL="${MEGABRAIN_TMUX_WRITE_POLL_INTERVAL:-0.05}"
 MEGABRAIN_TMUX_MAIN_PANE_PERCENT=50
 MEGABRAIN_TMUX_MAIN_SPLIT_FLAG='-h'
 MEGABRAIN_TMUX_CHILD_SPLIT_FLAG='-v'
@@ -234,7 +236,7 @@ megabrain_tmux_send_agent() {
   # onto a non-empty line produced "mocd <path>" once, which died as command not found.
   # Only the shell branch is cleared; C-u in an agent composer is not a line kill.
   tmux send-keys -t "$pane" C-u || return 1
-  tmux send-keys -t "$pane" -l "$command_text" || return 1
+  megabrain_tmux_send_literal "$pane" "$command_text" || return 1
   # Enter is deliberately a separate call; some host terminal layers lose it when combined with text.
   case "$MEGABRAIN_TMUX_ENTER_TIMEOUT_SECONDS" in
     ''|*[!0-9]*) megabrain_error "tmux agent launch timeout must be a non-negative number of seconds"; return 1 ;;
@@ -286,9 +288,48 @@ megabrain_tmux_agent_output_clean() {
 # The check is deliberately coarse: a submit always redraws the composer region, so an
 # unchanged region means the key never landed. A busy agent redraws on its own, which
 # can end the loop early, but that only costs the retry, never the message.
+megabrain_tmux_kill_process_tree() {
+  local pid="$1" child
+  for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+    megabrain_tmux_kill_process_tree "$child"
+  done
+  kill "$pid" 2>/dev/null || true
+}
+
+megabrain_tmux_send_literal() {
+  local pane="$1" text="$2" write_pid started now elapsed write_state write_status
+  case "$MEGABRAIN_TMUX_WRITE_TIMEOUT_SECONDS" in
+    ''|*[!0-9]*) megabrain_error "tmux write timeout must be a non-negative number of seconds"; return 1 ;;
+  esac
+  tmux send-keys -t "$pane" -l "$text" &
+  write_pid=$!
+  started="$(date +%s)"
+  while :; do
+    write_state="$(ps -p "$write_pid" -o stat= 2>/dev/null | tr -d '[:space:]' || true)"
+    case "$write_state" in
+      ''|Z*) break ;;
+    esac
+    now="$(date +%s)"
+    elapsed=$((now - started))
+    if [ "$elapsed" -ge "$MEGABRAIN_TMUX_WRITE_TIMEOUT_SECONDS" ]; then
+      megabrain_tmux_kill_process_tree "$write_pid"
+      wait "$write_pid" 2>/dev/null || true
+      megabrain_error "tmux nudge did not land in pane $pane within ${MEGABRAIN_TMUX_WRITE_TIMEOUT_SECONDS}s"
+      return 1
+    fi
+    sleep "$MEGABRAIN_TMUX_WRITE_POLL_INTERVAL"
+  done
+  if wait "$write_pid" 2>/dev/null; then
+    write_status=0
+  else
+    write_status="$?"
+  fi
+  [ "$write_status" -eq 0 ] || return "$write_status"
+}
+
 megabrain_tmux_send_text() {
   local pane="$1" text="$2" attempt=0 before after
-  tmux send-keys -t "$pane" -l "$text" || return 1
+  megabrain_tmux_send_literal "$pane" "$text" || return 1
   before="$(tmux capture-pane -p -J -t "$pane" -S -4 2>/dev/null || true)"
   while :; do
     tmux send-keys -t "$pane" Enter || return 1

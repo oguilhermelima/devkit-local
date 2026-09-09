@@ -968,6 +968,11 @@ megabrain_dispatch_native_send() {
   esac
 }
 
+megabrain_dispatch_reply_pointer() {
+  local dispatch_id="$1"
+  printf '[megabrain] reply available for dispatch %s; run megabrain check\n' "$dispatch_id"
+}
+
 megabrain_dispatch_close_refuse_caller() {
   local meta="$1" runtime target_session target_pane caller_session
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
@@ -1354,7 +1359,7 @@ megabrain_dispatch_child_ack() {
 }
 
 megabrain_dispatch_reply() {
-  local dispatch_id="${1:-}" answer="" json=false arg meta state status
+  local dispatch_id="${1:-}" answer="" json=false arg meta state status pointer
   case "$dispatch_id" in
     -h|--help) megabrain_usage_show orchestrate-reply; return 0 ;;
   esac
@@ -1370,6 +1375,7 @@ megabrain_dispatch_reply() {
     esac
   done
   [ -n "$answer" ] || { megabrain_error "--text is required"; return "$MEGABRAIN_USAGE_ERROR"; }
+  megabrain_dispatch_require_session || return 1
   meta="$(megabrain_dispatch_require_parent "$dispatch_id")" || return 1
   state="$(printf '%s' "$meta" | jq -r '.state // empty')"
   case "$state" in
@@ -1379,7 +1385,8 @@ megabrain_dispatch_reply() {
   megabrain_dispatch_message_append "$dispatch_id" parent reply "$answer" "$MEGABRAIN_SESSION_ID" >/dev/null || return 1
   status=queued
   if [ "$state" != done ]; then
-    if megabrain_dispatch_native_send "$meta" "$answer"; then
+    pointer="$(megabrain_dispatch_reply_pointer "$dispatch_id")"
+    if megabrain_dispatch_native_send "$meta" "$pointer"; then
       status=replied
     fi
     megabrain_dispatch_meta_update_state "$dispatch_id" running || return 1
