@@ -756,8 +756,55 @@ ${prompt}"
   return 0
 }
 
+megabrain_terminal_record_path() {
+  local terminal_id="$1"
+  case "$terminal_id" in
+    ''|.|..|*'/'*|*$'\n'*) return 1 ;;
+  esac
+  printf '%s/%s.json\n' "$MEGABRAIN_TERMINAL_DIR" "$terminal_id"
+}
+
+megabrain_terminal_json_number() {
+  local response="$1" expression="$2" value
+  value="$(printf '%s' "$response" | jq -r "$expression // empty" 2>/dev/null || true)"
+  case "$value" in
+    ''|*[!0-9]*) printf 'null\n' ;;
+    *) printf '%s\n' "$value" ;;
+  esac
+}
+
+megabrain_terminal_id_from_response() {
+  printf '%s' "$1" | jq -r '
+    .terminalId // .sessionId // .result.terminalId // .result.sessionId //
+    .terminal.handle // .result.terminal.handle // .handle // .result.handle //
+    .terminal.sessionId // .result.terminalSessionId // .terminal.id //
+    .result.terminal.id // .id // empty
+  ' 2>/dev/null
+}
+
+megabrain_terminal_record_write() {
+  local terminal_id="$1" host="$2" workspace_id="$3" worktree_path="$4" title="$5"
+  local command_text="$6" created_at="$7" pid_json="$8" port_json="$9" root_pid_json="${10:-$8}"
+  local path tmp
+  path="$(megabrain_terminal_record_path "$terminal_id")" || return 1
+  mkdir -p "$MEGABRAIN_TERMINAL_DIR" || return 1
+  tmp="$(mktemp "$MEGABRAIN_TERMINAL_DIR/.terminal.XXXXXX")" || return 1
+  if ! jq -n \
+    --arg terminalId "$terminal_id" --arg host "$host" --arg workspaceId "$workspace_id" \
+    --arg worktree "$worktree_path" --arg title "$title" --arg command "$command_text" \
+    --arg createdAt "$created_at" --argjson pid "$pid_json" --argjson port "$port_json" \
+    --argjson rootPid "$root_pid_json" \
+    '{terminalId: $terminalId, host: $host, workspaceId: (if $workspaceId == "" then null else $workspaceId end), worktree: $worktree, title: (if $title == "" then null else $title end), command: $command, createdAt: $createdAt, pid: $pid, rootPid: $rootPid, port: $port, status: "active"}' \
+    >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$path"
+}
+
 megabrain_terminal_create() {
   local worktree_selector="" command_text="" title="" json=false arg worktree_path host workspace_id response
+  local terminal_id pid_json port_json root_pid_json
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -817,9 +864,21 @@ megabrain_terminal_create() {
       return 1
       ;;
   esac
+  terminal_id="$(megabrain_terminal_id_from_response "$response")"
+  [ -n "$terminal_id" ] || { megabrain_error "$host terminal create returned no terminal identity"; return 1; }
+  pid_json="$(megabrain_terminal_json_number "$response" '.pid // .processId // .terminal.pid // .result.terminal.pid // .result.pid // .process.pid')"
+  port_json="$(megabrain_terminal_json_number "$response" '.port // .terminal.port // .result.terminal.port // .result.port')"
+  root_pid_json="$(megabrain_terminal_json_number "$response" '.rootPid // .processRootPid // .terminal.rootPid // .result.terminal.rootPid // .result.rootPid')"
+  [ "$root_pid_json" = null ] && root_pid_json="$pid_json"
+  megabrain_terminal_record_write "$terminal_id" "$host" "$workspace_id" "$worktree_path" "$title" \
+    "$command_text" "$(megabrain_iso_now)" "$pid_json" "$port_json" "$root_pid_json" || {
+    megabrain_error "could not persist terminal identity: $terminal_id"
+    return 1
+  }
   if [ "$json" = true ]; then
     jq -n --arg host "$host" --arg worktree "$worktree_path" --arg title "$title" \
-      '{host: $host, worktree: $worktree, title: (if $title|length > 0 then $title else null end)}'
+      --arg terminalId "$terminal_id" --argjson pid "$pid_json" --argjson port "$port_json" \
+      '{host: $host, worktree: $worktree, title: (if $title|length > 0 then $title else null end), terminalId: $terminalId, pid: $pid, port: $port}'
   else
     printf '%s\n' "$response"
   fi

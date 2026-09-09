@@ -37,6 +37,8 @@ Commands:
   worktree list [--repo <name|path>]   List shared-root worktrees
   worktree adopt <path|branch>         Register an existing worktree in Superset
   terminal create ...                  Open a terminal in the current orchestrator
+  terminal list [--worktree <path>]    List terminals created by megabrain
+  terminal restart <selector> ...      Restart a terminal created by megabrain
   orchestrate spawn ...                Create a worktree and start an agent
   orchestrate list [--all|--orphans|--uncertain] [--json]  List managed dispatches
   orchestrate prune ...                Archive or delete old terminal dispatches

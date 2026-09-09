@@ -11,6 +11,7 @@ MEGABRAIN_STATE_FILE="$MEGABRAIN_STATE_DIR/state.json"
 MEGABRAIN_CHAIN_FILE="$MEGABRAIN_STATE_DIR/chains.json"
 MEGABRAIN_DISPATCH_DIR="$MEGABRAIN_STATE_DIR/dispatches"
 MEGABRAIN_TMUX_SESSION_DIR="$MEGABRAIN_STATE_DIR/sessions"
+MEGABRAIN_TERMINAL_DIR="${MEGABRAIN_TERMINAL_DIR:-$MEGABRAIN_STATE_DIR/terminals}"
 MEGABRAIN_SHARED_ROOT=""
 MEGABRAIN_SESSION_ID=""
 MEGABRAIN_SESSION_HOST=""
@@ -162,6 +163,8 @@ megabrain_usage_line() {
     worktree-list) printf 'worktree list [--repo <name|path>] [--json]' ;;
     worktree-adopt) printf 'worktree adopt <path|branch> [--json]' ;;
     terminal-create) printf 'terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]' ;;
+    terminal-list) printf 'terminal list [--worktree <path>] [--json]' ;;
+    terminal-restart) printf 'terminal restart <selector> [--command <cmd>] [--wait-port <port>] [--timeout <seconds>] [--json]' ;;
     orchestrate-spawn) printf 'orchestrate spawn --repo <name|path> --branch <branch> [--agent <id>] [--chain <name>] [--model <id>] [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
     orchestrate-list) printf 'orchestrate list [--all|--orphans|--uncertain] [--json]' ;;
     orchestrate-prune) printf 'orchestrate prune [--older-than <days>] [--state <list>] [--archive|--delete] [--dry-run] [--json]' ;;
