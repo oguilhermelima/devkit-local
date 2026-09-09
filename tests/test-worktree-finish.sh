@@ -178,6 +178,7 @@ scenario_missing_parent_falls_back_loudly
 scenario_explicit_base_overrides_recorded_parent
 
 rm -rf "$work_dir/repo" "$work_dir/shared" "$work_dir/state"
+finish_uses_orca=true
 git init -q "$work_dir/repo"
 git -C "$work_dir/repo" config user.email tester@example.com
 git -C "$work_dir/repo" config user.name tester
