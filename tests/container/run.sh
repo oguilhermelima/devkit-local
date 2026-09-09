@@ -17,8 +17,36 @@ exec docker run --rm \
     set -uo pipefail
     cp -r /src "$HOME/work" && cd "$HOME/work"
     printf "bash %s on %s\n\n" "$BASH_VERSION" "$(uname -sm)"
+    selected_tests=""
+    if [ "$#" -eq 0 ]; then
+      selected_tests="tests/*.sh"
+    else
+      for requested in "$@"; do
+        case "$requested" in
+          *.sh) pattern="tests/$requested" ;;
+          *) pattern="tests/$requested.sh" ;;
+        esac
+        case "$requested" in
+          tests/*) pattern="$requested" ;;
+        esac
+        found=false
+        for test_path in $pattern; do
+          [ -f "$test_path" ] || continue
+          if [ -n "$selected_tests" ]; then
+            selected_tests="$selected_tests $test_path"
+          else
+            selected_tests="$test_path"
+          fi
+          found=true
+        done
+        if [ "$found" != true ]; then
+          printf "no tests matched: %s\n" "$requested" >&2
+          exit 2
+        fi
+      done
+    fi
     failed=0 passed=0 slowest_test="" slowest_seconds=0
-    for t in tests/*.sh; do
+    for t in $selected_tests; do
       started=$(date +%s)
       if timeout 60 bash "$t" >/tmp/out 2>&1; then
         test_status=0
@@ -42,4 +70,4 @@ exec docker run --rm \
     printf "\n%s passed, %s failed\n" "$passed" "$failed"
     printf "slowest: %s (%ss); timeout ceiling: 60s\n" "$slowest_test" "$slowest_seconds"
     [ "$failed" -eq 0 ]
-  '
+  ' -- "$@"
