@@ -33,11 +33,12 @@ assert_contains() {
 # because --json sends that stdout to /dev/null.
 megabrain_require_command() {
   case "$1" in
-    orca) return 0 ;;
+    orca) [ "${finish_uses_orca:-true}" = true ] ;;
     *) command -v "$1" >/dev/null 2>&1 ;;
   esac
 }
 megabrain_superset_available() { return 1; }
+megabrain_context_detect() { printf 'unknown\n'; }
 orca() {
   printf '{"ok":false,"error":"worktree has uncommitted changes"}\n'
   return 1
@@ -46,7 +47,135 @@ orca() {
 # The resolver only knows worktrees under the shared root, so the fixture has to live
 # there for the test to reach the removal at all. An earlier version of this file did not,
 # and passed on an unrelated "worktree not found" without ever exercising the refusal.
-megabrain_worktree_root() { printf '%s\n' "$work_dir"; }
+megabrain_worktree_root() { printf '%s\n' "${fixture_shared_root:-$work_dir}"; }
+
+megabrain_ensure_superset_project() {
+  jq -n '{id: "project-id", created: false}'
+}
+
+megabrain_workspace_id_for_target() {
+  return 0
+}
+
+megabrain_workspace_create() {
+  jq -n '{id: "workspace-id", created: true, tagSet: true}'
+}
+
+setup_stack_fixture() {
+  rm -rf "$work_dir/repo" "$work_dir/shared" "$work_dir/state"
+  mkdir -p "$work_dir/shared" "$work_dir/state"
+  fixture_shared_root="$work_dir/shared"
+  git init -q "$work_dir/repo"
+  git -C "$work_dir/repo" config user.email tester@example.com
+  git -C "$work_dir/repo" config user.name tester
+  printf 'base\n' >"$work_dir/repo/base.txt"
+  git -C "$work_dir/repo" add base.txt
+  git -C "$work_dir/repo" commit -qm base
+  git -C "$work_dir/repo" branch stack/base
+  git -C "$work_dir/repo" worktree add -q "$work_dir/shared/parent" stack/base
+  printf 'parent\n' >"$work_dir/shared/parent/parent.txt"
+  git -C "$work_dir/shared/parent" add parent.txt
+  git -C "$work_dir/shared/parent" commit -qm parent
+  finish_uses_orca=true
+  megabrain_worktree_create --repo "$work_dir/repo" --branch stack/child \
+    --base stack/base --parent "path:$work_dir/shared/parent" --name child --json >/dev/null
+  finish_uses_orca=false
+}
+
+setup_root_fixture() {
+  rm -rf "$work_dir/repo" "$work_dir/shared" "$work_dir/state"
+  mkdir -p "$work_dir/shared" "$work_dir/state"
+  fixture_shared_root="$work_dir/shared"
+  git init -q "$work_dir/repo"
+  git -C "$work_dir/repo" config user.email tester@example.com
+  git -C "$work_dir/repo" config user.name tester
+  printf 'base\n' >"$work_dir/repo/base.txt"
+  git -C "$work_dir/repo" add base.txt
+  git -C "$work_dir/repo" commit -qm base
+  git -C "$work_dir/repo" worktree add -q "$work_dir/shared/root" -b stack/root main
+  finish_uses_orca=false
+}
+
+scenario_stacked_branch_uses_recorded_parent() {
+  local output
+  setup_stack_fixture
+  printf 'child\n' >"$work_dir/shared/child/child.txt"
+  git -C "$work_dir/shared/child" add child.txt
+  git -C "$work_dir/shared/child" commit -qm child
+  git -C "$work_dir/shared/parent" merge -q --no-ff stack/child -m 'merge child'
+  output="$(megabrain_worktree_finish "$work_dir/shared/child" --delete-branch --json 2>&1)" ||
+    fail "a child merged into its recorded parent was refused: $output"
+  assert_contains "$output" '"base":"stack/base"'
+  [ ! -e "$work_dir/shared/child" ] || fail 'the merged child worktree was not removed'
+  ! git -C "$work_dir/repo" branch --list stack/child | grep -q stack/child ||
+    fail 'the merged child branch was not deleted'
+  printf 'a stacked branch is judged against its recorded parent\n'
+}
+
+scenario_unmerged_branch_is_still_refused() {
+  local output
+  setup_stack_fixture
+  printf 'child\n' >"$work_dir/shared/child/child.txt"
+  git -C "$work_dir/shared/child" add child.txt
+  git -C "$work_dir/shared/child" commit -qm child
+  if output="$(megabrain_worktree_finish "$work_dir/shared/child" --delete-branch --json 2>&1)"; then
+    fail 'a branch merged into neither base was deleted'
+  fi
+  assert_contains "$output" 'refusing to delete unmerged branch: stack/child'
+  assert_contains "$output" 'base main'
+  git -C "$work_dir/repo" branch --list stack/child | grep -q stack/child ||
+    fail 'an unmerged branch was deleted despite the refusal'
+  printf 'a branch merged into neither base remains refused\n'
+}
+
+scenario_root_branch_uses_repository_default() {
+  local output
+  setup_root_fixture
+  printf 'root\n' >"$work_dir/shared/root/root.txt"
+  git -C "$work_dir/shared/root" add root.txt
+  git -C "$work_dir/shared/root" commit -qm root
+  git -C "$work_dir/repo" merge -q --no-ff stack/root -m 'merge root'
+  output="$(megabrain_worktree_finish "$work_dir/shared/root" --delete-branch --json 2>&1)" ||
+    fail "a root branch was not judged against the repository default: $output"
+  assert_contains "$output" '"base":"main"'
+  printf 'a branch without a parent uses the repository default\n'
+}
+
+scenario_missing_parent_falls_back_loudly() {
+  local output
+  setup_stack_fixture
+  printf 'child\n' >"$work_dir/shared/child/child.txt"
+  git -C "$work_dir/shared/child" add child.txt
+  git -C "$work_dir/shared/child" commit -qm child
+  git -C "$work_dir/shared/parent" merge -q --no-ff stack/child -m 'merge child'
+  git -C "$work_dir/repo" merge -q --no-ff stack/base -m 'merge parent'
+  git -C "$work_dir/repo" worktree remove -q "$work_dir/shared/parent"
+  git -C "$work_dir/repo" branch -d stack/base >/dev/null
+  output="$(megabrain_worktree_finish "$work_dir/shared/child" --delete-branch --json 2>&1)" ||
+    fail "a child whose parent was merged and removed was refused: $output"
+  assert_contains "$output" 'recorded parent branch no longer exists: stack/base'
+  assert_contains "$output" '"base":"main"'
+  printf 'a missing parent falls back to the repository default with a warning\n'
+}
+
+scenario_explicit_base_overrides_recorded_parent() {
+  local output
+  setup_stack_fixture
+  printf 'child\n' >"$work_dir/shared/child/child.txt"
+  git -C "$work_dir/shared/child" add child.txt
+  git -C "$work_dir/shared/child" commit -qm child
+  git -C "$work_dir/shared/parent" merge -q --no-ff stack/child -m 'merge child'
+  output="$(megabrain_worktree_finish "$work_dir/shared/child" --base stack/base --delete-branch --json 2>&1)" ||
+    fail "an explicit base did not override the recorded parent: $output"
+  assert_contains "$output" '"base":"stack/base"'
+  printf 'an explicit base overrides recorded lineage\n'
+}
+
+scenario_stacked_branch_uses_recorded_parent
+scenario_unmerged_branch_is_still_refused
+scenario_root_branch_uses_repository_default
+scenario_missing_parent_falls_back_loudly
+scenario_explicit_base_overrides_recorded_parent
 
 git init -q "$work_dir/repo"
 git -C "$work_dir/repo" config user.email tester@example.com
