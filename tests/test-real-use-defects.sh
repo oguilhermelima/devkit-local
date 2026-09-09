@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-real-use.XXXXXX")"
+
+cleanup() {
+  local rc=$?
+  rm -rf "$state_dir"
+  return "$rc"
+}
+trap cleanup EXIT
+
+fail() {
+  printf 'FAIL: %s\n' "$*" >&2
+  exit 1
+}
+
+assert_contains() {
+  case "$1" in
+    *"$2"*) ;;
+    *) fail "$3" ;;
+  esac
+}
+
+assert_not_contains() {
+  case "$1" in
+    *"$2"*) fail "$3" ;;
+    *) ;;
+  esac
+}
+
+# Scenario 1: a module prerequisite failure must reach the command exit status.
+install_home="$state_dir/install-home"
+install_state="$state_dir/install-state"
+mkdir -p "$install_home" "$install_state"
+if HOME="$install_home" MEGABRAIN_STATE_DIR="$install_state" PATH=/usr/bin:/bin \
+  "$root/megabrain" install tv-adb --yes >"$state_dir/install.out" 2>&1; then
+  fail 'a failed tv-adb install exited successfully'
+fi
+printf 'scenario 1: failed module install is non-zero\n'
+
+# Scenario 2: reported tmux drift must make the doctor non-ok.
+export MEGABRAIN_STATE_DIR="$state_dir/tmux-state"
+mkdir -p "$MEGABRAIN_STATE_DIR"
+source "$root/lib/common.sh"
+for module in "$root"/lib/module-*.sh; do
+  source "$module"
+done
+megabrain_tmux_available() { return 0; }
+megabrain_tmux_version() { printf 'tmux 3.5\n'; }
+megabrain_runtime_enabled() { return 0; }
+megabrain_tmux_tuning_config_path() { printf '%s/tmux.conf\n' "$MEGABRAIN_STATE_DIR"; }
+megabrain_tmux_wrapper_config_path() { printf '%s/.zshrc\n' "$MEGABRAIN_STATE_DIR"; }
+megabrain_tmux_tuning_block_present() { return 1; }
+megabrain_tmux_tuning_installed_current() { return 1; }
+megabrain_tmux_wrapper_block_present() { return 1; }
+megabrain_tmux_wrapper_installed_current() { return 1; }
+megabrain_tmux_tuning_server_running() { return 1; }
+megabrain_tmux_config_applied() { return 1; }
+if module_tmux_runtime_doctor >/dev/null 2>&1; then
+  fail 'tmux doctor reported ok while all drift fields were false'
+fi
+printf 'scenario 2: tmux drift is non-ok\n'
+
+# Scenario 3: agent CLIs must receive the argument separator, and a failed CLI
+# must not leak a success line into the module output.
+command_file="$state_dir/claude-args"
+megabrain_agent_mcp_registered() { return 1; }
+megabrain_remove_playwright() { return 0; }
+claude() {
+  local arg has_separator=false
+  : >"$command_file"
+  for arg in "$@"; do
+    printf '%s\n' "$arg" >>"$command_file"
+    [ "$arg" = -- ] && has_separator=true
+  done
+  if [ "$has_separator" != true ]; then
+    printf "error: unknown option '-y'\n" >&2
+    return 2
+  fi
+  return 0
+}
+if ! megabrain_register_playwright claude "$state_dir/chromium.json" >/dev/null 2>&1; then
+  fail 'Claude MCP registration did not accept the command separator'
+fi
+grep -Fx -- '--' "$command_file" >/dev/null || fail 'Claude registration command omitted --'
+
+claude() {
+  printf "Added global MCP server 'playwright'.\nerror: registration failed\n" >&2
+  return 1
+}
+failed_registration_output="$(megabrain_register_playwright claude "$state_dir/chromium.json" 2>&1 || true)"
+assert_not_contains "$failed_registration_output" 'Added global MCP server' \
+  'a failed Claude registration leaked its success line'
+printf 'scenario 3: Claude registration is guarded\n'
+
+# Scenario 4: the uncertain dispatch set reported by doctor must be selectable.
+dispatch_state="$state_dir/dispatch-state"
+export MEGABRAIN_STATE_DIR="$dispatch_state"
+export MEGABRAIN_DISPATCH_DIR="$dispatch_state/dispatches"
+mkdir -p "$MEGABRAIN_DISPATCH_DIR/uncertain/meta" "$MEGABRAIN_DISPATCH_DIR/healthy"
+printf '%s\n' '{"dispatchId":"uncertain","parentSessionId":"","parentHost":"unknown","state":"running","processState":"start-unproven","terminalState":"owned","worktreePath":"/tmp/uncertain"}' >"$MEGABRAIN_DISPATCH_DIR/uncertain/meta.json"
+printf '%s\n' '{"dispatchId":"healthy","parentSessionId":"","parentHost":"unknown","state":"running","processState":"running","terminalState":"owned","worktreePath":"/tmp/healthy"}' >"$MEGABRAIN_DISPATCH_DIR/healthy/meta.json"
+uncertain_list="$(command_orchestrate_list --uncertain --json)"
+assert_contains "$uncertain_list" 'uncertain' 'orchestrate list --uncertain omitted the doctor-counted dispatch'
+assert_not_contains "$uncertain_list" 'healthy' 'orchestrate list --uncertain included a healthy dispatch'
+printf 'scenario 4: uncertain dispatches are selectable\n'
+
+# Scenario 5: the version command must be discoverable from top-level help.
+help_output="$("$root/megabrain" --help)"
+assert_contains "$help_output" '--version' 'top-level help omitted the version flag'
+printf 'scenario 5: help documents the version flag\n'
+
+# The install record must identify itself as historical rather than live status.
+record_state="$state_dir/record-state"
+export MEGABRAIN_STATE_DIR="$record_state"
+export MEGABRAIN_STATE_FILE="$record_state/state.json"
+megabrain_state_set simulator-web true 'installed' || fail 'could not write installation record'
+jq -e '._meta.kind == "installation-record" and ._meta.recordedAt != null and ._meta.liveStatusCommand == "megabrain doctor"' "$MEGABRAIN_STATE_FILE" >/dev/null ||
+  fail 'state.json did not identify its timestamp and live-status command'
+printf 'scenario 6: install record identifies its timestamp\n'
+
+# An editor-created swap file beside the chain temp file must be removed.
+chain_state="$state_dir/chain-state"
+export MEGABRAIN_STATE_DIR="$chain_state"
+export MEGABRAIN_CHAIN_FILE="$chain_state/chains.json"
+export MEGABRAIN_MODEL_FILE="$chain_state/models.json"
+mkdir -p "$chain_state"
+cp "$root/.megabrain/models.json" "$MEGABRAIN_MODEL_FILE"
+printf '%s\n' '{"chains":{"demo":{"when":{},"steps":[{"agent":"codex","model":"gpt-5.6-luna","effort":"low"}]}},"defaultSteps":[]}' >"$MEGABRAIN_CHAIN_FILE"
+editor="$chain_state/editor.sh"
+cat >"$editor" <<'EOF'
+#!/usr/bin/env bash
+file="$1"
+touch "$(dirname "$file")/.$(basename "$file").swp"
+EOF
+chmod +x "$editor"
+export EDITOR="$editor"
+command_chain_edit demo >/dev/null || fail 'chain edit fixture did not complete'
+if find "$chain_state" -maxdepth 1 -name '.chains-edit.*.swp' -print -quit | grep -q .; then
+  fail 'chain edit left an editor swap file behind'
+fi
+printf 'scenario 7: chain editor swap file is cleaned\n'
+
+# Both browser profiles need an explicit active/inactive explanation.
+export MEGABRAIN_STATE_DIR="$state_dir/browser-state"
+MEGABRAIN_PLAYWRIGHT_ROOT="$state_dir/browser-root"
+megabrain_web_local_ready() { return 0; }
+megabrain_playwright_ready() { return 0; }
+megabrain_playwright_active_browser() { printf 'chromium\n'; }
+megabrain_playwright_config_path() { printf '%s/chromium.json\n' "$MEGABRAIN_PLAYWRIGHT_ROOT"; }
+megabrain_present_agents() { return 1; }
+node() { return 0; }
+browser_output="$(module_simulator_web_install false both)"
+assert_contains "$browser_output" 'chromium' 'browser install did not identify the active Chromium profile'
+assert_contains "$browser_output" 'firefox' 'browser install did not explain the Firefox profile'
+printf 'scenario 8: browser profile roles are explicit\n'
+
+printf 'ok: real-use defect scenarios\n'
