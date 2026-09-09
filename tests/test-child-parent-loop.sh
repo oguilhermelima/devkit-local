@@ -344,7 +344,8 @@ run_flow() {
   question_delivery_id="$(jq -r '.deliveryId' <<<"$question_delivery")"
   parent_ack "$question_delivery_id" >/dev/null
   if [ "$runtime" = tmux ]; then
-    busy_pane="$(tmux_cmd split-window -v -t "$child_session" -P -F '#{pane_id}' "printf '%s' 'Working · esc to interrupt'; sleep 5")"
+    busy_pane="$(tmux_cmd split-window -v -t "$child_session" -P -F '#{pane_id}' "printf '%s' 'Working · esc to interrupt'; exec tail -f /dev/null")"
+    wait_for_pane_text "$busy_pane" 'Working · esc to interrupt'
     busy_before="$(tmux_cmd capture-pane -p -t "$busy_pane" -S -10)"
     jq --arg pane "$busy_pane" '.tmuxPane = $pane' "$state_dir/dispatches/$dispatch_id/meta.json" >"$state_dir/meta.tmp"
     mv -f "$state_dir/meta.tmp" "$state_dir/dispatches/$dispatch_id/meta.json"
