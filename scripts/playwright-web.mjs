@@ -329,6 +329,23 @@ async function extensionWorker(context, name) {
   return worker;
 }
 
+async function waitForUserScriptRuntime(worker, timeout = 10000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const state = await worker.evaluate(async () => {
+      if (typeof chrome.userScripts === 'undefined') return { available: false, count: 0 };
+      try {
+        return { available: true, count: (await chrome.userScripts.getScripts()).length };
+      } catch {
+        return { available: true, count: 0 };
+      }
+    }).catch(() => ({ available: false, count: 0 }));
+    if (state.available && state.count > 0) return;
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  throw new Error('Violentmonkey user-script runtime did not become ready');
+}
+
 async function toggleUserScripts(context, extensionId) {
   const page = await context.newPage();
   await page.goto(`chrome://extensions/?id=${extensionId}`);
@@ -447,6 +464,11 @@ async function e2eProof(root) {
   try {
     const worker = await extensionWorker(context, 'Violentmonkey');
     console.log(`chrome.userScripts apos relaunch: ${await worker.evaluate(() => typeof chrome.userScripts)}`);
+    if (manifest.userscripts?.length) {
+      const extensionId = new URL(worker.url()).hostname;
+      await sendToOptions(context, extensionId, { cmd: 'GetInjectorError' });
+      await waitForUserScriptRuntime(worker);
+    }
     const page = await context.newPage();
     await page.goto('https://example.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(2500);
