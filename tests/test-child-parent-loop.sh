@@ -257,8 +257,8 @@ parent_ack() {
 }
 
 run_flow() {
-  local runtime="$1" chain_output dispatch_meta dispatch_id delivery replay delivery_id reply_result push_check push_ack
-  local question_delivery question_delivery_id pull_result pull_delivery_id done_delivery done_delivery_id
+  local runtime="$1" chain_output dispatch_meta dispatch_id delivery replay delivery_id reply_result push_check push_ack push_receipt push_receipt_id
+  local question_delivery question_delivery_id pull_result pull_delivery_id pull_receipt pull_receipt_id done_delivery done_delivery_id
   local busy_pane busy_before receipt_before receipt_after ask_capture reply_capture reply_send_log
   MEGABRAIN_TEST_RUNTIME="$runtime"
   fake_send_mode=ok
@@ -334,6 +334,11 @@ run_flow() {
   push_delivery="$(jq -r '.deliveryId' <<<"$push_check")"
   push_ack="$(child_ack "$push_delivery")"
   assert_equal "$(jq -r '.duplicate' <<<"$push_ack")" false
+  push_receipt="$(parent_watch)"
+  assert_equal "$(jq -r '.messages[0].type' <<<"$push_receipt")" ack
+  assert_equal "$(jq -r '.messages[0].text' <<<"$push_receipt")" "$push_delivery"
+  push_receipt_id="$(jq -r '.deliveryId' <<<"$push_receipt")"
+  parent_ack "$push_receipt_id" >/dev/null
   child_command ask "$runtime-pull-question" >/dev/null
   question_delivery="$(parent_watch)"
   question_delivery_id="$(jq -r '.deliveryId' <<<"$question_delivery")"
@@ -362,6 +367,11 @@ run_flow() {
   assert_contains "$(jq -r '.text' <<<"$pull_result")" "$runtime-pull-received"
   pull_delivery_id="$(jq -r '.deliveryId' <<<"$pull_result")"
   child_ack "$pull_delivery_id" >/dev/null
+  pull_receipt="$(parent_watch)"
+  assert_equal "$(jq -r '.messages[0].type' <<<"$pull_receipt")" ack
+  assert_equal "$(jq -r '.messages[0].text' <<<"$pull_receipt")" "$pull_delivery_id"
+  pull_receipt_id="$(jq -r '.deliveryId' <<<"$pull_receipt")"
+  parent_ack "$pull_receipt_id" >/dev/null
   child_command done "$runtime-complete" >/dev/null
   done_delivery="$(parent_watch)"
   assert_equal "$(jq -r '.messages[0].text' <<<"$done_delivery")" "$runtime-complete"
@@ -372,6 +382,7 @@ run_flow() {
   assert_contains "$queue_types" 'child/received'
   assert_contains "$queue_types" 'child/ask'
   assert_contains "$queue_types" 'parent/reply'
+  assert_contains "$queue_types" 'child/ack'
   assert_contains "$queue_types" 'child/done'
   if [ "$runtime" = tmux ]; then
     tmux_cmd kill-pane -t "$(printf '%s' "$dispatch_meta" | jq -r '.tmuxPane')"
