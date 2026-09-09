@@ -5,22 +5,26 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-terminal.XXXXXX")"
 fake_port_state="$state_dir/fake-port-state"
-fake_port_probe_file="$state_dir/fake-port-probes"
-fake_port_ready_file="$state_dir/fake-port-ready"
+fake_port_recreated_file="$state_dir/fake-port-recreated"
+fake_port_wait_observed_file="$state_dir/fake-port-wait-observed"
 fake_tree_state="$state_dir/fake-tree-state"
 fake_host_live=true
-fake_port_listening=true
 fake_port_stuck=false
-fake_port_probe_count=0
-fake_port_ready_after=0
+fake_port_recreate_listens=true
 
 printf 'listening\n' >"$fake_port_state"
-printf '0\n' >"$fake_port_probe_file"
-printf '0\n' >"$fake_port_ready_file"
+printf 'no\n' >"$fake_port_recreated_file"
+printf 'no\n' >"$fake_port_wait_observed_file"
 printf 'alive\n' >"$fake_tree_state"
 
 fake_port_set_listening() {
   printf '%s\n' "$1" >"$fake_port_state"
+}
+fake_port_bind() {
+  fake_port_set_listening listening
+}
+fake_port_confirm_listening() {
+  [ "$(cat "$fake_port_state")" = listening ] || fail 'fixture port did not bind before restart'
 }
 fake_id=terminal-one
 fake_pid=100
@@ -69,9 +73,11 @@ megabrain_workspace_id_for_target() { printf 'workspace-test\n'; }
 megabrain_superset() {
   case "${1:-}:${2:-}" in
     terminals:create)
-      if [ "$(cat "$fake_port_state")" = free ] && [ "$fake_port_stuck" = false ]; then
-        printf '0\n' >"$fake_port_probe_file"
-        printf '12\n' >"$fake_port_ready_file"
+      # Recreate the listener synchronously; restart must observe a bound port,
+      # not race a process that may bind later.
+      if [ "$(cat "$fake_port_state")" = free ] && [ "$fake_port_stuck" = false ] && [ "$fake_port_recreate_listens" = true ]; then
+        fake_port_bind
+        printf 'yes\n' >"$fake_port_recreated_file"
       fi
       printf '{"terminalId":"%s","pid":%s,"port":%s}\n' "$fake_id" "$fake_pid" "$fake_port"
       ;;
@@ -90,15 +96,10 @@ megabrain_superset() {
 # the process megabrain recorded when it created the terminal. A naive listener-only kill
 # makes the child respawn; killing the recorded root removes the old tree.
 lsof() {
-  if [ "$(cat "$fake_port_state")" = free ] && [ "$fake_port_stuck" = false ] && [ "$(cat "$fake_port_ready_file")" -gt 0 ]; then
-    fake_port_probe_count="$(cat "$fake_port_probe_file")"
-    fake_port_probe_count=$((fake_port_probe_count + 1))
-    printf '%s\n' "$fake_port_probe_count" >"$fake_port_probe_file"
-    if [ "$fake_port_probe_count" -ge "$(cat "$fake_port_ready_file")" ]; then
-      fake_port_set_listening listening
-    fi
-  fi
   if [ "$(cat "$fake_port_state")" = listening ]; then
+    if [ "$(cat "$fake_port_recreated_file")" = yes ]; then
+      printf 'yes\n' >"$fake_port_wait_observed_file"
+    fi
     printf '101\n'
   fi
 }
@@ -215,36 +216,49 @@ scenario_restart_safety_and_wait() {
   fake_port_set_listening listening
   fake_port_stuck=false
   printf 'alive\n' >"$fake_tree_state"
-  fake_port_set_listening listening
-  printf '0\n' >"$fake_port_ready_file"
-  printf '0\n' >"$fake_port_probe_file"
-  fake_port_ready_after=0
-  fake_port_probe_count=0
+  fake_port_recreate_listens=true
+  printf 'no\n' >"$fake_port_recreated_file"
+  printf 'no\n' >"$fake_port_wait_observed_file"
+  fake_port_bind
+  fake_port_confirm_listening
   command_terminal create --worktree "$root" --command 'run tree' --title 'DEV tree' --json >/dev/null
-  fake_port_set_listening listening
+  fake_port_confirm_listening
   output="$(command_terminal restart id:terminal-tree --wait-port 8090 --timeout 2 --json)"
-  assert_json_true "$output" '.recreated == true and .port == 8090 and .listeningAfterMs >= 0'
-  assert_json_true "$output" '.listeningAfterMs >= 1000'
+  assert_json_true "$output" '.recreated == true and .port == 8090'
+  [ "$(cat "$fake_port_wait_observed_file")" = yes ] || fail 'restart returned without observing the recreated listener'
   [ "$(cat "$fake_tree_state")" = gone ] || fail 'restart did not kill the recorded process root'
 
-  fake_id=terminal-timeout
+  fake_id=terminal-timeout-listening
   fake_pid=100
   fake_port=8091
-  fake_port_stuck=true
+  fake_port_stuck=false
+  fake_port_recreate_listens=false
   fake_port_set_listening listening
   command_terminal create --worktree "$root" --command 'run timeout' --title 'DEV timeout' --json >/dev/null
-  if failure_output="$(command_terminal restart id:terminal-timeout --timeout 0 2>&1)"; then
+  fake_port_confirm_listening
+  if failure_output="$(command_terminal restart id:terminal-timeout-listening --wait-port 8091 --timeout 0 2>&1)"; then
+    fail 'a listener that never returns unexpectedly succeeded'
+  fi
+  assert_contains "$failure_output" 'timed out waiting for port 8091 to listen again'
+
+  fake_id=terminal-timeout-free
+  fake_pid=100
+  fake_port=8092
+  fake_port_stuck=true
+  fake_port_recreate_listens=true
+  fake_port_set_listening listening
+  command_terminal create --worktree "$root" --command 'run timeout' --title 'DEV timeout' --json >/dev/null
+  if failure_output="$(command_terminal restart id:terminal-timeout-free --timeout 0 2>&1)"; then
     fail 'port-free timeout unexpectedly succeeded'
   fi
-  assert_contains "$failure_output" 'timed out waiting for port 8091 to become free'
+  assert_contains "$failure_output" 'timed out waiting for port 8092 to become free'
 
   fake_port_stuck=false
   fake_port_set_listening free
-  printf '0\n' >"$fake_port_ready_file"
-  if failure_output="$(command_terminal restart port:8091 --timeout 0 2>&1)"; then
+  if failure_output="$(command_terminal restart port:8092 --timeout 0 2>&1)"; then
     fail 'a non-listening port unexpectedly resolved'
   fi
-  assert_contains "$failure_output" 'port 8091 is not listening'
+  assert_contains "$failure_output" 'port 8092 is not listening'
   printf 'restart kills the recorded root, waits for free ports, and distinguishes timeout\n'
 }
 
