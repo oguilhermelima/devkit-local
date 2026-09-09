@@ -884,6 +884,80 @@ megabrain_terminal_create() {
   fi
 }
 
+megabrain_terminal_host_records() {
+  local host="$1" workspace_id="$2"
+  case "$host" in
+    orca)
+      megabrain_require_command orca || return 1
+      orca terminal list --json 2>/dev/null
+      ;;
+    superset)
+      [ -n "$workspace_id" ] || return 1
+      megabrain_superset_available || return 1
+      megabrain_superset terminals list --workspace "$workspace_id" --json 2>/dev/null
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+megabrain_terminal_host_has_id() {
+  local records="$1" terminal_id="$2"
+  printf '%s' "$records" | jq -e --arg id "$terminal_id" '
+    def records: if type == "array" then . else (.result.terminals // .terminals // .sessions // .result.sessions // []) end;
+    any(records[]?; (.terminalId // .handle // .terminalHandle // .sessionId // .id // "") == $id)
+  ' >/dev/null 2>&1
+}
+
+megabrain_terminal_list() {
+  local worktree_selector="" worktree_filter="" json=false arg path record records status host workspace_id
+  local output='[]' entry
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --worktree) worktree_selector="${2:-}"; shift 2 ;;
+      --json) json=true; shift ;;
+      -h|--help) megabrain_usage_show terminal-list; return 0 ;;
+      *) megabrain_error "unknown terminal list option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
+    esac
+  done
+  if [ -n "$worktree_selector" ]; then
+    if [ -d "$worktree_selector" ]; then
+      worktree_filter="$(git -C "$worktree_selector" rev-parse --show-toplevel 2>/dev/null || true)"
+    else
+      megabrain_error "worktree path is not a Git directory: $worktree_selector"
+      return 1
+    fi
+    [ -n "$worktree_filter" ] || { megabrain_error "could not resolve Git worktree: $worktree_selector"; return 1; }
+  fi
+  for path in "$MEGABRAIN_TERMINAL_DIR"/*.json; do
+    [ -f "$path" ] || continue
+    record="$(cat "$path" 2>/dev/null || true)"
+    printf '%s' "$record" | jq -e . >/dev/null 2>&1 || continue
+    [ -z "$worktree_filter" ] || [ "$(printf '%s' "$record" | jq -r '.worktree // empty')" = "$worktree_filter" ] || continue
+    host="$(printf '%s' "$record" | jq -r '.host // empty')"
+    workspace_id="$(printf '%s' "$record" | jq -r '.workspaceId // empty')"
+    status=unknown
+    records="$(megabrain_terminal_host_records "$host" "$workspace_id" 2>/dev/null || true)"
+    if printf '%s' "$records" | jq -e . >/dev/null 2>&1; then
+      if megabrain_terminal_host_has_id "$records" "$(printf '%s' "$record" | jq -r '.terminalId')"; then
+        status=active
+      else
+        status=stale
+      fi
+    fi
+    entry="$(printf '%s' "$record" | jq --arg status "$status" '.status = $status')"
+    output="$(printf '%s' "$output" | jq --argjson item "$entry" '. + [$item]')"
+  done
+  if [ "$json" = true ]; then
+    printf '%s\n' "$output"
+  else
+    printf '%s\n' "$output" | jq -r '.[] | [.terminalId, .status, .host, .worktree, (.title // "-"), .command, .createdAt, (.pid // "-"), (.port // "-")] | @tsv' |
+      while IFS=$'\t' read -r terminal_id status host worktree title command_text created_at pid port; do
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$terminal_id" "$status" "$host" "$worktree" "$title" "$command_text" "$created_at" "$pid" "$port"
+      done
+  fi
+}
+
 megabrain_worktree_create_rollback() {
   local repo_path="$1" worktree_path="$2" branch="$3" project_id="$4" project_created="$5"
   local workspace_id="$6" workspace_created="$7" worktree_created="$8" reason="$9"
@@ -1406,6 +1480,7 @@ command_terminal() {
   shift || true
   case "$subcommand" in
     create) megabrain_terminal_create "$@" ;;
+    list) megabrain_terminal_list "$@" ;;
     -h|--help|"")
       megabrain_usage_show terminal-create
       printf 'Superset tabs are not titled; only Orca tabs are.\n'
