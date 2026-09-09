@@ -186,7 +186,7 @@ dispatch_id=pointer-reply
 create_meta "$dispatch_id" '%fake'
 pointer_answer='answer body must stay in the queue'
 pointer_output="$(megabrain_dispatch_reply "$dispatch_id" --text "$pointer_answer" --json)"
-assert_equal "$(jq -r '.status' <<<"$pointer_output")" replied
+assert_equal "$(jq -r '.status' <<<"$pointer_output")" queued
 typed="$(cat "$log_file")"
 assert_contains "$typed" 'megabrain check'
 assert_not_contains "$typed" "$pointer_answer"
