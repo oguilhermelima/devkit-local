@@ -310,9 +310,9 @@ async function extensionWorker(context, name) {
     return null;
   };
   let worker = await find();
-  if (!worker) {
-    const candidate = await context.waitForEvent('serviceworker', { timeout: 20000 }).catch(() => null);
-    worker = candidate || await find();
+  for (let attempt = 0; !worker && attempt < 4; attempt += 1) {
+    await context.waitForEvent('serviceworker', { timeout: 5000 }).catch(() => null);
+    worker = await find();
   }
   if (!worker) throw new Error(`could not find the ${name} extension service worker`);
   return worker;
