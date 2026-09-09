@@ -146,13 +146,19 @@ megabrain worktree finish <branch|path|slug> [--delete-branch] [--force] [--json
 megabrain worktree list [--repo <name|path>] [--json]
 megabrain worktree adopt <path|branch> [--json]
 megabrain terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]
+megabrain terminal list [--worktree <path>] [--json]
+megabrain terminal restart <selector> [--command <cmd>] [--wait-port <port>] [--timeout <seconds>] [--json]
 ```
 
 `worktree create` does the git worktree add and registers the workspace so Orca and Superset both
 see it from the start. `adopt` registers the missing side of a worktree that exists on only one.
 `finish` refuses an unmerged branch unless `--force` is given. `terminal create` with no
 `--command` runs the worktree's `.superset/config.json` run script. Superset tabs come back
-untitled; only Orca tabs carry a title.
+untitled; only Orca tabs carry a title. Terminal identities, commands and creation times are
+recorded under `$MEGABRAIN_STATE_DIR/terminals/`, so `terminal list` can retain a host-gone
+terminal as `stale`. `terminal restart` accepts `id:`, `title:`, `port:` or `worktree:` selectors,
+kills only the recorded process tree after proving a port listener belongs to it, waits for the
+old port to be free, and optionally waits for it to listen again with `--wait-port`.
 
 ## Setup and diagnosis
 
