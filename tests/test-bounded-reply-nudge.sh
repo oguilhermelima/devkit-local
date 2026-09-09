@@ -67,7 +67,7 @@ esac
 export TMUX="$tmux_info"
 export TMUX_PANE="$parent_pane"
 parent_identity="$(megabrain_session_id)"
-child_pane="$(tmux_cmd split-window -d -t "$session_name" -c "$root" -P -F '#{pane_id}' 'exec sleep 60')"
+child_pane="$(tmux_cmd split-window -d -t "$session_name" -c "$root" -P -F '#{pane_id}' 'trap "" INT; sleep 60')"
 
 create_meta() {
   local dispatch_id="$1" pane="$2" agent="${3:-codex}"
