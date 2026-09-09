@@ -76,7 +76,8 @@ create_meta() {
     "$session_name" "$parent_pane" "" >/dev/null
 }
 
-# A pane can repaint without accepting Enter. Pane movement is not proof that submission occurred.
+# tmux transport is best effort only. It does not inspect the TUI or claim that Enter
+# submitted the text; durable dispatch delivery is confirmed by a child receipt.
 repaint_pane='%repaint'
 repaint_composer_file="$state_root/repaint-composer"
 repaint_count=0
@@ -106,8 +107,8 @@ repaint_answer='TEXTO QUE NAO SUBMETE'
 repaint_output="$(megabrain_tmux_send_text "$repaint_pane" "$repaint_answer" claude; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
 assert_equal "$repaint_output" queued
 repaint_capture="$(cat "$repaint_composer_file")"
-assert_not_contains "$repaint_capture" "$repaint_answer"
-printf 'repainting pane: ignored activity, queued the nudge, and cleared the composer\n'
+assert_contains "$repaint_capture" "$repaint_answer"
+printf 'tmux transport: queued the nudge without inferring composer delivery\n'
 unset -f tmux
 
 # A process that never reads stdin exercises the real pty backpressure. This is a
@@ -148,8 +149,8 @@ printf 'busy child: reply returns within the bound and keeps the full queue mess
 
 tmux_cmd kill-pane -t "$child_pane"
 
-# A non-codex pane must not receive the codex-only Tab fallback. Its composer is
-# cleared after the failed Enter attempt, and the durable queue still owns the reply.
+# A non-codex pane must not receive the codex-only Tab fallback. The transport does not
+# clear or inspect the composer; the durable queue owns the reply.
 mock_mode=stuck
 mock_pane_file="$state_root/mock-pane"
 mock_keys="$state_root/mock-keys"
@@ -187,26 +188,26 @@ create_meta "$dispatch_id" '%stuck' claude
 stuck_answer='reply stays durable when claude composer does not submit'
 stuck_output="$(megabrain_dispatch_reply "$dispatch_id" --text "$stuck_answer" --json)"
 assert_equal "$(jq -r '.status' <<<"$stuck_output")" queued
-assert_equal "$(cat "$mock_pane_file")" ''
+assert_equal "$(cat "$mock_pane_file")" "$stuck_answer"
 assert_not_contains "$(cat "$mock_keys")" 'Tab'
 stuck_message="$state_root/state/dispatches/$dispatch_id/messages"/*.json
 assert_equal "$(find "$state_root/state/dispatches/$dispatch_id/messages" -name '*.json' | wc -l | tr -d ' ')" 1
 assert_equal "$(jq -r '.text' $stuck_message)" "$stuck_answer"
-printf 'stuck composer: failed nudge is queued and composer is cleared\n'
+printf 'stuck composer: nudge is queued without claiming delivery\n'
 
-# An accepting pane clears its composer after Enter and reports replied.
+# An accepting pane is still only a queued transport send; only a child receipt proves delivery.
 mock_mode=accept
 printf 'draft\n' >"$mock_pane_file"
 dispatch_id=accepted-reply
 create_meta "$dispatch_id" '%accepted' codex
 accepted_answer='reply accepted by codex composer'
 accepted_output="$(megabrain_dispatch_reply "$dispatch_id" --text "$accepted_answer" --json)"
-assert_equal "$(jq -r '.status' <<<"$accepted_output")" replied
-assert_equal "$(cat "$mock_pane_file")" ''
+assert_equal "$(jq -r '.status' <<<"$accepted_output")" queued
+assert_equal "$(cat "$mock_pane_file")" "$accepted_answer"
 accepted_message="$state_root/state/dispatches/$dispatch_id/messages"/*.json
 assert_equal "$(find "$state_root/state/dispatches/$dispatch_id/messages" -name '*.json' | wc -l | tr -d ' ')" 1
 assert_equal "$(jq -r '.text' $accepted_message)" "$accepted_answer"
-printf 'accepted composer: Enter reports replied and keeps one queue message\n'
+printf 'accepted composer: Enter remains best effort and keeps one queue message\n'
 
 # A prior pointer in the transcript must not make a similar, newly submitted pointer look queued.
 second_composer_file="$state_root/second-composer"
@@ -246,9 +247,9 @@ tmux() {
   esac
 }
 second_output="$(megabrain_tmux_send_text %second "$second_answer" claude; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
-assert_equal "$second_output" replied
-assert_equal "$(cat "$second_composer_file")" ''
-printf 'similar second nudge: transcript text did not override the composer result\n'
+assert_equal "$second_output" queued
+assert_equal "$(cat "$second_composer_file")" "$second_answer"
+printf 'similar second nudge: transport does not inspect transcript text\n'
 
 # Width is read from the target pane, so the cap follows narrow and wide terminals.
 nudge_width=70

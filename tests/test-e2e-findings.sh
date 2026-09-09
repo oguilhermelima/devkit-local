@@ -191,7 +191,7 @@ megabrain_dispatch_native_send() {
 }
 megabrain_dispatch_meta_write stalled-reply-accepted parent-terminal superset superset workspace-test stalled-reply-terminal "$root" main codex label stalled gpt-5 true codex '' '' host ide >/dev/null
 stalled_reply_output="$(megabrain_dispatch_reply stalled-reply-accepted --text 'reply reaches stalled child' --json)"
-assert_equal "$(printf '%s' "$stalled_reply_output" | jq -r '.status')" replied
+assert_equal "$(printf '%s' "$stalled_reply_output" | jq -r '.status')" queued
 assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-reply-accepted/meta.json")" running
 printf 'stalled reply: accepted and resumed the dispatch\n'
 
