@@ -4,9 +4,24 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-terminal.XXXXXX")"
+fake_port_state="$state_dir/fake-port-state"
+fake_port_probe_file="$state_dir/fake-port-probes"
+fake_port_ready_file="$state_dir/fake-port-ready"
+fake_tree_state="$state_dir/fake-tree-state"
 fake_host_live=true
 fake_port_listening=true
 fake_port_stuck=false
+fake_port_probe_count=0
+fake_port_ready_after=0
+
+printf 'listening\n' >"$fake_port_state"
+printf '0\n' >"$fake_port_probe_file"
+printf '0\n' >"$fake_port_ready_file"
+printf 'alive\n' >"$fake_tree_state"
+
+fake_port_set_listening() {
+  printf '%s\n' "$1" >"$fake_port_state"
+}
 fake_id=terminal-one
 fake_pid=100
 fake_port=8082
@@ -54,6 +69,10 @@ megabrain_workspace_id_for_target() { printf 'workspace-test\n'; }
 megabrain_superset() {
   case "${1:-}:${2:-}" in
     terminals:create)
+      if [ "$(cat "$fake_port_state")" = free ] && [ "$fake_port_stuck" = false ]; then
+        printf '0\n' >"$fake_port_probe_file"
+        printf '12\n' >"$fake_port_ready_file"
+      fi
       printf '{"terminalId":"%s","pid":%s,"port":%s}\n' "$fake_id" "$fake_pid" "$fake_port"
       ;;
     terminals:list)
@@ -71,8 +90,16 @@ megabrain_superset() {
 # the process megabrain recorded when it created the terminal. A naive listener-only kill
 # makes the child respawn; killing the recorded root removes the old tree.
 lsof() {
-  if [ "$fake_port_listening" = true ]; then
-    printf '%s\n' "$fake_pid"
+  if [ "$(cat "$fake_port_state")" = free ] && [ "$fake_port_stuck" = false ] && [ "$(cat "$fake_port_ready_file")" -gt 0 ]; then
+    fake_port_probe_count="$(cat "$fake_port_probe_file")"
+    fake_port_probe_count=$((fake_port_probe_count + 1))
+    printf '%s\n' "$fake_port_probe_count" >"$fake_port_probe_file"
+    if [ "$fake_port_probe_count" -ge "$(cat "$fake_port_ready_file")" ]; then
+      fake_port_set_listening listening
+    fi
+  fi
+  if [ "$(cat "$fake_port_state")" = listening ]; then
+    printf '101\n'
   fi
 }
 
@@ -101,11 +128,11 @@ kill() {
   pid="$2"
   fake_killed="$fake_killed $pid"
   if [ "$pid" = 100 ]; then
-    fake_old_tree_gone=true
+    printf 'gone\n' >"$fake_tree_state"
     if [ "$fake_port_stuck" = false ]; then
-      fake_port_listening=false
+      fake_port_set_listening free
     fi
-  elif [ "$pid" = 101 ] && [ "$fake_old_tree_gone" = false ]; then
+  elif [ "$pid" = 101 ] && [ "$(cat "$fake_tree_state")" = alive ]; then
     fail 'listener-only kill respawned the old process tree'
   fi
   return 0
@@ -139,7 +166,7 @@ scenario_list_keeps_stale() {
 scenario_restart_selectors() {
   local output failure_output
   fake_host_live=true
-  fake_port_listening=true
+  fake_port_set_listening listening
   fake_port_stuck=false
   fake_id=terminal-create
   fake_pid=100
@@ -152,7 +179,7 @@ scenario_restart_selectors() {
   fake_port=8083
   fake_title='DEV title'
   command_terminal create --worktree "$root" --command 'run title' --title "$fake_title" --json >/dev/null
-  fake_port_listening=true
+  fake_port_set_listening listening
   output="$(command_terminal restart "title:$fake_title" --timeout 0 --json)"
   assert_json_true "$output" '.selector == "title:DEV title" and .recreated == true'
 
@@ -160,7 +187,7 @@ scenario_restart_selectors() {
   fake_pid=100
   fake_port=8084
   command_terminal create --worktree "$root" --command 'run port' --title 'DEV port' --json >/dev/null
-  fake_port_listening=true
+  fake_port_set_listening listening
   output="$(command_terminal restart port:8084 --timeout 0 --json)"
   assert_json_true "$output" '.selector == "port:8084" and .recreated == true'
 
@@ -168,7 +195,7 @@ scenario_restart_selectors() {
   fake_pid=100
   fake_port=8085
   command_terminal create --worktree "$root" --command 'run worktree' --title 'DEV worktree' --json >/dev/null
-  fake_port_listening=true
+  fake_port_set_listening listening
   output="$(command_terminal restart "worktree:$root" --timeout 0 --json)"
   assert_equal "$(jq -r '.selector' <<<"$output")" "worktree:$root"
   assert_json_true "$output" '.recreated == true'
@@ -185,19 +212,26 @@ scenario_restart_safety_and_wait() {
   fake_id=terminal-tree
   fake_pid=100
   fake_port=8090
-  fake_port_listening=true
+  fake_port_set_listening listening
   fake_port_stuck=false
+  printf 'alive\n' >"$fake_tree_state"
+  fake_port_set_listening listening
+  printf '0\n' >"$fake_port_ready_file"
+  printf '0\n' >"$fake_port_probe_file"
+  fake_port_ready_after=0
+  fake_port_probe_count=0
   command_terminal create --worktree "$root" --command 'run tree' --title 'DEV tree' --json >/dev/null
-  fake_port_listening=true
-  output="$(command_terminal restart id:terminal-tree --wait-port 8090 --timeout 0 --json)"
+  fake_port_set_listening listening
+  output="$(command_terminal restart id:terminal-tree --wait-port 8090 --timeout 2 --json)"
   assert_json_true "$output" '.recreated == true and .port == 8090 and .listeningAfterMs >= 0'
-  [ "$fake_old_tree_gone" = true ] || fail 'restart did not kill the recorded process root'
+  assert_json_true "$output" '.listeningAfterMs >= 1000'
+  [ "$(cat "$fake_tree_state")" = gone ] || fail 'restart did not kill the recorded process root'
 
   fake_id=terminal-timeout
   fake_pid=100
   fake_port=8091
   fake_port_stuck=true
-  fake_port_listening=true
+  fake_port_set_listening listening
   command_terminal create --worktree "$root" --command 'run timeout' --title 'DEV timeout' --json >/dev/null
   if failure_output="$(command_terminal restart id:terminal-timeout --timeout 0 2>&1)"; then
     fail 'port-free timeout unexpectedly succeeded'
@@ -205,7 +239,8 @@ scenario_restart_safety_and_wait() {
   assert_contains "$failure_output" 'timed out waiting for port 8091 to become free'
 
   fake_port_stuck=false
-  fake_port_listening=false
+  fake_port_set_listening free
+  printf '0\n' >"$fake_port_ready_file"
   if failure_output="$(command_terminal restart port:8091 --timeout 0 2>&1)"; then
     fail 'a non-listening port unexpectedly resolved'
   fi
