@@ -129,10 +129,13 @@ tmux() {
       printf '%s\n' "$*" >>"$mock_keys"
       case "${4:-}" in
         -l) printf '%s\n' "${5:-}" >"$mock_pane_file" ;;
-        C-u) : >"$mock_pane_file" ;;
+        C-e) : ;;
         Enter)
           if [ "$mock_mode" = accept ]; then : >"$mock_pane_file"; fi
           ;;
+      esac
+      case "$*" in
+        *BSpace*) : >"$mock_pane_file" ;;
       esac
       return 0
       ;;
