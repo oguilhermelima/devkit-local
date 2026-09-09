@@ -329,10 +329,20 @@ megabrain_tmux_send_literal() {
 }
 
 megabrain_tmux_capture_composer() {
-  local pane="$1"
-  # The bottom four rows are the bounded composer region. Keeping this scope tight
-  # excludes submitted messages echoed into the transcript above it.
-  tmux capture-pane -p -J -t "$pane" -S -4 2>/dev/null || true
+  local pane="$1" pane_height start
+  # Negative -S values address scrollback, not rows above the visible bottom. Resolve
+  # the visible height so this bounded region excludes submitted transcript messages.
+  pane_height="$(tmux display-message -p -t "$pane" '#{pane_height}' 2>/dev/null || true)"
+  case "$pane_height" in
+    ''|*[!0-9]*)
+      tmux capture-pane -p -J -t "$pane" -S -4 2>/dev/null | tail -n 4
+      ;;
+    *)
+      start=$((pane_height - 4))
+      [ "$start" -ge 0 ] || start=0
+      tmux capture-pane -p -J -t "$pane" -S "$start" -E - 2>/dev/null || true
+      ;;
+  esac
 }
 
 megabrain_tmux_normalize_text() {
