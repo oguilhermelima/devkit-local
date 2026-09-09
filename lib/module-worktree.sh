@@ -1774,12 +1774,19 @@ megabrain_find_worktree_path() {
 
 megabrain_worktree_finish() {
   local target="" delete_branch=false force=false json=false arg shared_root path workspace_id="" repo_path branch base merged
+  local parent_branch="" base_source="" base_warning="" branch_delete_status=0
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) json=true; shift ;;
       --delete-branch) delete_branch=true; shift ;;
       --force) force=true; shift ;;
+      --base)
+        [ "$#" -ge 2 ] && [ -n "${2:-}" ] || { megabrain_error '--base requires a non-empty ref'; return "$MEGABRAIN_USAGE_ERROR"; }
+        base="$2"
+        base_source="explicit"
+        shift 2
+        ;;
       -h|--help) megabrain_usage_show worktree-finish; return 0 ;;
       *)
         [ -z "$target" ] || { megabrain_error "unknown worktree finish option: $arg"; return "$MEGABRAIN_USAGE_ERROR"; }
@@ -1809,6 +1816,19 @@ megabrain_worktree_finish() {
   esac
   repo_path="$(dirname "$(realpath "$repo_path")")"
   branch="$(git -C "$path" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  if [ "$delete_branch" = true ] && [ -n "$branch" ] && [ -z "$base" ]; then
+    parent_branch="$(megabrain_worktree_parent_branch "$path" 2>/dev/null || true)"
+    if [ -n "$parent_branch" ] && git -C "$repo_path" show-ref --verify --quiet "refs/heads/$parent_branch"; then
+      base="$parent_branch"
+      base_source="recorded-parent"
+    else
+      base="$(megabrain_repo_default_base "$repo_path")"
+      base_source="repository-default"
+      if [ -n "$parent_branch" ]; then
+        base_warning="recorded parent branch no longer exists: $parent_branch; judging against repository default base $base"
+      fi
+    fi
+  fi
   # WHY: under --json the remover's own stdout goes to /dev/null so it cannot corrupt the
   # JSON, which used to leave a refusal with an empty stdout, an empty stderr and only an
   # exit code. The output is captured instead, and reported as megabrain's own error when
@@ -1838,23 +1858,32 @@ megabrain_worktree_finish() {
   fi
   [ "$json" = true ] || [ -z "$removal_output" ] || printf '%s\n' "$removal_output"
   if [ "$delete_branch" = true ] && [ -n "$branch" ]; then
-    base="$(megabrain_repo_default_base "$repo_path")"
+    [ -n "$base" ] || {
+      base="$(megabrain_repo_default_base "$repo_path")"
+      base_source="repository-default"
+    }
+    [ -z "$base_warning" ] || megabrain_notice "$base_warning"
     if [ "$force" != true ]; then
       merged="$(git -C "$repo_path" branch --merged "$base" 2>/dev/null || true)"
       if ! printf '%s\n' "$merged" | sed 's/^..//' | awk '{print $1}' | grep -Fx "$branch" >/dev/null; then
-        megabrain_error "refusing to delete unmerged branch: $branch (use --force to override)"
+        megabrain_error "refusing to delete unmerged branch: $branch against base $base (use --force to override)"
         return 1
       fi
     fi
+    [ "$json" = true ] || printf 'judged branch %s against base %s (%s)\n' "$branch" "$base" "$base_source"
     if [ "$json" = true ]; then
-      git -C "$repo_path" branch $([ "$force" = true ] && printf '%s' -D || printf '%s' -d) "$branch" >/dev/null
+      git -C "$repo_path" branch -D "$branch" >/dev/null 2>&1 || branch_delete_status=$?
     else
-      git -C "$repo_path" branch $([ "$force" = true ] && printf '%s' -D || printf '%s' -d) "$branch"
+      git -C "$repo_path" branch -D "$branch" || branch_delete_status=$?
+    fi
+    if [ "$branch_delete_status" -ne 0 ]; then
+      megabrain_error "could not delete branch: $branch"
+      return 1
     fi
   fi
   if [ "$json" = true ]; then
-    jq -n --arg branch "$branch" --arg path "$path" \
-      '{deleted: true, branch: (if $branch|length > 0 then $branch else null end), path: $path}'
+    jq -cn --arg branch "$branch" --arg path "$path" --arg base "$base" --arg baseSource "$base_source" --arg baseWarning "$base_warning" \
+      '{deleted: true, branch: (if $branch|length > 0 then $branch else null end), path: $path, base: (if $base|length > 0 then $base else null end), baseSource: (if $baseSource|length > 0 then $baseSource else null end), baseWarning: (if $baseWarning|length > 0 then $baseWarning else null end)}'
   fi
 }
 

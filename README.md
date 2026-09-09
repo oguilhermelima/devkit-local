@@ -265,6 +265,11 @@ repository default. `--base` overrides either choice. The default title is the b
 default body is empty. megabrain refuses to invoke `gh pr create` when there are no commits ahead
 of the selected base, and reports missing gh separately from an unauthenticated gh.
 
+When finishing with `--delete-branch`, the recorded parent is used as the merge base for a
+stacked worktree; a root worktree uses the repository default. Pass `--base <ref>` to override
+the recorded base. If the recorded parent was already deleted, finish falls back to the
+repository default and reports both the missing parent and the base it judged.
+
 `megabrain worktree list` shows the stack as a tree and includes pull-request state when gh can
 answer cheaply. Use `--flat` for the original path/branch table; JSON remains a flat, scriptable
 array and does not require gh or Orca to list the local stack.
