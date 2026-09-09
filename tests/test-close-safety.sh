@@ -13,6 +13,7 @@ dedicated_session_name="megabrain-close-dedicated-$$"
 parent_pane=""
 parent_tmux=""
 close_log="$state_dir/host-close.log"
+default_tmux_dir="/tmp/tmux-$(id -u)"
 
 cleanup() {
   local rc=$?
@@ -23,7 +24,7 @@ cleanup() {
 trap cleanup EXIT
 
 export MEGABRAIN_STATE_DIR="$state_dir"
-outside_tmux_before="$(find /private/tmp/tmux-501 -mindepth 1 -maxdepth 1 -type s -print 2>/dev/null | sort)"
+outside_tmux_before="$(find "$default_tmux_dir" -mindepth 1 -maxdepth 1 -type s -print 2>/dev/null | sort || true)"
 
 source "$root/lib/common.sh"
 source "$root/lib/module-tmux-runtime.sh"
@@ -130,7 +131,7 @@ printf 'dedicated-session child close still closes its host terminal\n'
 
 trap - EXIT
 cleanup
-outside_tmux_after="$(find /private/tmp/tmux-501 -mindepth 1 -maxdepth 1 -type s -print 2>/dev/null | sort)"
+outside_tmux_after="$(find "$default_tmux_dir" -mindepth 1 -maxdepth 1 -type s -print 2>/dev/null | sort || true)"
 assert_equal "$outside_tmux_after" "$outside_tmux_before"
 printf 'tmux socket isolation: no socket escaped the temporary directory\n'
 
