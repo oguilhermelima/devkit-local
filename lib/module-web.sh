@@ -108,7 +108,7 @@ module_simulator_web_doctor() {
 }
 
 megabrain_register_playwright() {
-  local agent="$1" config_path="$2"
+  local agent="$1" config_path="$2" output rc=0
   if megabrain_agent_mcp_registered "$agent" "$config_path"; then
     megabrain_info "$agent: playwright MCP already registered with $config_path"
     return 0
@@ -116,16 +116,23 @@ megabrain_register_playwright() {
   megabrain_remove_playwright "$agent"
   case "$agent" in
     claude)
-      claude mcp add --scope user "$MEGABRAIN_PLAYWRIGHT_NAME" npx -y "$MEGABRAIN_PLAYWRIGHT_COMMAND" --config "$config_path"
+      output="$(claude mcp add --scope user "$MEGABRAIN_PLAYWRIGHT_NAME" -- npx -y "$MEGABRAIN_PLAYWRIGHT_COMMAND" --config "$config_path" 2>&1)" || rc=$?
       ;;
     codex)
-      codex mcp add "$MEGABRAIN_PLAYWRIGHT_NAME" -- npx -y "$MEGABRAIN_PLAYWRIGHT_COMMAND" --config "$config_path"
+      output="$(codex mcp add "$MEGABRAIN_PLAYWRIGHT_NAME" -- npx -y "$MEGABRAIN_PLAYWRIGHT_COMMAND" --config "$config_path" 2>&1)" || rc=$?
       ;;
     agy)
-      agy mcp add "$MEGABRAIN_PLAYWRIGHT_NAME" npx -y "$MEGABRAIN_PLAYWRIGHT_COMMAND" --config "$config_path"
+      output="$(agy mcp add "$MEGABRAIN_PLAYWRIGHT_NAME" -- npx -y "$MEGABRAIN_PLAYWRIGHT_COMMAND" --config "$config_path" 2>&1)" || rc=$?
       ;;
     *) return 1 ;;
   esac
+  if [ "$rc" -ne 0 ]; then
+    megabrain_error "$agent: playwright MCP registration failed"
+    [ -n "$output" ] && printf '%s\n' "$output" | sed '/^Added global MCP server /d' >&2
+    return "$rc"
+  fi
+  [ -n "$output" ] && printf '%s\n' "$output"
+  return 0
 }
 
 module_simulator_web_install() {
