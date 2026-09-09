@@ -24,7 +24,7 @@ tmux_cmd() {
 
 cleanup() {
   local rc=$?
-  tmux -L "$socket_name" kill-server >/dev/null 2>&1 || true
+  command tmux -L "$socket_name" kill-server >/dev/null 2>&1 || true
   rm -rf "$state_root"
   return "$rc"
 }

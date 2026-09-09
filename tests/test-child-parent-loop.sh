@@ -14,6 +14,20 @@ child_session=""
 fake_send_mode=ok
 fake_close=false
 
+cleanup_tmux_server() {
+  local directory="${1:-}"
+  [ -n "$directory" ] || return 0
+  TMUX_TMPDIR="$directory" env -u TMUX -u TMUX_PANE command tmux -L "$socket_name" kill-server >/dev/null 2>&1 || true
+}
+
+cleanup() {
+  local rc=$?
+  cleanup_tmux_server "$state_dir"
+  [ -n "$state_dir" ] && rm -rf "$state_dir"
+  return "$rc"
+}
+trap cleanup EXIT
+
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
   exit 1
@@ -46,6 +60,8 @@ tmux_cmd() {
 }
 
 set_state_dir() {
+  cleanup_tmux_server "$state_dir"
+  [ -n "$state_dir" ] && rm -rf "$state_dir"
   state_dir="$(cd -P "$1" && pwd -P)"
   export TMUX_TMPDIR="$state_dir"
   MEGABRAIN_STATE_DIR="$state_dir"
@@ -325,6 +341,4 @@ run_flow() {
 run_flow tmux
 run_flow host
 
-tmux_cmd kill-session -t "$session_name" >/dev/null 2>&1 || true
-tmux_cmd kill-server >/dev/null 2>&1 || true
 printf 'ok: child parent loop end to end in tmux and non-tmux runtimes\n'
