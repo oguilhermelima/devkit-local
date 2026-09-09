@@ -139,7 +139,8 @@ megabrain_state_set() {
     --argjson installed "$installed" \
     --arg configuredAt "$configured_at" \
     --arg details "$details" \
-    '.[$moduleName] = {installed: $installed, configuredAt: $configuredAt, details: $details}' \
+    '._meta = {kind: "installation-record", recordedAt: $configuredAt, source: "megabrain install", liveStatusCommand: "megabrain doctor"} |
+     .[$moduleName] = {installed: $installed, configuredAt: $configuredAt, details: $details}' \
     "$MEGABRAIN_STATE_FILE" >"$tmp"; then
     rm -f "$tmp"
     return 1
