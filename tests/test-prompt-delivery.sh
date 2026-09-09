@@ -109,4 +109,17 @@ assert_equal "$(jq -r '.type' "$reply_message")" reply
 assert_equal "$(jq -r '.text' "$reply_message")" 'Continue work'
 printf 'running child accepts queued parent reply\n'
 
+# A child that has just ended an ask turn is waiting_for_reply. The turn-end hook must
+# inspect its own mailbox before the waiting guard, and ask the agent to consume it.
+create_dispatch waiting-reply waiting_for_reply waiting-terminal
+megabrain_dispatch_message_append waiting-reply parent reply 'reply waiting at turn end' parent-terminal >/dev/null
+waiting_hook_output="$(env -u SUPERSET_TERMINAL_ID -u TMUX -u TMUX_PANE ORCA_TERMINAL_HANDLE=waiting-terminal MEGABRAIN_STATE_DIR="$state_dir" \
+  "$root/hooks/megabrain-turn-end.sh" '{}')"
+assert_equal "$(jq -r '.decision' <<<"$waiting_hook_output")" block
+assert_contains "$(jq -r '.reason' <<<"$waiting_hook_output")" 'megabrain check'
+waiting_delivery="$state_dir/dispatches/waiting-reply/deliveries"/*.json
+assert_equal "$(jq -r '.status' $waiting_delivery)" outstanding
+assert_equal "$(jq -r '.state' "$state_dir/dispatches/waiting-reply/meta.json")" waiting_for_reply
+printf 'waiting child turn: hook exposes queued reply before the state guard\n'
+
 printf 'ok: receipt delivery and running reply scenarios\n'
