@@ -135,6 +135,10 @@ scenario_parent_and_default_bases() {
   local output
   setup_fixture
   make_stacked_worktrees
+  git -C "$repo_dir" checkout -qb feat/root
+  printf 'root\n' >"$repo_dir/root.txt"
+  git -C "$repo_dir" add root.txt
+  git -C "$repo_dir" commit -qm root
   write_gh
   output="$(megabrain_worktree_pr "$fixture_shared_root/child" --json)"
   assert_equal "$(printf '%s' "$output" | jq -r '.base')" stack/base
