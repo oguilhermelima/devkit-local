@@ -516,13 +516,14 @@ installer_update_from_tarball() {
 }
 
 installer_write_manifest() {
-  local version="1.0.0" temp status backup
+  local version="1.0.0" temp status backup manifest_current=false
   if [ -x "$SOURCE_ROOT/megabrain" ]; then
     version="$($SOURCE_ROOT/megabrain --version 2>/dev/null | awk '{print $2}' | head -n 1)"
     [ -n "$version" ] || version="1.0.0"
   fi
   mkdir -p "$INSTALL_ROOT" || { installer_error "could not create $INSTALL_ROOT for the install manifest"; return 1; }
   if [ -f "$INSTALL_MANIFEST" ]; then
+    installer_manifest_matches_selection && manifest_current=true
     backup="$(installer_backup_path "$INSTALL_MANIFEST")"
     cp -p "$INSTALL_MANIFEST" "$backup" || { installer_error "could not back up $INSTALL_MANIFEST to $backup"; return 1; }
     installer_summary "backed up $INSTALL_MANIFEST to $backup"
@@ -553,6 +554,11 @@ installer_write_manifest() {
     status=installed
   fi
   mv -f "$temp" "$INSTALL_MANIFEST" || { rm -f "$temp"; return 1; }
+  if [ "$manifest_current" = true ]; then
+    installer_summary "installation manifest configuration already-current"
+  else
+    installer_summary "installation manifest configuration reconciled"
+  fi
   installer_summary "installation manifest $status at $INSTALL_MANIFEST"
 }
 
@@ -954,6 +960,18 @@ installer_append_pointer() {
   fi
   printf '%s\n' "$paragraph" >>"$file"
   installer_summary "AGENTS.md pointer installed in $file"
+}
+
+installer_manifest_matches_selection() {
+  [ -f "$INSTALL_MANIFEST" ] || return 1
+  jq -e \
+    --arg agents "$SELECTED_AGENTS" --arg modules "$SELECTED_MODULES" \
+    --arg skill "$SKILL_MODE" --arg agentsMd "$AGENTS_MODE" '
+      (.agents // []) == (if $agents == "" then [] else ($agents | split(",")) end)
+      and (.modules // []) == (if $modules == "" then [] else ($modules | split(",")) end)
+      and (.skill // null) == (if $skill == "" then null else $skill end)
+      and (.agentsMd // null) == (if $agentsMd == "" then null else $agentsMd end)
+    ' "$INSTALL_MANIFEST" >/dev/null 2>&1
 }
 
 installer_install_agents() {
