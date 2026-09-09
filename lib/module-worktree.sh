@@ -958,6 +958,237 @@ megabrain_terminal_list() {
   fi
 }
 
+megabrain_terminal_listener_pid() {
+  local port="$1"
+  lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -n 1
+}
+
+megabrain_terminal_process_parent() {
+  local pid="$1" parent
+  parent="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+  case "$parent" in
+    ''|*[!0-9]*) return 1 ;;
+    *) printf '%s\n' "$parent" ;;
+  esac
+}
+
+megabrain_terminal_process_children() {
+  pgrep -P "$1" 2>/dev/null || true
+}
+
+megabrain_terminal_process_tree_belongs_to() {
+  local root_pid="$1" target_pid="$2" current="$2" parent attempt
+  [ "$target_pid" = "$root_pid" ] && return 0
+  for ((attempt = 1; attempt <= 64; attempt++)); do
+    parent="$(megabrain_terminal_process_parent "$current" 2>/dev/null || true)"
+    [ -n "$parent" ] || return 1
+    [ "$parent" = "$root_pid" ] && return 0
+    case "$parent" in
+      0|1) return 1 ;;
+    esac
+    current="$parent"
+  done
+  return 1
+}
+
+megabrain_terminal_kill_process_tree() {
+  local pid="$1" children child
+  children="$(megabrain_terminal_process_children "$pid")"
+  # Signal the recorded root first. This is the supervisor that can respawn a listener;
+  # killing only the port holder leaves the old command alive.
+  kill -TERM "$pid" 2>/dev/null || return 1
+  MEGABRAIN_TERMINAL_KILLED_TREE="$(printf '%s' "$MEGABRAIN_TERMINAL_KILLED_TREE" | jq --argjson pid "$pid" '. + [$pid]')"
+  while IFS= read -r child; do
+    [ -n "$child" ] || continue
+    megabrain_terminal_kill_process_tree "$child" || return 1
+  done <<EOF
+$children
+EOF
+}
+
+megabrain_terminal_wait_for_port() {
+  local port="$1" desired="$2" timeout="$3" started now elapsed
+  started="$(date +%s)"
+  while :; do
+    if [ "$desired" = free ]; then
+      [ -z "$(megabrain_terminal_listener_pid "$port")" ] && return 0
+    else
+      [ -n "$(megabrain_terminal_listener_pid "$port")" ] && return 0
+    fi
+    now="$(date +%s)"
+    elapsed=$((now - started))
+    [ "$elapsed" -ge "$timeout" ] && return 1
+    sleep 0.1
+  done
+}
+
+megabrain_terminal_resolve_selector() {
+  local selector="$1" kind value path record match
+  case "$selector" in
+    id:*) kind=id; value="${selector#id:}" ;;
+    title:*) kind=title; value="${selector#title:}" ;;
+    port:*) kind=port; value="${selector#port:}" ;;
+    worktree:*) kind=worktree; value="${selector#worktree:}" ;;
+    *) return 1 ;;
+  esac
+  [ -n "$value" ] || return 1
+  if [ "$kind" = worktree ] && [ -d "$value" ]; then
+    value="$(git -C "$value" rev-parse --show-toplevel 2>/dev/null || true)"
+  fi
+  for path in "$MEGABRAIN_TERMINAL_DIR"/*.json; do
+    [ -f "$path" ] || continue
+    record="$(cat "$path" 2>/dev/null || true)"
+    printf '%s' "$record" | jq -e . >/dev/null 2>&1 || continue
+    case "$kind" in
+      id) match="$(printf '%s' "$record" | jq -r --arg value "$value" 'select(.terminalId == $value) | "yes"')" ;;
+      title) match="$(printf '%s' "$record" | jq -r --arg value "$value" 'select((.title // "") == $value) | "yes"')" ;;
+      port) match="$(printf '%s' "$record" | jq -r --arg value "$value" 'select((.port | tostring) == $value) | "yes"')" ;;
+      worktree) match="$(printf '%s' "$record" | jq -r --arg value "$value" 'select(.worktree == $value) | "yes"')" ;;
+    esac
+    if [ "$match" = yes ]; then
+      MEGABRAIN_TERMINAL_RESOLVED_PATH="$path"
+      MEGABRAIN_TERMINAL_RESOLVED_RECORD="$record"
+      MEGABRAIN_TERMINAL_RESOLVED_KIND="$kind"
+      MEGABRAIN_TERMINAL_RESOLVED_VALUE="$value"
+      return 0
+    fi
+  done
+  return 1
+}
+
+megabrain_terminal_recreate() {
+  local record="$1" command_override="$2" response host workspace_id worktree_path title command_text
+  local terminal_id pid_json port_json root_pid_json created_at
+  host="$(printf '%s' "$record" | jq -r '.host // empty')"
+  workspace_id="$(printf '%s' "$record" | jq -r '.workspaceId // empty')"
+  worktree_path="$(printf '%s' "$record" | jq -r '.worktree // empty')"
+  title="$(printf '%s' "$record" | jq -r '.title // empty')"
+  command_text="$command_override"
+  [ -n "$command_text" ] || command_text="$(printf '%s' "$record" | jq -r '.command // empty')"
+  command_text="$(megabrain_terminal_command_with_agent_permissions "$command_text")"
+  case "$host" in
+    orca)
+      megabrain_require_command orca || { megabrain_error 'orca CLI is not available'; return 1; }
+      if [ -n "$title" ]; then
+        response="$(orca terminal create --worktree "path:$worktree_path" --title "$title" --command "$command_text" --json)" || return 1
+      else
+        response="$(orca terminal create --worktree "path:$worktree_path" --command "$command_text" --json)" || return 1
+      fi
+      ;;
+    superset)
+      [ -n "$workspace_id" ] || { megabrain_error "terminal record has no workspace identity: $worktree_path"; return 1; }
+      megabrain_superset_available || { megabrain_error 'superset CLI is not available'; return 1; }
+      response="$(megabrain_superset terminals create --workspace "$workspace_id" --command "$command_text" --json)" || return 1
+      ;;
+    *) megabrain_error "cannot recreate terminal from unknown host: $host"; return 1 ;;
+  esac
+  terminal_id="$(megabrain_terminal_id_from_response "$response")"
+  [ -n "$terminal_id" ] || { megabrain_error "$host terminal recreate returned no terminal identity"; return 1; }
+  pid_json="$(megabrain_terminal_json_number "$response" '.pid // .processId // .terminal.pid // .result.terminal.pid // .result.pid // .process.pid')"
+  port_json="$(megabrain_terminal_json_number "$response" '.port // .terminal.port // .result.terminal.port // .result.port')"
+  root_pid_json="$(megabrain_terminal_json_number "$response" '.rootPid // .processRootPid // .terminal.rootPid // .result.terminal.rootPid // .result.rootPid')"
+  [ "$root_pid_json" = null ] && root_pid_json="$pid_json"
+  created_at="$(megabrain_iso_now)"
+  megabrain_terminal_record_write "$terminal_id" "$host" "$workspace_id" "$worktree_path" "$title" \
+    "$command_text" "$created_at" "$pid_json" "$port_json" "$root_pid_json" || return 1
+  MEGABRAIN_TERMINAL_RECREATED_ID="$terminal_id"
+  MEGABRAIN_TERMINAL_RECREATED_PID_JSON="$pid_json"
+  MEGABRAIN_TERMINAL_RECREATED_PORT_JSON="$port_json"
+  MEGABRAIN_TERMINAL_RECREATED_TITLE="$title"
+  MEGABRAIN_TERMINAL_RECREATED_COMMAND="$command_text"
+  return 0
+}
+
+megabrain_terminal_restart() {
+  local selector="" command_override="" wait_port="" timeout=30 json=false arg
+  local record old_path kind value root_pid target_pid target_port waited_port reported_port
+  local killed_pid_json='null' port_json='null' listening_after_ms=0 started now
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --command) command_override="${2:-}"; shift 2 ;;
+      --wait-port) wait_port="${2:-}"; shift 2 ;;
+      --timeout) timeout="${2:-}"; shift 2 ;;
+      --json) json=true; shift ;;
+      -h|--help) megabrain_usage_show terminal-restart; return 0 ;;
+      -*) megabrain_error "unknown terminal restart option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
+      '') megabrain_error 'terminal restart selector cannot be empty'; return "$MEGABRAIN_USAGE_ERROR" ;;
+      *) [ -z "$selector" ] || { megabrain_error "unexpected terminal restart argument: $arg"; return "$MEGABRAIN_USAGE_ERROR"; }; selector="$arg"; shift ;;
+    esac
+  done
+  [ -n "$selector" ] || { megabrain_usage_fail terminal-restart; return "$MEGABRAIN_USAGE_ERROR"; }
+  case "$timeout" in ''|*[!0-9]*) megabrain_error 'terminal restart timeout must be a non-negative number of seconds'; return "$MEGABRAIN_USAGE_ERROR" ;; esac
+  case "$wait_port" in ''|*[!0-9]*) [ -z "$wait_port" ] || { megabrain_error 'terminal restart wait port must be numeric'; return "$MEGABRAIN_USAGE_ERROR"; } ;; esac
+  if ! megabrain_terminal_resolve_selector "$selector"; then
+    if [[ "$selector" == port:* ]]; then
+      target_port="${selector#port:}"
+      if [ -z "$(megabrain_terminal_listener_pid "$target_port")" ]; then
+        megabrain_error "port $target_port is not listening"
+      else
+        megabrain_error "terminal selector could not be resolved: $selector (listener was not created by megabrain)"
+      fi
+    else
+      megabrain_error "terminal selector could not be resolved: $selector"
+    fi
+    return 1
+  fi
+  record="$MEGABRAIN_TERMINAL_RESOLVED_RECORD"
+  old_path="$MEGABRAIN_TERMINAL_RESOLVED_PATH"
+  kind="$MEGABRAIN_TERMINAL_RESOLVED_KIND"
+  value="$MEGABRAIN_TERMINAL_RESOLVED_VALUE"
+  root_pid="$(printf '%s' "$record" | jq -r '.rootPid // .pid // empty')"
+  case "$root_pid" in ''|*[!0-9]*) megabrain_error "terminal $value has no recorded process identity; refusing to kill an unowned process"; return 1 ;; esac
+  target_port="$(printf '%s' "$record" | jq -r '.port // empty')"
+  if [ "$kind" = port ]; then
+    target_pid="$(megabrain_terminal_listener_pid "$value")"
+    [ -n "$target_pid" ] || { megabrain_error "port $value is not listening"; return 1; }
+    target_port="$value"
+  elif [ -n "$target_port" ]; then
+    target_pid="$(megabrain_terminal_listener_pid "$target_port")"
+  else
+    target_pid="$root_pid"
+  fi
+  if [ -n "$target_pid" ] && ! megabrain_terminal_process_tree_belongs_to "$root_pid" "$target_pid"; then
+    megabrain_error "terminal $value process tree is not owned by megabrain; refusing to kill it"
+    return 1
+  fi
+  MEGABRAIN_TERMINAL_KILLED_TREE='[]'
+  if ! megabrain_terminal_kill_process_tree "$root_pid"; then
+    megabrain_error "could not stop terminal process tree rooted at $root_pid"
+    return 1
+  fi
+  killed_pid_json="$root_pid"
+  if [ -n "$target_port" ]; then
+    if ! megabrain_terminal_wait_for_port "$target_port" free "$timeout"; then
+      megabrain_error "timed out waiting for port $target_port to become free"
+      return 1
+    fi
+  fi
+  started="$(date +%s)"
+  megabrain_terminal_recreate "$record" "$command_override" || return 1
+  waited_port="$wait_port"
+  reported_port="${wait_port:-$target_port}"
+  if [ -n "$waited_port" ]; then
+    if ! megabrain_terminal_wait_for_port "$waited_port" listening "$timeout"; then
+      megabrain_error "timed out waiting for port $waited_port to listen again"
+      return 1
+    fi
+    now="$(date +%s)"
+    listening_after_ms=$(( (now - started) * 1000 ))
+  fi
+  [ "$old_path" = "$(megabrain_terminal_record_path "$MEGABRAIN_TERMINAL_RECREATED_ID" 2>/dev/null || true)" ] || rm -f "$old_path"
+  port_json="$MEGABRAIN_TERMINAL_RECREATED_PORT_JSON"
+  if [ "$json" = true ]; then
+    jq -n --arg selector "$selector" --argjson killedPid "$killed_pid_json" \
+      --argjson killedTree "$MEGABRAIN_TERMINAL_KILLED_TREE" --arg recreatedTerminalId "$MEGABRAIN_TERMINAL_RECREATED_ID" \
+      --argjson port "${reported_port:-null}" --argjson listeningAfterMs "$listening_after_ms" \
+      '{selector: $selector, killedPid: $killedPid, killedTree: $killedTree, recreated: true, recreatedTerminalId: $recreatedTerminalId, port: $port, listeningAfterMs: $listeningAfterMs}'
+  else
+    printf 'selector: %s\nkilled pid: %s\nrecreated terminal: %s\n' "$selector" "$root_pid" "$MEGABRAIN_TERMINAL_RECREATED_ID"
+    [ -n "$waited_port" ] && printf 'port %s listening after %sms\n' "$waited_port" "$listening_after_ms"
+  fi
+}
+
 megabrain_worktree_create_rollback() {
   local repo_path="$1" worktree_path="$2" branch="$3" project_id="$4" project_created="$5"
   local workspace_id="$6" workspace_created="$7" worktree_created="$8" reason="$9"
@@ -1481,6 +1712,7 @@ command_terminal() {
   case "$subcommand" in
     create) megabrain_terminal_create "$@" ;;
     list) megabrain_terminal_list "$@" ;;
+    restart) megabrain_terminal_restart "$@" ;;
     -h|--help|"")
       megabrain_usage_show terminal-create
       printf 'Superset tabs are not titled; only Orca tabs are.\n'
