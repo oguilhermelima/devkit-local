@@ -163,7 +163,7 @@ megabrain_usage_line() {
     worktree-adopt) printf 'worktree adopt <path|branch> [--json]' ;;
     terminal-create) printf 'terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]' ;;
     orchestrate-spawn) printf 'orchestrate spawn --repo <name|path> --branch <branch> [--agent <id>] [--chain <name>] [--model <id>] [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
-    orchestrate-list) printf 'orchestrate list [--all|--orphans] [--json]' ;;
+    orchestrate-list) printf 'orchestrate list [--all|--orphans|--uncertain] [--json]' ;;
     orchestrate-prune) printf 'orchestrate prune [--older-than <days>] [--state <list>] [--archive|--delete] [--dry-run] [--json]' ;;
     orchestrate-reconcile) printf 'orchestrate reconcile <dispatch-id> [--all] [--json]' ;;
     orchestrate-watch) printf 'orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--consumer <id>] [--generation <number>] [--json]' ;;

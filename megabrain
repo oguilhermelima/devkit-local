@@ -37,7 +37,7 @@ Commands:
   worktree adopt <path|branch>         Register an existing worktree in Superset
   terminal create ...                  Open a terminal in the current orchestrator
   orchestrate spawn ...                Create a worktree and start an agent
-  orchestrate list [--json]            List managed dispatches
+  orchestrate list [--all|--orphans|--uncertain] [--json]  List managed dispatches
   orchestrate prune ...                Archive or delete old terminal dispatches
   orchestrate reconcile <dispatch-id>  Reconcile an open dispatch without respawning
   orchestrate watch <dispatch-id> ...  Watch a dispatch file channel for child messages

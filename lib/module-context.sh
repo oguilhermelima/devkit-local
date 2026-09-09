@@ -266,7 +266,7 @@ megabrain_dispatch_terminal_status() {
 }
 
 command_orchestrate_list() {
-  local json=false all=false orphans=false arg caller_id caller_host meta_path
+  local json=false all=false orphans=false uncertain=false arg caller_id caller_host meta_path
   local entries
   local -a meta_paths
   for arg in "$@"; do
@@ -274,6 +274,7 @@ command_orchestrate_list() {
       --json) json=true ;;
       --all) all=true ;;
       --orphans) orphans=true ;;
+      --uncertain) uncertain=true ;;
       -h|--help) megabrain_usage_show orchestrate-list; return 0 ;;
       *) megabrain_error "unknown orchestrate list option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
@@ -302,13 +303,14 @@ command_orchestrate_list() {
   # WHY: Listing is an inventory operation; explicit reconcile owns live terminal queries.
   entries="$(jq -s \
     --arg callerId "$caller_id" --arg callerHost "$caller_host" \
-    --argjson all "$all" --argjson orphans "$orphans" '
+    --argjson all "$all" --argjson orphans "$orphans" --argjson uncertain "$uncertain" '
     map(. as $item
       | ($item.parentHost // "") as $parentHost
       | (($callerId != "") and ($item.parentSessionId == $callerId) and ($parentHost == $callerHost)) as $owned
       | (($item.state // "") == "orphaned") as $orphan
-      | $item + {ownedByCaller: $owned, orphan: $orphan, reconcileResult: ($item.reconcileOutcome // "unchanged")})
-    | map(select(($all or $orphans or .ownedByCaller) and (($orphans | not) or .orphan)))
+      | (($item.processState // "") == "start-unproven" or ($item.processState // "") == "stop-unproven" or ($item.processState // "") == "abandoned") as $uncertainItem
+      | $item + {ownedByCaller: $owned, orphan: $orphan, uncertain: $uncertainItem, reconcileResult: ($item.reconcileOutcome // "unchanged")})
+    | map(select(($all or $orphans or $uncertain or .ownedByCaller) and (($orphans | not) or .orphan) and (($uncertain | not) or .uncertain)))
   ' "${meta_paths[@]}" 2>/dev/null)" || {
     # WHY: one unreadable meta aborts the whole batch, and the fast path must stay a
     # single jq. So the per-file walk runs only once something is already wrong, drops
@@ -328,13 +330,14 @@ command_orchestrate_list() {
     fi
     entries="$(jq -s \
       --arg callerId "$caller_id" --arg callerHost "$caller_host" \
-      --argjson all "$all" --argjson orphans "$orphans" '
+        --argjson all "$all" --argjson orphans "$orphans" --argjson uncertain "$uncertain" '
       map(. as $item
         | ($item.parentHost // "") as $parentHost
         | (($callerId != "") and ($item.parentSessionId == $callerId) and ($parentHost == $callerHost)) as $owned
         | (($item.state // "") == "orphaned") as $orphan
-        | $item + {ownedByCaller: $owned, orphan: $orphan, reconcileResult: ($item.reconcileOutcome // "unchanged")})
-      | map(select(($all or $orphans or .ownedByCaller) and (($orphans | not) or .orphan)))
+        | (($item.processState // "") == "start-unproven" or ($item.processState // "") == "stop-unproven" or ($item.processState // "") == "abandoned") as $uncertainItem
+        | $item + {ownedByCaller: $owned, orphan: $orphan, uncertain: $uncertainItem, reconcileResult: ($item.reconcileOutcome // "unchanged")})
+      | map(select(($all or $orphans or $uncertain or .ownedByCaller) and (($orphans | not) or .orphan) and (($uncertain | not) or .uncertain)))
     ' "${readable[@]}")" || return 1
   }
   if [ "$json" = true ]; then

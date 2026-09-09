@@ -204,7 +204,7 @@ command_doctor() {
 module_orchestration_doctor() {
   local orca_status superset_status counts_suffix tmux_runtime=false
   megabrain_dispatch_health_counts
-  counts_suffix="; uncertain dispatches: $MODULE_UNCERTAIN_DISPATCHES; retained terminals: $MODULE_RETAINED_TERMINALS; prunable dispatches: $MODULE_PRUNABLE_DISPATCHES"
+  counts_suffix="; uncertain dispatches: $MODULE_UNCERTAIN_DISPATCHES (run megabrain orchestrate list --uncertain); retained terminals: $MODULE_RETAINED_TERMINALS; prunable dispatches: $MODULE_PRUNABLE_DISPATCHES"
   if megabrain_runtime_enabled && megabrain_tmux_available; then
     tmux_runtime=true
   fi
