@@ -203,7 +203,7 @@ create_meta "$dispatch_id" '%accepted' codex
 accepted_answer='reply accepted by codex composer'
 accepted_output="$(megabrain_dispatch_reply "$dispatch_id" --text "$accepted_answer" --json)"
 assert_equal "$(jq -r '.status' <<<"$accepted_output")" queued
-assert_equal "$(cat "$mock_pane_file")" '[megabrain] reply available; run megabrain check'
+assert_equal "$(cat "$mock_pane_file")" ''
 accepted_message="$state_root/state/dispatches/$dispatch_id/messages"/*.json
 assert_equal "$(find "$state_root/state/dispatches/$dispatch_id/messages" -name '*.json' | wc -l | tr -d ' ')" 1
 assert_equal "$(jq -r '.text' $accepted_message)" "$accepted_answer"
@@ -248,7 +248,7 @@ tmux() {
 }
 second_output="$(megabrain_tmux_send_text %second "$second_answer" claude; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
 assert_equal "$second_output" queued
-assert_equal "$(cat "$second_composer_file")" "$second_answer"
+assert_equal "$(cat "$second_composer_file")" ''
 printf 'similar second nudge: transport does not inspect transcript text\n'
 
 # Width is read from the target pane, so the cap follows narrow and wide terminals.
