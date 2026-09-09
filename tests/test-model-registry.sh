@@ -58,7 +58,7 @@ assert_equal "$(printf '%s' "$list_output" | jq -r '.models[] | select(.agent ==
 assert_equal "$(printf '%s' "$list_output" | jq -r '.models[] | select(.agent == "codex") | .provenance.kind' | head -n 1)" sourced
 assert_equal "$(printf '%s' "$list_output" | jq -r '.models[] | select(.agent == "codex") | .provenance.url' | sort -u)" 'https://learn.chatgpt.com/docs/models?surface=app'
 assert_equal "$(printf '%s' "$list_output" | jq -r '.models[] | select(.agent == "claude") | .provenance.url' | sort -u)" 'https://platform.claude.com/docs/en/about-claude/model-deprecations'
-assert_equal "$(printf '%s' "$list_output" | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-6-astra") | .reasoning.levels | join(",")')" 'low,medium,high,xhigh,max,ultra'
+assert_equal "$(printf '%s' "$list_output" | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-6-astra") | .reasoning.levels | join(",")')" 'minimal,low,medium,high,xhigh,max,ultra'
 assert_equal "$(printf '%s' "$list_output" | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-5.4") | [.status, .retirementDate] | join(",")')" 'retired,2026-08-31'
 assert_equal "$(printf '%s' "$list_output" | jq -r '.models[] | select(.agent == "claude" and .model == "claude-mythos-preview") | .status')" deprecated
 assert_equal "$(printf '%s' "$list_output" | jq -r '[.models[] | select(.agent == "claude" and .status == "retired")] | length')" 6

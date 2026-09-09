@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 
 megabrain_model_level_known() {
-  case "$1" in
-    none|low|medium|high|xhigh) return 0 ;;
-    *) return 1 ;;
-  esac
+  local level
+  for level in $MEGABRAIN_MODEL_REASONING_LEVELS; do
+    [ "$1" = "$level" ] && return 0
+  done
+  return 1
 }
 
 megabrain_model_levels_json() {

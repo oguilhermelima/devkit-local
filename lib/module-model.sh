@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
 MEGABRAIN_MODEL_TEMPLATE_FILE="${MEGABRAIN_ROOT:-$(cd "$(dirname "$(dirname "${BASH_SOURCE[0]}")")" && pwd -P)}/.megabrain/models.json"
+# Keep the model-add vocabulary and embedded-effort diagnostics in one place.
+MEGABRAIN_MODEL_REASONING_LEVELS='none minimal low medium high xhigh max ultra'
 if [ "${MEGABRAIN_MODEL_FILE+x}" = x ]; then
   MEGABRAIN_MODEL_FILE_EXPLICIT=true
 else

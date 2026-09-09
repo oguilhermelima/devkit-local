@@ -12,7 +12,7 @@ megabrain_model_error_embedded_effort() {
   local agent="$1" model="$2" level id ids
   megabrain_error "model '$model' for agent '$agent' has effort as part of the model id; do not supply effort"
   megabrain_error 'Model ids by embedded reasoning level:'
-  for level in low medium high xhigh max ultra; do
+  for level in $MEGABRAIN_MODEL_REASONING_LEVELS; do
     ids="$(megabrain_model_read | jq -r --arg agent "$agent" --arg level "$level" '.models[] | select(.agent == $agent and .reasoning.separateAxis == false and (.reasoning.levels | index($level))) | .model')"
     [ -n "$ids" ] || continue
     megabrain_error "$level:"

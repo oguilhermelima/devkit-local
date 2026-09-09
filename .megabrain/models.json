@@ -217,6 +217,7 @@
       "reasoning": {
         "separateAxis": true,
         "levels": [
+          "minimal",
           "low",
           "medium",
           "high",
@@ -226,14 +227,23 @@
         ],
         "provenance": {
           "kind": "inferred",
-          "method": "CLI spellings transliterated from display names",
-          "verified": ["xhigh"],
-          "verification": {
-            "kind": "local-config",
-            "path": "~/.codex/config.toml",
-            "field": "model_reasoning_effort",
-            "value": "xhigh"
-          }
+          "source": "installed CLI binary",
+          "method": "embedded model_reasoning_effort enum",
+          "command": "/Users/gui/.local/bin/codex",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "excluded": [
+            "none",
+            "persistent"
+          ]
         }
       },
       "provenance": {
@@ -249,6 +259,7 @@
       "reasoning": {
         "separateAxis": true,
         "levels": [
+          "minimal",
           "low",
           "medium",
           "high",
@@ -258,14 +269,23 @@
         ],
         "provenance": {
           "kind": "inferred",
-          "method": "CLI spellings transliterated from display names",
-          "verified": ["xhigh"],
-          "verification": {
-            "kind": "local-config",
-            "path": "~/.codex/config.toml",
-            "field": "model_reasoning_effort",
-            "value": "xhigh"
-          }
+          "source": "installed CLI binary",
+          "method": "embedded model_reasoning_effort enum",
+          "command": "/Users/gui/.local/bin/codex",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "excluded": [
+            "none",
+            "persistent"
+          ]
         }
       },
       "provenance": {
@@ -281,6 +301,7 @@
       "reasoning": {
         "separateAxis": true,
         "levels": [
+          "minimal",
           "low",
           "medium",
           "high",
@@ -290,14 +311,23 @@
         ],
         "provenance": {
           "kind": "inferred",
-          "method": "CLI spellings transliterated from display names",
-          "verified": ["xhigh"],
-          "verification": {
-            "kind": "local-config",
-            "path": "~/.codex/config.toml",
-            "field": "model_reasoning_effort",
-            "value": "xhigh"
-          }
+          "source": "installed CLI binary",
+          "method": "embedded model_reasoning_effort enum",
+          "command": "/Users/gui/.local/bin/codex",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "excluded": [
+            "none",
+            "persistent"
+          ]
         }
       },
       "provenance": {
@@ -313,6 +343,7 @@
       "reasoning": {
         "separateAxis": true,
         "levels": [
+          "minimal",
           "low",
           "medium",
           "high",
@@ -322,14 +353,23 @@
         ],
         "provenance": {
           "kind": "inferred",
-          "method": "CLI spellings transliterated from display names",
-          "verified": ["xhigh"],
-          "verification": {
-            "kind": "local-config",
-            "path": "~/.codex/config.toml",
-            "field": "model_reasoning_effort",
-            "value": "xhigh"
-          }
+          "source": "installed CLI binary",
+          "method": "embedded model_reasoning_effort enum",
+          "command": "/Users/gui/.local/bin/codex",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "excluded": [
+            "none",
+            "persistent"
+          ]
         }
       },
       "provenance": {
@@ -345,6 +385,7 @@
       "reasoning": {
         "separateAxis": true,
         "levels": [
+          "minimal",
           "low",
           "medium",
           "high",
@@ -354,14 +395,23 @@
         ],
         "provenance": {
           "kind": "inferred",
-          "method": "CLI spellings transliterated from display names",
-          "verified": ["xhigh"],
-          "verification": {
-            "kind": "local-config",
-            "path": "~/.codex/config.toml",
-            "field": "model_reasoning_effort",
-            "value": "xhigh"
-          }
+          "source": "installed CLI binary",
+          "method": "embedded model_reasoning_effort enum",
+          "command": "/Users/gui/.local/bin/codex",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "excluded": [
+            "none",
+            "persistent"
+          ]
         }
       },
       "provenance": {
@@ -377,6 +427,7 @@
       "reasoning": {
         "separateAxis": true,
         "levels": [
+          "minimal",
           "low",
           "medium",
           "high",
@@ -386,14 +437,23 @@
         ],
         "provenance": {
           "kind": "inferred",
-          "method": "CLI spellings transliterated from display names",
-          "verified": ["xhigh"],
-          "verification": {
-            "kind": "local-config",
-            "path": "~/.codex/config.toml",
-            "field": "model_reasoning_effort",
-            "value": "xhigh"
-          }
+          "source": "installed CLI binary",
+          "method": "embedded model_reasoning_effort enum",
+          "command": "/Users/gui/.local/bin/codex",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "excluded": [
+            "none",
+            "persistent"
+          ]
         }
       },
       "provenance": {
@@ -409,6 +469,7 @@
       "reasoning": {
         "separateAxis": true,
         "levels": [
+          "minimal",
           "low",
           "medium",
           "high",
@@ -418,14 +479,23 @@
         ],
         "provenance": {
           "kind": "inferred",
-          "method": "CLI spellings transliterated from display names",
-          "verified": ["xhigh"],
-          "verification": {
-            "kind": "local-config",
-            "path": "~/.codex/config.toml",
-            "field": "model_reasoning_effort",
-            "value": "xhigh"
-          }
+          "source": "installed CLI binary",
+          "method": "embedded model_reasoning_effort enum",
+          "command": "/Users/gui/.local/bin/codex",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "excluded": [
+            "none",
+            "persistent"
+          ]
         }
       },
       "provenance": {
@@ -442,6 +512,7 @@
       "reasoning": {
         "separateAxis": true,
         "levels": [
+          "minimal",
           "low",
           "medium",
           "high",
@@ -451,14 +522,23 @@
         ],
         "provenance": {
           "kind": "inferred",
-          "method": "CLI spellings transliterated from display names",
-          "verified": ["xhigh"],
-          "verification": {
-            "kind": "local-config",
-            "path": "~/.codex/config.toml",
-            "field": "model_reasoning_effort",
-            "value": "xhigh"
-          }
+          "source": "installed CLI binary",
+          "method": "embedded model_reasoning_effort enum",
+          "command": "/Users/gui/.local/bin/codex",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "excluded": [
+            "none",
+            "persistent"
+          ]
         }
       },
       "provenance": {
@@ -475,6 +555,7 @@
       "reasoning": {
         "separateAxis": true,
         "levels": [
+          "minimal",
           "low",
           "medium",
           "high",
@@ -484,14 +565,23 @@
         ],
         "provenance": {
           "kind": "inferred",
-          "method": "CLI spellings transliterated from display names",
-          "verified": ["xhigh"],
-          "verification": {
-            "kind": "local-config",
-            "path": "~/.codex/config.toml",
-            "field": "model_reasoning_effort",
-            "value": "xhigh"
-          }
+          "source": "installed CLI binary",
+          "method": "embedded model_reasoning_effort enum",
+          "command": "/Users/gui/.local/bin/codex",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "excluded": [
+            "none",
+            "persistent"
+          ]
         }
       },
       "provenance": {
@@ -507,6 +597,7 @@
       "reasoning": {
         "separateAxis": true,
         "levels": [
+          "minimal",
           "low",
           "medium",
           "high",
@@ -516,14 +607,23 @@
         ],
         "provenance": {
           "kind": "inferred",
-          "method": "CLI spellings transliterated from display names",
-          "verified": ["xhigh"],
-          "verification": {
-            "kind": "local-config",
-            "path": "~/.codex/config.toml",
-            "field": "model_reasoning_effort",
-            "value": "xhigh"
-          }
+          "source": "installed CLI binary",
+          "method": "embedded model_reasoning_effort enum",
+          "command": "/Users/gui/.local/bin/codex",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "excluded": [
+            "none",
+            "persistent"
+          ]
         }
       },
       "provenance": {
@@ -541,8 +641,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -559,8 +674,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -577,8 +707,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -595,8 +740,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -613,8 +773,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -631,8 +806,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -649,8 +839,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -667,8 +872,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -685,8 +905,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -703,8 +938,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -721,8 +971,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -739,8 +1004,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -758,8 +1038,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -777,8 +1072,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -796,8 +1106,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -815,8 +1140,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -834,8 +1174,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
@@ -853,8 +1208,23 @@
         "levels": [
           "low",
           "medium",
-          "high"
-        ]
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "provenance": {
+          "kind": "verified",
+          "source": "installed CLI",
+          "command": "claude --help",
+          "obtainedAt": "2026-09-08",
+          "verified": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
       },
       "provenance": {
         "kind": "sourced",
