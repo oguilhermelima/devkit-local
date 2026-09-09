@@ -184,11 +184,16 @@ megabrain_project_name_for_path() {
 }
 
 megabrain_ensure_superset_project() {
-  local repo_path="$1"
+  local repo_path="$1" record=false
   local project_id project_name response
+  [ "${2:-}" = --record ] && record=true
   project_id="$(megabrain_project_id_for_path "$repo_path")"
   if [ -n "$project_id" ]; then
-    printf '%s\n' "$project_id"
+    if [ "$record" = true ]; then
+      jq -n --arg id "$project_id" '{id: $id, created: false}'
+    else
+      printf '%s\n' "$project_id"
+    fi
     return 0
   fi
   project_name="$(megabrain_project_name_for_path "$repo_path")"
@@ -198,7 +203,11 @@ megabrain_ensure_superset_project() {
     project_id="$(megabrain_project_id_for_path "$repo_path")"
   fi
   [ -n "$project_id" ] || { megabrain_error "could not register Superset project for $repo_path"; return 1; }
-  printf '%s\n' "$project_id"
+  if [ "$record" = true ]; then
+    jq -n --arg id "$project_id" '{id: $id, created: true}'
+  else
+    printf '%s\n' "$project_id"
+  fi
 }
 
 megabrain_workspace_id_for_target() {
@@ -222,15 +231,22 @@ megabrain_workspace_path_for_target() {
 }
 
 megabrain_workspace_create() {
-  local project_id="$1" branch="$2" slug="$3"
-  local response id
+  local project_id="$1" branch="$2" slug="$3" record=false
+  local response id existing_id created=false
+  [ "${4:-}" = --record ] && record=true
+  existing_id="$(megabrain_workspace_id_for_target "$branch")"
   response="$(megabrain_superset workspaces create --local --project "$project_id" --branch "$branch" --name "$slug" --json 2>/dev/null || true)"
   id="$(printf '%s' "$response" | jq -r '.result.workspace.id // .result.id // .workspace.id // .id // empty' 2>/dev/null)"
   if [ -z "$id" ]; then
     id="$(megabrain_workspace_id_for_target "$branch")"
   fi
   [ -n "$id" ] || { megabrain_error "could not create or find Superset workspace for $branch"; return 1; }
-  printf '%s\n' "$id"
+  [ -n "$existing_id" ] || created=true
+  if [ "$record" = true ]; then
+    jq -n --arg id "$id" --argjson created "$created" '{id: $id, created: $created}'
+  else
+    printf '%s\n' "$id"
+  fi
 }
 
 megabrain_agent_command() {
@@ -805,10 +821,78 @@ megabrain_terminal_create() {
   fi
 }
 
+megabrain_worktree_create_rollback() {
+  local repo_path="$1" worktree_path="$2" branch="$3" project_id="$4" project_created="$5"
+  local workspace_id="$6" workspace_created="$7" reason="$8"
+  local undone="" issues="" output removal_status
+  if [ "$workspace_created" = true ]; then
+    if [ -n "$workspace_id" ]; then
+      removal_status=0
+      output="$(megabrain_superset workspaces delete "$workspace_id" --local --json 2>&1)" || removal_status=$?
+      if [ "$removal_status" -eq 0 ]; then
+        undone="workspace $workspace_id"
+      else
+        issues="workspace $workspace_id was not removed: $output"
+      fi
+    else
+      issues="workspace identity unavailable (not removed)"
+    fi
+  elif [ "$workspace_created" = unknown ]; then
+    issues="workspace identity unavailable (ownership was not provable; not removed)"
+  fi
+  if [ "$project_created" = true ]; then
+    if [ -n "$project_id" ]; then
+      removal_status=0
+      output="$(megabrain_superset projects delete "$project_id" --local --json 2>&1)" || removal_status=$?
+      if [ "$removal_status" -eq 0 ]; then
+        [ -n "$undone" ] && undone="$undone, "
+        undone="${undone}project $project_id"
+      else
+        [ -n "$issues" ] && issues="$issues; "
+        issues="${issues}project $project_id was not removed: $output"
+      fi
+    else
+      [ -n "$issues" ] && issues="$issues; "
+      issues="${issues}project identity unavailable (not removed)"
+    fi
+  elif [ "$project_created" = unknown ]; then
+    [ -n "$issues" ] && issues="$issues; "
+    issues="${issues}project ownership was not provable (not removed)"
+  fi
+  removal_status=0
+  output="$(git -C "$repo_path" worktree remove --force "$worktree_path" 2>&1)" || removal_status=$?
+  if [ "$removal_status" -eq 0 ]; then
+    [ -n "$undone" ] && undone="$undone, "
+    undone="${undone}worktree $worktree_path"
+  else
+    [ -n "$issues" ] && issues="$issues; "
+    issues="${issues}worktree $worktree_path was not removed: $output"
+  fi
+  if [ -n "$branch" ]; then
+    removal_status=0
+    output="$(git -C "$repo_path" branch -D "$branch" 2>&1)" || removal_status=$?
+    if [ "$removal_status" -eq 0 ]; then
+      [ -n "$undone" ] && undone="$undone, "
+      undone="${undone}branch $branch"
+    else
+      [ -n "$issues" ] && issues="$issues; "
+      issues="${issues}branch $branch was not removed: $output"
+    fi
+  fi
+  [ -n "$undone" ] || undone="nothing"
+  if [ -n "$issues" ]; then
+    megabrain_error "$reason; rolled back: $undone; cleanup issues: $issues"
+  else
+    megabrain_error "$reason; rolled back: $undone"
+  fi
+  return 1
+}
+
 megabrain_worktree_create() {
   local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" chain_name="" prompt="" label="" worktree_selector="" orchestrate=false json=false reused=false
   local model_explicit=false effort_explicit=false chain_selected=false chain_config=""
   local arg repo_path shared_root worktree_path project_id workspace_id dispatch="" host runtime="" tmux_choice=auto walk_status
+  local project_record workspace_record project_created=false workspace_created=false launch_status=0
   local -a agent_args=()
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -964,16 +1048,25 @@ megabrain_worktree_create() {
       megabrain_error "could not create git worktree"
       return 1
     fi
-    project_id="$(megabrain_ensure_superset_project "$repo_path")" || {
-      git -C "$repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
-      git -C "$repo_path" branch -D "$branch" >/dev/null 2>&1 || true
+    project_record="$(megabrain_ensure_superset_project "$repo_path" --record)" || {
+      project_id="$(megabrain_project_id_for_path "$repo_path" 2>/dev/null || true)"
+      megabrain_worktree_create_rollback "$repo_path" "$worktree_path" "$branch" "$project_id" unknown "" false "could not register Superset project"
       return 1
     }
-    workspace_id="$(megabrain_workspace_create "$project_id" "$branch" "$slug")" || {
-      git -C "$repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
-      git -C "$repo_path" branch -D "$branch" >/dev/null 2>&1 || true
+    project_id="$(printf '%s' "$project_record" | jq -r '.id // empty')"
+    project_created="$(printf '%s' "$project_record" | jq -r '.created // false')"
+    workspace_record="$(megabrain_workspace_create "$project_id" "$branch" "$slug" --record)" || {
+      workspace_id="$(megabrain_workspace_id_for_target "$branch" 2>/dev/null || true)"
+      if [ -n "$workspace_id" ]; then
+        workspace_created=true
+      else
+        workspace_created=unknown
+      fi
+      megabrain_worktree_create_rollback "$repo_path" "$worktree_path" "$branch" "$project_id" "$project_created" "$workspace_id" "$workspace_created" "could not create Superset workspace"
       return 1
     }
+    workspace_id="$(printf '%s' "$workspace_record" | jq -r '.id // empty')"
+    workspace_created="$(printf '%s' "$workspace_record" | jq -r '.created // false')"
   fi
   if [ "$json" != true ]; then
     printf 'worktree: %s\nbranch: %s\nworkspace: %s\nreused: %s\n' "$worktree_path" "$branch" "$workspace_id" "$reused"
@@ -982,16 +1075,20 @@ megabrain_worktree_create() {
     # Bash 3.2 rejects empty array expansion under set -u.
     if [ "${#agent_args[@]}" -gt 0 ]; then
       if [ "$json" = true ]; then
-        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "${agent_args[@]}" >/dev/null || return 1
+        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "${agent_args[@]}" >/dev/null || launch_status=$?
       else
-        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "${agent_args[@]}" || return 1
+        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "${agent_args[@]}" || launch_status=$?
       fi
     else
       if [ "$json" = true ]; then
-        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" >/dev/null || return 1
+        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" >/dev/null || launch_status=$?
       else
-        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" || return 1
+        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" || launch_status=$?
       fi
+    fi
+    if [ "${launch_status:-0}" -ne 0 ]; then
+      megabrain_worktree_create_rollback "$repo_path" "$worktree_path" "$branch" "$project_id" "$project_created" "$workspace_id" "$workspace_created" "agent launch failed"
+      return 1
     fi
     dispatch="$MEGABRAIN_LAST_DISPATCH"
     runtime="$MEGABRAIN_LAST_SPAWN_RUNTIME"
