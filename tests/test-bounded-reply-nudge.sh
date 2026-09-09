@@ -188,7 +188,7 @@ create_meta "$dispatch_id" '%stuck' claude
 stuck_answer='reply stays durable when claude composer does not submit'
 stuck_output="$(megabrain_dispatch_reply "$dispatch_id" --text "$stuck_answer" --json)"
 assert_equal "$(jq -r '.status' <<<"$stuck_output")" queued
-assert_equal "$(cat "$mock_pane_file")" "$stuck_answer"
+assert_equal "$(cat "$mock_pane_file")" '[megabrain] reply available; run megabrain check'
 assert_not_contains "$(cat "$mock_keys")" 'Tab'
 stuck_message="$state_root/state/dispatches/$dispatch_id/messages"/*.json
 assert_equal "$(find "$state_root/state/dispatches/$dispatch_id/messages" -name '*.json' | wc -l | tr -d ' ')" 1
@@ -203,7 +203,7 @@ create_meta "$dispatch_id" '%accepted' codex
 accepted_answer='reply accepted by codex composer'
 accepted_output="$(megabrain_dispatch_reply "$dispatch_id" --text "$accepted_answer" --json)"
 assert_equal "$(jq -r '.status' <<<"$accepted_output")" queued
-assert_equal "$(cat "$mock_pane_file")" "$accepted_answer"
+assert_equal "$(cat "$mock_pane_file")" '[megabrain] reply available; run megabrain check'
 accepted_message="$state_root/state/dispatches/$dispatch_id/messages"/*.json
 assert_equal "$(find "$state_root/state/dispatches/$dispatch_id/messages" -name '*.json' | wc -l | tr -d ' ')" 1
 assert_equal "$(jq -r '.text' $accepted_message)" "$accepted_answer"

@@ -23,6 +23,7 @@ trap cleanup EXIT
 
 export MEGABRAIN_STATE_DIR="$state_dir"
 export TMUX_TMPDIR="$state_dir"
+unset TMUX TMUX_PANE
 source "$root/lib/common.sh"
 source "$root/lib/module-tmux-runtime.sh"
 source "$root/lib/module-context.sh"
@@ -65,7 +66,7 @@ wait_for_message() {
 }
 
 tmux_cmd() {
-  tmux -L "$socket_name" "$@"
+  tmux -f /dev/null -L "$socket_name" "$@"
 }
 
 create_tmux_meta() {
@@ -115,6 +116,8 @@ export SUPERSET_TERMINAL_ID="$parent_id"
 # A stale dispatch must not make the registry scan choose an arbitrary matching
 # session. The caller's own registered main pane is the authoritative split target.
 tmux_cmd new-session -d -s "$other_session" -x 80 -y 20 bash
+test_tmux_info="$(tmux_cmd display-message -p -t "$tmux_pane_one" '#{socket_path},#{pid},#{session_id}')"
+export TMUX="$test_tmux_info"
 mkdir -p "$MEGABRAIN_TMUX_SESSION_DIR"
 jq -n --arg session "$other_session" --arg path "$root" \
   '{tmuxSession: $session, agent: "claude", workingDirectory: $path, tmuxPane: "%other", role: "main", host: "tmux", createdAt: "2026-09-09T00:00:00Z"}' \
@@ -122,7 +125,7 @@ jq -n --arg session "$other_session" --arg path "$root" \
 jq -n --arg session "$session_name" --arg path "$root" --arg pane "$tmux_pane_one" \
   '{tmuxSession: $session, agent: "codex", workingDirectory: $path, tmuxPane: $pane, role: "main", host: "tmux", createdAt: "2026-09-09T00:00:01Z"}' \
   >"$MEGABRAIN_TMUX_SESSION_DIR/megabrain-claude-9505.json"
-megabrain_dispatch_meta_write stale-session parent-terminal tmux tmux "$workspace_id" host-terminal stale-terminal "$root" main codex label running gpt-5 true codex stale-session-gone %stale tmux >/dev/null
+megabrain_dispatch_meta_write stale-session parent-terminal tmux tmux "$workspace_id" stale-terminal "$root" main codex label running gpt-5 true codex stale-session-gone %stale tmux >/dev/null
 megabrain_tmux_existing_session_for_worktree "$root"
 assert_equal "$MEGABRAIN_TMUX_EXISTING_SESSION" "$session_name"
 printf 'session selection: registered caller session wins over stale metadata and glob order\n'
@@ -189,8 +192,8 @@ megabrain_tmux_existing_session_for_worktree() { MEGABRAIN_TMUX_EXISTING_SESSION
 megabrain_tmux_host_terminal_for_session() { return 0; }
 megabrain_tmux_split_pane() { printf '%s\n' "$tmux_pane_two"; }
 megabrain_tmux_apply_config() { return 0; }
-megabrain_tmux_settle_pane() { return 0; }
 megabrain_tmux_send_agent() { return 0; }
+megabrain_dispatch_send_prompt_with_receipt() { return 0; }
 megabrain_tmux_agent_output_clean() { return 0; }
 megabrain_agent_command() { printf 'true\n'; }
 
