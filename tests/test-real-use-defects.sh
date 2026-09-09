@@ -98,8 +98,8 @@ codex() {
   return 0
 }
 combined_registration_output="$(
-  megabrain_register_playwright claude "$state_dir/chromium.json" || true
-  megabrain_register_playwright codex "$state_dir/chromium.json"
+  megabrain_register_playwright claude "$state_dir/chromium.json" 2>&1 || true
+  megabrain_register_playwright codex "$state_dir/chromium.json" 2>&1
 )"
 while IFS= read -r line; do
   [ -z "$line" ] && continue
