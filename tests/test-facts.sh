@@ -74,11 +74,9 @@ assert_equal "$("$root/megabrain" fact list --json | jq -r '.[] | select(.id == 
 printf 'edit changes one fact through the validated temporary copy\n'
 
 preamble="$(bash -c 'source "$1/lib/common.sh"; source "$1/lib/module-orchestrate.sh"; megabrain_dispatch_preamble "$1"' _ "$root")"
-if [ -n "$(type -P megabrain 2>/dev/null || true)" ]; then
-  assert_contains "$preamble" 'Before starting work, run megabrain received'
-else
-  assert_contains "$preamble" "Before starting work, run $root/megabrain received"
-fi
+assert_not_contains "$preamble" ' received'
+assert_contains "$preamble" 'ask "your question"'
+assert_contains "$preamble" 'done "short outcome summary"'
 assert_not_contains "$preamble" './megabrain'
 assert_not_contains "$preamble" './megabrain'
 assert_contains "$preamble" 'bash-version'

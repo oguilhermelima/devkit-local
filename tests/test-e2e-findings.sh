@@ -85,10 +85,6 @@ megabrain_dispatch_native_send() {
   return 0
 }
 
-megabrain_dispatch_wait_for_prompt_receipt() {
-  return 0
-}
-
 host_mode=failure
 if host_failure_output="$(megabrain_launch_agent "$root" workspace-test codex gpt-5 medium ping label 2>&1)"; then
   fail 'host launch unexpectedly succeeded'
