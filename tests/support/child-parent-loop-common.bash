@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 unset TMUX TMUX_PANE
 state_dir=""
 socket_name=megabrainloop
@@ -437,8 +437,3 @@ run_flow() {
   assert_equal "$(find "$state_dir/dispatches/$dispatch_id/deliveries" -name '*.json' -exec jq -r 'select(.status == "outstanding") | .id' {} \; | wc -l | tr -d ' ')" 0
   printf '%s end-to-end: chain, queue, replay, push, busy reply, pull, done, duplicate ack, and close\n' "$runtime"
 }
-
-run_flow tmux
-run_flow host
-
-printf 'ok: child parent loop end to end in tmux and non-tmux runtimes\n'
