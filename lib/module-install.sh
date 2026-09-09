@@ -219,7 +219,7 @@ command_doctor() {
 module_orchestration_doctor() {
   local orca_status superset_status counts_suffix tmux_runtime=false
   megabrain_dispatch_health_counts
-  counts_suffix="; uncertain dispatches: $MODULE_UNCERTAIN_DISPATCHES (run megabrain orchestrate list --uncertain); retained terminals: $MODULE_RETAINED_TERMINALS; prunable dispatches: $MODULE_PRUNABLE_DISPATCHES"
+  counts_suffix="; uncertain dispatches: $MODULE_UNCERTAIN_DISPATCHES (review with megabrain orchestrate list --uncertain; reconcile or archive eligible records with megabrain orchestrate prune --older-than 1); retained terminals: $MODULE_RETAINED_TERMINALS; prunable dispatches: $MODULE_PRUNABLE_DISPATCHES"
   if [ "${MODULE_UNCERTAIN_DISPATCHES:-0}" -gt 0 ]; then
     counts_suffix="$counts_suffix; unresolved reasons: $(printf '%s' "${MODULE_UNCERTAIN_REASONS:-[]}" | jq -r '[.[].reason] | unique | join(", ")')"
   fi
