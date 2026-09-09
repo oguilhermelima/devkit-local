@@ -816,29 +816,36 @@ megabrain_dispatch_path_age_seconds() {
   printf '%s\n' $((now - mtime))
 }
 
-megabrain_dispatch_message_append() {
+megabrain_dispatch_message_append_locked() {
   local dispatch_id="$1" from="$2" type="$3" text="$4" session_id="$5"
-  local messages_dir lock path tmp seq file_name
+  local messages_dir path tmp seq file_name
   messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
-  lock="$messages_dir/.lock"
-  megabrain_dispatch_lock_acquire "$lock" || return 1
   seq="$(find "$messages_dir" -maxdepth 1 -type f -name '*.json' -print 2>/dev/null | sed 's|.*/||; s|-.*||' | sort -n | tail -n 1)"
   [ -n "$seq" ] || seq=0
   seq=$((10#$seq + 1))
   file_name="$(printf '%04d-%s-%s.json' "$seq" "$from" "$type")"
   path="$messages_dir/$file_name"
-  tmp="$(mktemp "$messages_dir/.message.XXXXXX")" || { rmdir "$lock"; return 1; }
+  tmp="$(mktemp "$messages_dir/.message.XXXXXX")" || return 1
   if ! jq -n --argjson seq "$seq" --arg from "$from" --arg type "$type" --arg text "$text" \
     --arg createdAt "$(megabrain_iso_now)" --arg sessionId "$session_id" \
     '{seq: $seq, from: $from, type: $type, text: $text, createdAt: $createdAt, sessionId: $sessionId}' >"$tmp"; then
     rm -f "$tmp"
-    rmdir "$lock"
     return 1
   fi
   mv -f "$tmp" "$path"
-  rmdir "$lock"
   MEGABRAIN_LAST_MESSAGE_SEQ="$seq"
   printf '%s\n' "$seq"
+}
+
+megabrain_dispatch_message_append() {
+  local dispatch_id="$1" lock
+  lock="$(megabrain_dispatch_messages_dir "$dispatch_id")/.lock"
+  megabrain_dispatch_lock_acquire "$lock" || return 1
+  if ! megabrain_dispatch_message_append_locked "$@"; then
+    rmdir "$lock"
+    return 1
+  fi
+  rmdir "$lock"
 }
 
 megabrain_dispatch_message_paths() {
@@ -868,10 +875,35 @@ megabrain_dispatch_last_child_mail_seq() {
   messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
   while IFS=$'\t' read -r seq path; do
     [ -n "$path" ] || continue
-    jq -e '.from == "child" and (.type == "ask" or .type == "done" or .type == "stalled")' "$path" >/dev/null 2>&1 || continue
+    jq -e '.from == "child" and (.type == "ask" or .type == "done" or .type == "stalled" or .type == "received" or .type == "ack")' "$path" >/dev/null 2>&1 || continue
     [ "$seq" -gt "$latest" ] && latest="$seq"
   done < <(megabrain_dispatch_message_paths "$messages_dir")
   printf '%s\n' "$latest"
+}
+
+megabrain_dispatch_delivery_is_reply() {
+  local dispatch_id="$1" delivery_path="$2" messages_dir message_seqs seq path found=false
+  messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
+  message_seqs="$(jq -c '.messageSeqs // []' "$delivery_path")" || return 1
+  while IFS=$'\t' read -r seq path; do
+    [ -n "$path" ] || continue
+    jq -n -e --argjson seqs "$message_seqs" --argjson seq "$seq" '$seqs | index($seq) != null' >/dev/null 2>&1 || continue
+    jq -e '.from == "parent" and .type == "reply"' "$path" >/dev/null 2>&1 || return 1
+    found=true
+  done < <(megabrain_dispatch_message_paths "$messages_dir")
+  [ "$found" = true ]
+}
+
+megabrain_dispatch_has_reply_receipt() {
+  local dispatch_id="$1" delivery_id="$2" messages_dir path
+  messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
+  for path in "$messages_dir"/*.json; do
+    [ -f "$path" ] || continue
+    jq -e --arg deliveryId "$delivery_id" \
+      '.from == "child" and .type == "ack" and .text == $deliveryId' \
+      "$path" >/dev/null 2>&1 && return 0
+  done
+  return 1
 }
 
 megabrain_dispatch_failure_error() {
@@ -927,6 +959,7 @@ megabrain_dispatch_delivery_report() {
     stalled) status=stalled ;;
     reply) status=reply ;;
     received) status=received ;;
+    ack) status=acknowledged ;;
     *) status=done ;;
   esac
   if [ "$json" = true ]; then
@@ -1295,7 +1328,7 @@ megabrain_dispatch_mailbox_watch() {
       type="$(jq -r '.type // empty' "$path")"
       if [ "$mailbox" = parent ]; then
         [ "$from" = child ] || continue
-        case "$type" in ask|done|stalled|received) ;; *) continue ;; esac
+        case "$type" in ask|done|stalled|received|ack) ;; *) continue ;; esac
       else
         [ "$from" = parent ] || continue
         [ "$type" = reply ] || continue
@@ -1339,6 +1372,7 @@ megabrain_dispatch_child_check() {
 megabrain_dispatch_ack_for_owner() {
   local owner="$1" dispatch_id="" delivery_id="" consumer="${MEGABRAIN_CONSUMER_ID:-}" generation="${MEGABRAIN_CONSUMER_GENERATION:-1}"
   local json=false arg meta path status record_consumer record_generation lock tmp now message_seqs
+  local should_record_receipt=false
   shift
   case "${1:-}" in
     -h|--help)
@@ -1389,6 +1423,13 @@ megabrain_dispatch_ack_for_owner() {
     acknowledged)
       # Idempotent acknowledgement makes retries safe after a lost connection.
       message_seqs="$(jq -c '.messageSeqs // []' "$path")"
+      if [ "$owner" = child ] && megabrain_dispatch_delivery_is_reply "$dispatch_id" "$path" &&
+        ! megabrain_dispatch_has_reply_receipt "$dispatch_id" "$delivery_id"; then
+        megabrain_dispatch_message_append_locked "$dispatch_id" child ack "$delivery_id" "$MEGABRAIN_SESSION_ID" >/dev/null || {
+          rmdir "$lock"
+          return 1
+        }
+      fi
       rmdir "$lock"
       if [ "$json" = true ]; then
         jq -n --arg dispatchId "$dispatch_id" --arg deliveryId "$delivery_id" --argjson messageSeqs "$message_seqs" \
@@ -1419,6 +1460,15 @@ megabrain_dispatch_ack_for_owner() {
     return 1
   fi
   now="$(megabrain_iso_now)"
+  if [ "$owner" = child ] && megabrain_dispatch_delivery_is_reply "$dispatch_id" "$path"; then
+    should_record_receipt=true
+    if ! megabrain_dispatch_has_reply_receipt "$dispatch_id" "$delivery_id"; then
+      megabrain_dispatch_message_append_locked "$dispatch_id" child ack "$delivery_id" "$MEGABRAIN_SESSION_ID" >/dev/null || {
+        rmdir "$lock"
+        return 1
+      }
+    fi
+  fi
   tmp="$(mktemp "$(dirname "$path")/.delivery.XXXXXX")" || { rmdir "$lock"; return 1; }
   if ! jq --arg now "$now" '.status = "acknowledged" | .acknowledgedAt = $now | .updatedAt = $now' "$path" >"$tmp"; then
     rm -f "$tmp"
@@ -1428,6 +1478,9 @@ megabrain_dispatch_ack_for_owner() {
   mv -f "$tmp" "$path"
   message_seqs="$(jq -c '.messageSeqs // []' "$path")"
   rmdir "$lock"
+  if [ "$should_record_receipt" = true ] && declare -F megabrain_parent_notify_dispatch >/dev/null 2>&1; then
+    megabrain_parent_notify_dispatch "$meta" >/dev/null 2>&1 || true
+  fi
   if [ "$json" = true ]; then
     jq -n --arg dispatchId "$dispatch_id" --arg deliveryId "$delivery_id" --argjson messageSeqs "$message_seqs" \
       '{dispatchId: $dispatchId, deliveryId: $deliveryId, acknowledged: true, duplicate: false, status: "acknowledged", messageSeqs: $messageSeqs}'
