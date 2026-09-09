@@ -402,7 +402,9 @@ megabrain_dispatch_reconcile_one() {
   local dispatch_id="$1" meta state process_state terminal_status parent_status failure_count next_state next_process
   local stage reason outcome terminal_state next_terminal
   MEGABRAIN_RECONCILE_OUTCOME=unchanged
-  megabrain_dispatch_meta_normalize "$dispatch_id" || return 1
+  if [ "${MEGABRAIN_RECONCILE_DRY_RUN:-false}" != true ]; then
+    megabrain_dispatch_meta_normalize "$dispatch_id" || return 1
+  fi
   meta="$(megabrain_dispatch_meta_read "$dispatch_id")" || return 1
   state="$(printf '%s' "$meta" | jq -r '.state')"
   process_state="$(printf '%s' "$meta" | jq -r '.processState')"
@@ -426,7 +428,7 @@ megabrain_dispatch_reconcile_one() {
       case "$process_state" in
         succeeded|failed|stopped|abandoned) next_process=__keep__ ;;
       esac
-      megabrain_dispatch_meta_update_fields "$dispatch_id" "$next_state" "$next_process" missing terminal-missing terminal-missing terminal-missing terminal-missing "$failure_count" || return 1
+      megabrain_dispatch_reconcile_update "$dispatch_id" "$next_state" "$next_process" missing terminal-missing terminal-missing terminal-missing terminal-missing "$failure_count" || return 1
       MEGABRAIN_RECONCILE_OUTCOME=terminal-missing
       ;;
     proven)
@@ -439,7 +441,7 @@ megabrain_dispatch_reconcile_one() {
             starting:*|start-unproven:*|running:*|stopping:*|stop-unproven:*) next_state=orphaned ;;
           esac
           # Retained blocks release while the orphaned terminal remains under review.
-          megabrain_dispatch_meta_update_fields "$dispatch_id" "$next_state" __keep__ retained parent-missing parent-missing orphaned parent-missing __keep__ || return 1
+          megabrain_dispatch_reconcile_update "$dispatch_id" "$next_state" __keep__ retained parent-missing parent-missing orphaned parent-missing __keep__ || return 1
           MEGABRAIN_RECONCILE_OUTCOME=orphaned
           ;;
         alive)
@@ -451,11 +453,11 @@ megabrain_dispatch_reconcile_one() {
             starting|start-unproven) next_process=running ;;
           esac
           [ "$terminal_state" = retained ] && next_terminal=owned
-          megabrain_dispatch_meta_update_fields "$dispatch_id" "$next_state" "$next_process" "$next_terminal" terminal-proven identity-proven adopted __keep__ __keep__ || return 1
+          megabrain_dispatch_reconcile_update "$dispatch_id" "$next_state" "$next_process" "$next_terminal" terminal-proven identity-proven adopted __keep__ __keep__ || return 1
           MEGABRAIN_RECONCILE_OUTCOME=adopted
           ;;
         *)
-          megabrain_dispatch_meta_update_fields "$dispatch_id" __keep__ __keep__ __keep__ parent-unproven parent-unproven parent-unproven __keep__ __keep__ || return 1
+          megabrain_dispatch_reconcile_update "$dispatch_id" __keep__ __keep__ __keep__ parent-unproven parent-unproven parent-unproven __keep__ __keep__ || return 1
           MEGABRAIN_RECONCILE_OUTCOME=parent-unproven
           ;;
       esac
@@ -464,10 +466,15 @@ megabrain_dispatch_reconcile_one() {
       next_process=__keep__
       [ "$process_state" = starting ] && next_process=start-unproven
       # Retained blocks release while terminal identity is unproven.
-      megabrain_dispatch_meta_update_fields "$dispatch_id" __keep__ "$next_process" retained identity-unproven identity-unproven identity-unproven identity-unproven __keep__ || return 1
+      megabrain_dispatch_reconcile_update "$dispatch_id" __keep__ "$next_process" retained identity-unproven identity-unproven identity-unproven identity-unproven __keep__ || return 1
       MEGABRAIN_RECONCILE_OUTCOME=identity-unproven
       ;;
   esac
+}
+
+megabrain_dispatch_reconcile_update() {
+  [ "${MEGABRAIN_RECONCILE_DRY_RUN:-false}" = true ] && return 0
+  megabrain_dispatch_meta_update_fields "$@"
 }
 
 megabrain_dispatch_reconcile() {
@@ -589,7 +596,7 @@ megabrain_dispatch_timestamp_epoch() {
 megabrain_dispatch_prune() {
   local older_than="$MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS" state_filter="$(megabrain_dispatch_prune_states)"
   local mode=archive dry_run=false json=false arg now_epoch cutoff archive_month
-  local meta_path dispatch_dir dispatch_id state process_state terminal_state timestamp timestamp_epoch reason target reconcile_outcome
+  local meta_path dispatch_dir dispatch_id state process_state terminal_state timestamp timestamp_epoch reason target reconcile_outcome reconcile_rc
   local archived_ids='[]' deleted_ids='[]' skipped_dispatches='[]'
   local archived_count=0 deleted_count=0 skipped_count=0
   case "${1:-}" in
@@ -629,7 +636,15 @@ megabrain_dispatch_prune() {
       [ "$process_state" = stop-unproven ] ||
       [ "$process_state" = abandoned ];
     }; then
-      megabrain_dispatch_reconcile_one "$dispatch_id" || continue
+      if [ "$dry_run" = true ]; then
+        MEGABRAIN_RECONCILE_DRY_RUN=true
+        megabrain_dispatch_reconcile_one "$dispatch_id"
+        reconcile_rc=$?
+        unset MEGABRAIN_RECONCILE_DRY_RUN
+        [ "$reconcile_rc" -eq 0 ] || continue
+      else
+        megabrain_dispatch_reconcile_one "$dispatch_id" || continue
+      fi
       reconcile_outcome="${MEGABRAIN_RECONCILE_OUTCOME:-unchanged}"
       state="$(jq -r '.state // empty' "$meta_path" 2>/dev/null || true)"
       if [ "$reconcile_outcome" = terminal-missing ] && ! megabrain_dispatch_prune_state_terminal "$state"; then
