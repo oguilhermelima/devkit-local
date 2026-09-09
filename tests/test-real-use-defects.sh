@@ -152,6 +152,7 @@ megabrain_playwright_ready() { return 0; }
 megabrain_playwright_active_browser() { printf 'chromium\n'; }
 megabrain_playwright_config_path() { printf '%s/chromium.json\n' "$MEGABRAIN_PLAYWRIGHT_ROOT"; }
 megabrain_present_agents() { return 1; }
+module_simulator_web_doctor() { megabrain_set_status ok 'browser fixture is ready'; return 0; }
 node() { return 0; }
 browser_output="$(module_simulator_web_install false both)"
 assert_contains "$browser_output" 'chromium' 'browser install did not identify the active Chromium profile'
