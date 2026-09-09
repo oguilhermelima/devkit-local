@@ -6,6 +6,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-ident.XXXXXX")"
 socket_name="megabrainident"
 session_name="megabrain-ident-test"
+other_session="megabrain-ident-other"
 parent_id="parent-terminal"
 workspace_id="workspace-test"
 tmux_pane_one=""
@@ -15,6 +16,7 @@ dispatch_two="dispatch-two"
 
 cleanup() {
   tmux -L "$socket_name" kill-session -t "$session_name" >/dev/null 2>&1 || true
+  tmux -L "$socket_name" kill-session -t "$other_session" >/dev/null 2>&1 || true
   rm -rf "$state_dir"
 }
 trap cleanup EXIT
@@ -109,6 +111,21 @@ if megabrain_dispatch_require_parent "$tmux_parent_dispatch" >/dev/null 2>&1; th
 fi
 export TMUX_PANE="$tmux_pane_one"
 export SUPERSET_TERMINAL_ID="$parent_id"
+
+# A stale dispatch must not make the registry scan choose an arbitrary matching
+# session. The caller's own registered main pane is the authoritative split target.
+tmux_cmd new-session -d -s "$other_session" -x 80 -y 20 bash
+mkdir -p "$MEGABRAIN_TMUX_SESSION_DIR"
+jq -n --arg session "$other_session" --arg path "$root" \
+  '{tmuxSession: $session, agent: "claude", workingDirectory: $path, tmuxPane: "%other", role: "main", host: "tmux", createdAt: "2026-09-09T00:00:00Z"}' \
+  >"$MEGABRAIN_TMUX_SESSION_DIR/megabrain-claude-12988.json"
+jq -n --arg session "$session_name" --arg path "$root" --arg pane "$tmux_pane_one" \
+  '{tmuxSession: $session, agent: "codex", workingDirectory: $path, tmuxPane: $pane, role: "main", host: "tmux", createdAt: "2026-09-09T00:00:01Z"}' \
+  >"$MEGABRAIN_TMUX_SESSION_DIR/megabrain-claude-9505.json"
+megabrain_dispatch_meta_write stale-session parent-terminal tmux tmux "$workspace_id" host-terminal stale-terminal "$root" main codex label running gpt-5 true codex stale-session-gone %stale tmux >/dev/null
+megabrain_tmux_existing_session_for_worktree "$root"
+assert_equal "$MEGABRAIN_TMUX_EXISTING_SESSION" "$session_name"
+printf 'session selection: registered caller session wins over stale metadata and glob order\n'
 
 create_tmux_meta "$dispatch_one" "$tmux_pane_one"
 create_tmux_meta "$dispatch_two" "$tmux_pane_two"

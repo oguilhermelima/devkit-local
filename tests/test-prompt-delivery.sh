@@ -57,7 +57,8 @@ assert_equal "$(jq -r '.promptDelivery' "$state_dir/dispatches/empty-turn/meta.j
 assert_equal "$(jq -r '.state' "$state_dir/dispatches/empty-turn/meta.json")" stalled
 printf 'empty child turn does not confirm prompt delivery\n'
 
-# The explicit command remains optional while delivery is observed mechanically by the transport.
+# The child receipt is the delivery fact. It is durable in the dispatch queue and must be
+# observed before the parent marks the prompt delivered.
 create_dispatch optional-receipt spawning command-terminal
 received_output="$(env -u SUPERSET_TERMINAL_ID -u TMUX -u TMUX_PANE ORCA_TERMINAL_HANDLE=command-terminal MEGABRAIN_STATE_DIR="$state_dir" \
   "$root/megabrain" received)"
@@ -66,108 +67,39 @@ received_message="$state_dir/dispatches/optional-receipt/messages/0001-child-rec
 [ -f "$received_message" ] || fail 'received command did not leave a durable message'
 assert_equal "$(jq -r '.type' "$received_message")" received
 assert_equal "$(jq -r '.state' "$state_dir/dispatches/optional-receipt/meta.json")" spawning
-printf 'received command remains optional and durable\n'
+printf 'received command is durable and authoritative\n'
 
-tmux_mode=unresponsive
-tmux_enter_count=0
-tmux_draft_file="$state_dir/tmux-draft"
-tmux_capture_file="$state_dir/tmux-captures"
-: >"$tmux_draft_file"
-printf '0\n' >"$tmux_capture_file"
-tmux() {
-  local command="${1:-}" count
-  case "$command" in
-    send-keys)
-      if [ "${4:-}" = -l ]; then
-        printf '%s\n' "${5:-}" >"$tmux_draft_file"
-      fi
-      if [ "${4:-}" = Enter ]; then
-        tmux_enter_count=$((tmux_enter_count + 1))
-      fi
-      return 0
-      ;;
-    capture-pane)
-      count="$(cat "$tmux_capture_file")"
-      count=$((count + 1))
-      printf '%s\n' "$count" >"$tmux_capture_file"
-      if [ "$tmux_mode" = responsive ] && [ "$count" -ge 1 ]; then
-        printf 'submitted\n'
-      else
-        printf 'composer '
-        cat "$tmux_draft_file"
-      fi
-      return 0
-      ;;
-    *) return 1 ;;
-  esac
-}
-megabrain_tmux_session_exists() {
+receipt_dispatch=receipt-retry
+create_dispatch "$receipt_dispatch" spawning command-terminal
+receipt_send_count=0
+megabrain_dispatch_native_send() {
+  receipt_send_count=$((receipt_send_count + 1))
+  if [ "$receipt_send_count" -eq 2 ]; then
+    megabrain_dispatch_message_append "$receipt_dispatch" child received 'prompt received' child-terminal >/dev/null
+  fi
   return 0
 }
-export MEGABRAIN_TMUX_ENTER_RETRIES=2
-export MEGABRAIN_TMUX_ENTER_RETRIES=3
-export MEGABRAIN_TMUX_ENTER_WAIT=0
-tmux_mode=unresponsive
-tmux_enter_count=0
-printf '0\n' >"$tmux_capture_file"
-megabrain_tmux_send_text %1 'unresponsive message'
-assert_equal "$tmux_enter_count" 3
-printf 'message delivery: unresponsive pane receives bounded Enter retries\n'
+export MEGABRAIN_PROMPT_RECEIPT_ATTEMPTS=3
+export MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS=0
+megabrain_dispatch_send_prompt_with_receipt "$receipt_dispatch" 'prompt delivered after retry' ||
+  fail 'prompt was not delivered after the child receipt appeared'
+assert_equal "$receipt_send_count" 2
+assert_equal "$(jq -r '.promptDelivery' "$state_dir/dispatches/$receipt_dispatch/meta.json")" pending
+printf 'prompt receipt: missing first receipt causes a bounded resend\n'
 
-tmux_mode=responsive
-tmux_enter_count=0
-printf '0\n' >"$tmux_capture_file"
-megabrain_tmux_send_text %1 'responsive message'
-assert_equal "$tmux_enter_count" 1
-printf 'message delivery: responsive pane stops after the first Enter\n'
-
-# pane_current_command proves that the agent process exists, not that its composer
-# accepts input. This fake keeps reporting codex while MCP startup is visible and
-# exposes Codex's measured idle-composer text only on the third capture.
-readiness_capture_count=0
-readiness_send_log="$state_dir/readiness-sends"
-readiness_capture_file="$state_dir/readiness-captures"
-: >"$readiness_send_log"
-printf '0\n' >"$readiness_capture_file"
-tmux() {
-  local command="${1:-}" format="${5:-}" capture_count
-  case "$command" in
-    display-message)
-      case "$format" in
-        '#{pane_current_command}') printf 'codex\n' ;;
-        '#{pane_height}') printf '20\n' ;;
-        *) return 1 ;;
-      esac
-      return 0
-      ;;
-    send-keys)
-      if [ "${4:-}" = -l ]; then
-        capture_count="$(cat "$readiness_capture_file")"
-        printf '%s\t%s\n' "$([ "$capture_count" -ge 3 ] && printf ready || printf starting)" "${5:-}" >>"$readiness_send_log"
-      fi
-      return 0
-      ;;
-    capture-pane)
-      capture_count="$(cat "$readiness_capture_file")"
-      capture_count=$((capture_count + 1))
-      printf '%s\n' "$capture_count" >"$readiness_capture_file"
-      if [ "$capture_count" -ge 3 ]; then
-        printf '› Ask Codex to do anything\n'
-      else
-        printf 'Starting MCP servers (2/4): codex_apps, playwright\n'
-      fi
-      return 0
-      ;;
-    *) return 1 ;;
-  esac
+no_receipt_dispatch=no-receipt
+create_dispatch "$no_receipt_dispatch" spawning command-terminal
+no_receipt_send_count=0
+megabrain_dispatch_native_send() {
+  no_receipt_send_count=$((no_receipt_send_count + 1))
+  return 0
 }
-export MEGABRAIN_TMUX_SETTLE_ATTEMPTS=3
-export MEGABRAIN_TMUX_SETTLE_SECONDS=0
-megabrain_tmux_settle_pane %1 codex || fail 'pane readiness unexpectedly timed out'
-megabrain_tmux_send_agent %1 'prompt sent only after composer readiness' prompt || fail 'ready fake pane rejected prompt'
-assert_equal "$(sed -n '1p' "$readiness_send_log" | cut -f1)" ready
-assert_equal "$(sed -n '1p' "$readiness_send_log" | cut -f2-)" 'prompt sent only after composer readiness'
-printf 'composer readiness: prompt waits for Codex idle-composer signal\n'
+export MEGABRAIN_PROMPT_RECEIPT_ATTEMPTS=2
+if megabrain_dispatch_send_prompt_with_receipt "$no_receipt_dispatch" 'prompt without receipt'; then
+  fail 'prompt without a receipt unexpectedly succeeded'
+fi
+assert_equal "$no_receipt_send_count" 2
+printf 'prompt receipt: exhaustion fails without claiming delivery\n'
 
 create_dispatch running-reply running
 reply_result="$(megabrain_dispatch_reply running-reply --text 'Continue work' --json)"
