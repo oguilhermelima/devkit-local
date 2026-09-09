@@ -175,12 +175,16 @@ megabrain_tmux_apply_config() { return 0; }
 megabrain_tmux_settle_pane() { return 0; }
 megabrain_tmux_send_agent() { return 0; }
 megabrain_tmux_agent_output_clean() { return 0; }
-megabrain_dispatch_wait_for_prompt_receipt() { return 0; }
+# A prompt whose composer submission was observed must not wait for the child to
+# remember a receipt command. This deliberately fails against the old path.
+megabrain_dispatch_wait_for_prompt_receipt() { return 1; }
 megabrain_agent_command() { printf 'true\n'; }
 
 SUPERSET_TERMINAL_ID="$parent_id" megabrain_launch_agent "$root" "$workspace_id" codex gpt-5 medium prompt label >/dev/null
 reused_dispatch="$MEGABRAIN_LAST_DISPATCH"
 assert_equal "$(jq -r '.terminalId' "$state_dir/dispatches/$reused_dispatch/meta.json")" "$parent_id"
+assert_equal "$(jq -r '.promptDelivered' "$state_dir/dispatches/$reused_dispatch/meta.json")" true
+assert_equal "$(jq -r '.promptDelivery' "$state_dir/dispatches/$reused_dispatch/meta.json")" delivered
 
 megabrain_require_command() { return 1; }
 unset SUPERSET_TERMINAL_ID ORCA_TERMINAL_HANDLE

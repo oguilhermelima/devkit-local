@@ -43,8 +43,8 @@ assert_failure() {
 }
 
 create_dispatch() {
-  local dispatch_id="$1" state="$2"
-  megabrain_dispatch_meta_write "$dispatch_id" parent-terminal orca orca "" child-terminal "$root" fix/prompt-delivery-proof codex label "$state" gpt-5 true codex "" "" host ide >/dev/null
+  local dispatch_id="$1" state="$2" terminal_id="${3:-child-terminal}"
+  megabrain_dispatch_meta_write "$dispatch_id" parent-terminal orca orca "" "$terminal_id" "$root" fix/prompt-delivery-proof codex label "$state" gpt-5 true codex "" "" host ide >/dev/null
 }
 
 create_tmux_dispatch() {
@@ -75,6 +75,26 @@ failure_output="$(megabrain_dispatch_failure_error stalled-report 'dispatch did 
 assert_contains "$failure_output" 'child message: "child could not run the dispatch command"'
 assert_equal "$(jq -r '.state' "$state_dir/dispatches/stalled-report/meta.json")" failed
 printf 'failed dispatch reports the child stalled message\n'
+
+# A turn-end hook is evidence that a child turn ended, not evidence that this prompt
+# reached it. An empty turn must remain pending rather than becoming a receipt.
+create_dispatch empty-turn running
+env -u SUPERSET_TERMINAL_ID -u TMUX -u TMUX_PANE ORCA_TERMINAL_HANDLE=child-terminal MEGABRAIN_DISPATCH_ID=empty-turn MEGABRAIN_HOOK_AGENT=codex \
+  "$root/hooks/megabrain-turn-end.sh" '{"last_assistant_message":""}' >/dev/null
+assert_equal "$(jq -r '.promptDelivery' "$state_dir/dispatches/empty-turn/meta.json")" pending
+assert_equal "$(jq -r '.state' "$state_dir/dispatches/empty-turn/meta.json")" stalled
+printf 'empty child turn does not confirm prompt delivery\n'
+
+# The explicit command remains compatible as a fast path while delivery is observed
+# mechanically by the transport.
+create_dispatch command-receipt spawning command-terminal
+env -u SUPERSET_TERMINAL_ID -u TMUX -u TMUX_PANE ORCA_TERMINAL_HANDLE=command-terminal MEGABRAIN_STATE_DIR="$state_dir" \
+  "$root/megabrain" received >/dev/null
+megabrain_dispatch_wait_for_prompt_receipt command-receipt
+received_message="$state_dir/dispatches/command-receipt/messages/0001-child-received.json"
+[ -f "$received_message" ] || fail 'received command did not leave a durable message'
+assert_equal "$(jq -r '.type' "$received_message")" received
+printf 'received command remains a fast durable confirmation\n'
 
 tmux_mode=unresponsive
 tmux_enter_count=0
