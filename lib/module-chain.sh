@@ -1011,18 +1011,23 @@ MEGABRAIN_CHAIN_SELECTION_DEFAULT=false
 
 megabrain_chain_select() {
   local config="$1" explicit_name="${2:-}" parent_agent="${3:-}" parent_model="${4:-}" parent_effort="${5:-}" explicit_source="${6:-name}"
-  local chain selector field required actual matched specificity best_specificity=-1 candidates='' count=0
+  local chain required actual matched specificity best_specificity=-1 candidates='' count=0 selection_filter selected_steps best_steps=''
   MEGABRAIN_CHAIN_SELECTED_NAME=""
   MEGABRAIN_CHAIN_SELECTED_STEPS='[]'
   MEGABRAIN_CHAIN_SELECTION_REASON=""
   MEGABRAIN_CHAIN_SELECTION_DEFAULT=false
+  selection_filter="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/chain-selection.jq"
   if [ -n "$explicit_name" ]; then
-    if ! printf '%s' "$config" | jq -e --arg name "$explicit_name" '.chains | has($name)' >/dev/null 2>&1; then
+    if ! selected_steps="$(printf '%s' "$config" | jq -c --arg name "$explicit_name" 'if (.chains | has($name)) then .chains[$name].steps else empty end')"; then
       megabrain_error "chain not found: $explicit_name; list chains with megabrain chain list"
       return 1
     fi
+    [ -n "$selected_steps" ] || {
+      megabrain_error "chain not found: $explicit_name; list chains with megabrain chain list"
+      return 1
+    }
     MEGABRAIN_CHAIN_SELECTED_NAME="$explicit_name"
-    MEGABRAIN_CHAIN_SELECTED_STEPS="$(printf '%s' "$config" | jq -c --arg name "$explicit_name" '.chains[$name].steps')"
+    MEGABRAIN_CHAIN_SELECTED_STEPS="$selected_steps"
     if [ "$explicit_source" = flag ]; then
       MEGABRAIN_CHAIN_SELECTION_REASON="explicit --chain requested"
     else
@@ -1030,13 +1035,16 @@ megabrain_chain_select() {
     fi
     return 0
   fi
-  while IFS= read -r chain; do
-    selector="$(printf '%s' "$config" | jq -c --arg chain "$chain" '.chains[$chain].when')"
+  while IFS=$'\t' read -r chain required_agent required_model required_effort selected_steps; do
     matched=true
     specificity=0
     for field in parentAgent parentModel parentEffort; do
-      required="$(printf '%s' "$selector" | jq -r --arg field "$field" '.[$field] // empty')"
-      [ -n "$required" ] || continue
+      case "$field" in
+        parentAgent) required="$required_agent" ;;
+        parentModel) required="$required_model" ;;
+        parentEffort) required="$required_effort" ;;
+      esac
+      [ "$required" != - ] || continue
       specificity=$((specificity + 1))
       case "$field" in
         parentAgent) actual="$parent_agent" ;;
@@ -1051,19 +1059,20 @@ megabrain_chain_select() {
     if [ "$specificity" -gt "$best_specificity" ]; then
       best_specificity="$specificity"
       candidates="$chain"
+      best_steps="$selected_steps"
       count=1
     elif [ "$specificity" -eq "$best_specificity" ]; then
       candidates="$candidates, $chain"
       count=$((count + 1))
     fi
-  done < <(printf '%s' "$config" | jq -r '.chains | keys[]')
+  done < <(printf '%s' "$config" | jq -r -f "$selection_filter")
   if [ "$count" -gt 1 ]; then
     megabrain_error "chain selection is ambiguous: candidates: $candidates"
     return 1
   fi
   if [ "$count" -eq 1 ]; then
     MEGABRAIN_CHAIN_SELECTED_NAME="$candidates"
-    MEGABRAIN_CHAIN_SELECTED_STEPS="$(printf '%s' "$config" | jq -c --arg name "$candidates" '.chains[$name].steps')"
+    MEGABRAIN_CHAIN_SELECTED_STEPS="$best_steps"
     MEGABRAIN_CHAIN_SELECTION_REASON="selector match with $best_specificity field(s)"
     return 0
   fi
