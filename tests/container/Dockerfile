@@ -17,4 +17,7 @@ USER runner
 WORKDIR /work
 
 ENV HOME=/home/runner
+# Keep temporary Git repositories consistent with the project's macOS fixtures. Debian's
+# default is still master, while the worktree scenarios intentionally use main.
+RUN git config --global init.defaultBranch main
 ENTRYPOINT ["/bin/bash"]
