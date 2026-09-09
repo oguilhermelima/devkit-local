@@ -143,9 +143,10 @@ New providers belong in `lib/module-chain.sh` under `megabrain_chain_limit_read`
 ## Worktrees and terminals
 
 ```
-megabrain worktree create --repo <name|path> --branch <branch> [--base <ref>] [--parent <branch:branch|path:path>] [--no-parent] [--name <slug>] [--json]
+megabrain worktree create --repo <name|path> --branch <branch> [--base <ref>] [--parent <branch:branch|path:path>] [--no-parent] [--issue <number>] [--linear-issue <identifier-or-url>] [--pr <number>] [--name <slug>] [--json]
+megabrain worktree pr <branch|path|slug> [--base <ref>] [--title <text>] [--body <text>] [--json]
 megabrain worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]
-megabrain worktree list [--repo <name|path>] [--json]
+megabrain worktree list [--repo <name|path>] [--tree|--flat] [--json]
 megabrain worktree adopt <path|branch> [--json]
 megabrain terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]
 megabrain terminal list [--worktree <path>] [--json]
@@ -161,6 +162,17 @@ branch and path selectors share one folder. Orca preserves the full nested linea
 flat folders, so siblings share their parent's folder while a grandchild is grouped by its direct
 parent rather than its ancestor. JSON reports the selector, canonical parent branch and whether Orca
 lineage and Superset grouping were each set; a decoration failure does not undo the checkout.
+`--issue` and `--linear-issue` are applied through the same post-checkout Orca update; a missing or
+failing Orca update is reported in JSON without undoing the Git checkout. `--pr` is passed to
+Superset's workspace creation for review flows; verified PR-head checkout is a Superset capability,
+so an Orca-only or bare host cannot provide that part of the flow.
+`worktree pr` uses the recorded Git stack parent as the base, otherwise the repository default, unless
+`--base` overrides it. Its default title is the branch name and its default body is empty. It refuses
+to call `gh pr create` when the branch has no commits ahead of its base, and distinguishes missing gh
+from unauthenticated gh. The command requires gh only when opening the PR.
+Human `worktree list` prints the stack as a tree; `--flat` preserves the path/branch table and JSON
+remains flat with parent and optional pull-request fields. Pull-request state is best-effort and does
+not make listing depend on gh or Orca.
 `finish` refuses an unmerged branch unless `--force` is given. `terminal create` with no
 `--command` runs the worktree's `.superset/config.json` run script. Superset tabs come back
 untitled; only Orca tabs carry a title. Terminal identities, commands and creation times are

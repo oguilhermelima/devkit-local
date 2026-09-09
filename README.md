@@ -242,6 +242,33 @@ grouped by its direct parent rather than its ancestor. The JSON result reports i
 whether Orca lineage and Superset grouping were set; a failure in either decoration does not fail
 the Git checkout.
 
+Link worktrees to the issues they implement during creation:
+
+```sh
+megabrain worktree create --repo api --branch feat/rate-limit-ui \
+  --parent branch:feat/rate-limit --issue 42 --linear-issue ENG-7 --json
+```
+
+The links are applied by Orca after the checkout. If Orca is unavailable or rejects the update,
+the checkout remains and JSON reports the link failure. For a review workspace, `--pr` is passed
+to Superset's verified PR-head flow. That part is Superset-specific; an Orca-only or bare host
+cannot verify and check out a PR head through this option.
+
+Open a pull request from a worktree with the stack-safe base selected automatically:
+
+```sh
+megabrain worktree pr ~/Workspaces/Worktrees/feat-rate-limit-ui --json
+```
+
+The parent branch is used as the base for a stacked worktree, while a root worktree uses the
+repository default. `--base` overrides either choice. The default title is the branch name and the
+default body is empty. megabrain refuses to invoke `gh pr create` when there are no commits ahead
+of the selected base, and reports missing gh separately from an unauthenticated gh.
+
+`megabrain worktree list` shows the stack as a tree and includes pull-request state when gh can
+answer cheaply. Use `--flat` for the original path/branch table; JSON remains a flat, scriptable
+array and does not require gh or Orca to list the local stack.
+
 > [!TIP]
 > Keep it beside your repositories rather than inside one — `~/Workspaces/Worktrees` next to
 > `~/Workspaces/api`. A worktree nested inside its own repository confuses tooling that walks up
