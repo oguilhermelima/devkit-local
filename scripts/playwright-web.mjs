@@ -388,8 +388,10 @@ async function sendToOptions(context, extensionId, message) {
   return result;
 }
 
-function userScriptSource(userscripts, name) {
-  if (path.basename(name) !== name || !name.endsWith('.user.js')) throw new Error('userscript must be a .user.js file name');
+export function userScriptSource(userscripts, name) {
+  if (path.basename(name) !== name || !name.endsWith('.user.js')) {
+    throw new Error(`userscript must be a .user.js file name inside ${userscripts}; pass the file name, not a path`);
+  }
   const file = path.join(userscripts, name);
   if (!existsSync(file) || !statSync(file).isFile()) throw new Error(`userscript not found: ${file}`);
   return { file, code: readFileSync(file, 'utf8') };
