@@ -126,9 +126,11 @@ printf 'message delivery: responsive pane stops after the first Enter\n'
 # exposes Codex's measured idle-composer text only on the third capture.
 readiness_capture_count=0
 readiness_send_log="$state_dir/readiness-sends"
+readiness_capture_file="$state_dir/readiness-captures"
 : >"$readiness_send_log"
+printf '0\n' >"$readiness_capture_file"
 tmux() {
-  local command="${1:-}" format="${5:-}"
+  local command="${1:-}" format="${5:-}" capture_count
   case "$command" in
     display-message)
       case "$format" in
@@ -140,13 +142,16 @@ tmux() {
       ;;
     send-keys)
       if [ "${4:-}" = -l ]; then
-        printf '%s\t%s\n' "$([ "$readiness_capture_count" -ge 3 ] && printf ready || printf starting)" "${5:-}" >>"$readiness_send_log"
+        capture_count="$(cat "$readiness_capture_file")"
+        printf '%s\t%s\n' "$([ "$capture_count" -ge 3 ] && printf ready || printf starting)" "${5:-}" >>"$readiness_send_log"
       fi
       return 0
       ;;
     capture-pane)
-      readiness_capture_count=$((readiness_capture_count + 1))
-      if [ "$readiness_capture_count" -ge 3 ]; then
+      capture_count="$(cat "$readiness_capture_file")"
+      capture_count=$((capture_count + 1))
+      printf '%s\n' "$capture_count" >"$readiness_capture_file"
+      if [ "$capture_count" -ge 3 ]; then
         printf '› Ask Codex to do anything\n'
       else
         printf 'Starting MCP servers (2/4): codex_apps, playwright\n'
