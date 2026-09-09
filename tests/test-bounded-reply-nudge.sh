@@ -136,6 +136,7 @@ unset -f tmux
 # pointer is typed, so no stale draft can survive in the pane.
 log_file="$state_root/tmux-send.log"
 pointer_composer_file="$state_root/pointer-composer"
+: >"$log_file"
 : >"$pointer_composer_file"
 tmux() {
   case "${1:-}" in
@@ -166,6 +167,8 @@ assert_equal "$typed" ''
 pointer_message="$state_root/state/dispatches/$dispatch_id/messages"/*.json
 assert_equal "$(jq -r '.text' $pointer_message)" "$pointer_answer"
 assert_contains "$(jq -r '.sessionId' $pointer_message)" ':'
+pointer_transport_status="$(megabrain_tmux_send_nudge %fake 'codex pointer is not typed' codex; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
+assert_equal "$pointer_transport_status" not-typed
 printf 'reply transport: pointer excludes the answer and parent provenance is recorded\n'
 
 # Claude is the only agent measured to accept a busy-pane nudge. Codex and agy stay on the
