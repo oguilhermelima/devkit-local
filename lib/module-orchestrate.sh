@@ -175,7 +175,7 @@ megabrain_dispatch_meta_write() {
   local parent_tmux_session="${19:-}" parent_tmux_pane="${20:-}" parent_workspace_id="${21:-}"
   local chain_name="${22:-${MEGABRAIN_CHAIN_NAME:-}}" chain_step="${23:-${MEGABRAIN_CHAIN_STEP:-}}"
   local chain_total="${24:-${MEGABRAIN_CHAIN_TOTAL:-}}" chain_reason="${25:-${MEGABRAIN_CHAIN_REASON:-}}"
-  local chain_default="${26:-${MEGABRAIN_CHAIN_DEFAULT:-false}}" chain_step_json chain_total_json dispatch_dir tmp
+  local chain_default="${26:-${MEGABRAIN_CHAIN_DEFAULT:-false}}" effort="${27:-}" chain_step_json chain_total_json dispatch_dir tmp
   if [ -z "$spawn_runtime" ]; then
     [ "$runtime" = tmux ] && spawn_runtime=tmux || spawn_runtime=ide
   fi
@@ -201,11 +201,12 @@ megabrain_dispatch_meta_write() {
     --arg tmuxSession "$tmux_session" --arg tmuxPane "$tmux_pane" --arg spawnRuntime "$spawn_runtime" \
     --arg parentTmuxSession "$parent_tmux_session" --arg parentTmuxPane "$parent_tmux_pane" --arg parentWorkspaceId "$parent_workspace_id" \
     --arg chainName "$chain_name" --arg chainReason "$chain_reason" \
+    --arg effort "$effort" \
     --argjson chainStep "$chain_step_json" --argjson chainTotal "$chain_total_json" \
     --argjson chainDefault "$(megabrain_bool_json "$chain_default")" \
     --argjson modelHonored "$(megabrain_bool_json "$model_honored")" \
     --arg now "$(megabrain_iso_now)" \
-    '{dispatchId: $dispatchId, parentSessionId: $parentSessionId, parentHost: $parentHost, parentWorkspaceId: (if $parentWorkspaceId == "" then null else $parentWorkspaceId end), parentTmuxSession: (if $parentTmuxSession == "" then null else $parentTmuxSession end), parentTmuxPane: (if $parentTmuxPane == "" then null else $parentTmuxPane end), childHost: $childHost, workspaceId: $workspaceId, terminalId: $terminalId, worktreePath: $worktreePath, branch: $branch, agent: $agent, agentId: $agentId, model: $model, modelHonored: $modelHonored, modelSubstitution: null, runtime: $runtime, spawnRuntime: $spawnRuntime, tmuxSession: (if $tmuxSession == "" then null else $tmuxSession end), tmuxPane: (if $tmuxPane == "" then null else $tmuxPane end), label: $labelText, chain: (if $chainName == "" then null else {name: $chainName, step: $chainStep, total: $chainTotal, reason: $chainReason, usedDefault: $chainDefault} end), state: $state, promptDelivered: false, promptDelivery: "pending", promptDeliveryReason: null, processState: (if $state == "spawning" then "starting" elif $state == "running" then "running" elif $state == "done" then "succeeded" elif $state == "failed" then "failed" elif $state == "closed" then "stopped" else "start-unproven" end), terminalState: "owned", terminalReason: null, failureCount: 0, stage: null, reason: null, reconcileOutcome: null, createdAt: $now, updatedAt: $now}' \
+    '{dispatchId: $dispatchId, parentSessionId: $parentSessionId, parentHost: $parentHost, parentWorkspaceId: (if $parentWorkspaceId == "" then null else $parentWorkspaceId end), parentTmuxSession: (if $parentTmuxSession == "" then null else $parentTmuxSession end), parentTmuxPane: (if $parentTmuxPane == "" then null else $parentTmuxPane end), childHost: $childHost, workspaceId: $workspaceId, terminalId: $terminalId, worktreePath: $worktreePath, branch: $branch, agent: $agent, agentId: $agentId, model: $model, effort: (if $effort == "" then null else $effort end), modelHonored: $modelHonored, modelSubstitution: null, runtime: $runtime, spawnRuntime: $spawnRuntime, tmuxSession: (if $tmuxSession == "" then null else $tmuxSession end), tmuxPane: (if $tmuxPane == "" then null else $tmuxPane end), label: $labelText, chain: (if $chainName == "" then null else {name: $chainName, step: $chainStep, total: $chainTotal, reason: $chainReason, usedDefault: $chainDefault} end), state: $state, promptDelivered: false, promptDelivery: "pending", promptDeliveryReason: null, processState: (if $state == "spawning" then "starting" elif $state == "running" then "running" elif $state == "done" then "succeeded" elif $state == "failed" then "failed" elif $state == "closed" then "stopped" else "start-unproven" end), terminalState: "owned", terminalReason: null, failureCount: 0, stage: null, reason: null, reconcileOutcome: null, createdAt: $now, updatedAt: $now}' \
     >"$tmp"; then
     rm -f "$tmp"
     return 1
@@ -328,6 +329,7 @@ megabrain_dispatch_meta_normalize() {
     | .reason //= null
     | .reconcileOutcome //= null
     | .modelSubstitution //= null
+    | .effort //= null
   ' "$path" >"$tmp"; then
     rm -f "$tmp"
     return 1

@@ -571,7 +571,7 @@ ${prompt}"
       }
     fi
     command_text="cd $(printf '%q' "$worktree_path") && MEGABRAIN_DISPATCH_ID=$(printf '%q' "$dispatch_id") MEGABRAIN_TMUX_SESSION=$(printf '%q' "$tmux_session") MEGABRAIN_TMUX_PANE=$(printf '%q' "$tmux_pane") $command_text"
-    megabrain_dispatch_meta_write "$dispatch_id" "$parent_id" "$parent_host" "$context" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" true "$agent_used" "$tmux_session" "$tmux_pane" tmux tmux "$parent_tmux_session" "$parent_tmux_pane" "$parent_workspace_id" >/dev/null || {
+    megabrain_dispatch_meta_write "$dispatch_id" "$parent_id" "$parent_host" "$context" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" true "$agent_used" "$tmux_session" "$tmux_pane" tmux tmux "$parent_tmux_session" "$parent_tmux_pane" "$parent_workspace_id" "${MEGABRAIN_CHAIN_NAME:-}" "${MEGABRAIN_CHAIN_STEP:-}" "${MEGABRAIN_CHAIN_TOTAL:-}" "${MEGABRAIN_CHAIN_REASON:-}" "${MEGABRAIN_CHAIN_DEFAULT:-false}" "$effort" >/dev/null || {
       megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
       megabrain_error "could not persist dispatch metadata: $dispatch_id"
       return 1
@@ -669,7 +669,7 @@ ${prompt}"
     return 1
   fi
   model_honored=true
-  megabrain_dispatch_meta_write "$dispatch_id" "$parent_id" "$parent_host" "$child_host" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" "$model_honored" "$agent_used" "" "" host ide "$parent_tmux_session" "$parent_tmux_pane" "$parent_workspace_id" >/dev/null || {
+  megabrain_dispatch_meta_write "$dispatch_id" "$parent_id" "$parent_host" "$child_host" "$workspace_id" "$session_id" "$worktree_path" "$branch" "$agent" "$label" spawning "$model" "$model_honored" "$agent_used" "" "" host ide "$parent_tmux_session" "$parent_tmux_pane" "$parent_workspace_id" "${MEGABRAIN_CHAIN_NAME:-}" "${MEGABRAIN_CHAIN_STEP:-}" "${MEGABRAIN_CHAIN_TOTAL:-}" "${MEGABRAIN_CHAIN_REASON:-}" "${MEGABRAIN_CHAIN_DEFAULT:-false}" "$effort" >/dev/null || {
     megabrain_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     megabrain_error "could not persist dispatch metadata: $dispatch_id"
     return 1

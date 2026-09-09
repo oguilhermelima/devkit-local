@@ -10,23 +10,61 @@ else
   MEGABRAIN_MODEL_FILE="$MEGABRAIN_STATE_DIR/models.json"
 fi
 
+megabrain_model_upgrade() {
+  local tmp
+  tmp="$(mktemp "$MEGABRAIN_STATE_DIR/models.XXXXXX")" || return 1
+  if ! jq --argjson template "$(cat "$MEGABRAIN_MODEL_TEMPLATE_FILE")" '
+    reduce $template.models[] as $template_model (.;
+      if any(.models[]; .agent == $template_model.agent and .model == $template_model.model) then
+        .models |= map(
+          if .agent == $template_model.agent and
+             .model == $template_model.model and
+             (.provenance.kind // "") != "curated" then
+            .reasoning = $template_model.reasoning
+          else .
+          end
+        )
+      else
+        .models += [$template_model]
+      end
+    )
+  ' "$MEGABRAIN_MODEL_FILE" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  if cmp -s "$tmp" "$MEGABRAIN_MODEL_FILE"; then
+    rm -f "$tmp"
+  else
+    mv -f "$tmp" "$MEGABRAIN_MODEL_FILE"
+  fi
+}
+
 megabrain_model_init() {
   local tmp
   if [ "$MEGABRAIN_MODEL_FILE_EXPLICIT" = false ]; then
     MEGABRAIN_MODEL_FILE="$MEGABRAIN_STATE_DIR/models.json"
   fi
   mkdir -p "$MEGABRAIN_STATE_DIR" || return 1
+  [ -f "$MEGABRAIN_MODEL_TEMPLATE_FILE" ] || {
+    megabrain_error "model registry template is missing: $MEGABRAIN_MODEL_TEMPLATE_FILE"
+    return 1
+  }
+  if ! jq -e '.version == 1 and (.models | type == "array")' "$MEGABRAIN_MODEL_TEMPLATE_FILE" >/dev/null 2>&1; then
+    megabrain_error "model registry template is not valid JSON: $MEGABRAIN_MODEL_TEMPLATE_FILE"
+    return 1
+  fi
   if [ ! -f "$MEGABRAIN_MODEL_FILE" ]; then
-    [ -f "$MEGABRAIN_MODEL_TEMPLATE_FILE" ] || {
-      megabrain_error "model registry template is missing: $MEGABRAIN_MODEL_TEMPLATE_FILE"
-      return 1
-    }
     tmp="$(mktemp "$MEGABRAIN_STATE_DIR/models.XXXXXX")" || return 1
     if ! cp "$MEGABRAIN_MODEL_TEMPLATE_FILE" "$tmp"; then
       rm -f "$tmp"
       return 1
     fi
     mv -f "$tmp" "$MEGABRAIN_MODEL_FILE"
+  elif ! jq -e '.version == 1 and (.models | type == "array")' "$MEGABRAIN_MODEL_FILE" >/dev/null 2>&1; then
+    megabrain_error "model registry is not valid JSON: $MEGABRAIN_MODEL_FILE"
+    return 1
+  else
+    megabrain_model_upgrade || return 1
   fi
   if ! jq -e '.version == 1 and (.models | type == "array")' "$MEGABRAIN_MODEL_FILE" >/dev/null 2>&1; then
     megabrain_error "model registry is not valid JSON: $MEGABRAIN_MODEL_FILE"
