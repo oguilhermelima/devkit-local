@@ -7,6 +7,10 @@ state_root="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-spawn-chain.XXXXXX")"
 state_dir="$state_root/state"
 before_worktrees=""
 spawn_count=0
+fail_agent=""
+limit_agent=""
+limit_used=""
+limit_resets=""
 
 cleanup() {
   local rc=$?
@@ -62,6 +66,10 @@ megabrain_resolve_spawn_runtime() {
 megabrain_launch_agent() {
   local worktree="$1" workspace="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
   local dispatch_id
+  if [ "$agent" = "$fail_agent" ]; then
+    printf 'simulated launch failure for %s\n' "$agent" >&2
+    return 1
+  fi
   spawn_count=$((spawn_count + 1))
   dispatch_id="dispatch-test-$spawn_count"
   printf '%s\t%s\t%s\t%s\t%s\n' "$agent" "$model" "$effort" "$prompt" "$label" >"$state_root/last-spawn"
@@ -69,6 +77,20 @@ megabrain_launch_agent() {
     "$worktree" main "$agent" "$label" spawning "$model" true "$agent" "" "" host ide >/dev/null
   MEGABRAIN_LAST_DISPATCH="$dispatch_id"
   MEGABRAIN_LAST_SPAWN_RUNTIME=ide
+}
+
+megabrain_chain_limit_read() {
+  local agent="$1" window="$2"
+  MEGABRAIN_CHAIN_LIMIT_STATUS=unknown
+  MEGABRAIN_CHAIN_LIMIT_USED=""
+  MEGABRAIN_CHAIN_LIMIT_RESETS=""
+  MEGABRAIN_CHAIN_LIMIT_REASON="$agent $window window unknown (test fixture)"
+  if [ "$agent" = "$limit_agent" ]; then
+    MEGABRAIN_CHAIN_LIMIT_STATUS=current
+    MEGABRAIN_CHAIN_LIMIT_USED="$limit_used"
+    MEGABRAIN_CHAIN_LIMIT_RESETS="$limit_resets"
+    MEGABRAIN_CHAIN_LIMIT_REASON="$agent $window window at $limit_used percent"
+  fi
 }
 
 write_config() {
@@ -81,6 +103,10 @@ clear_state() {
   rm -rf "$MEGABRAIN_STATE_DIR"
   mkdir -p "$MEGABRAIN_STATE_DIR"
   spawn_count=0
+  fail_agent=""
+  limit_agent=""
+  limit_used=""
+  limit_resets=""
 }
 
 run_spawn() {
@@ -151,5 +177,40 @@ fi
 assert_contains "$error" 'megabrain chain list'
 [ ! -d "$MEGABRAIN_DISPATCH_DIR" ] || fail 'unknown chain created a dispatch directory'
 printf 'unknown explicit chain failure has no dispatch: passed\n'
+
+# 8. Spawn walks past a step whose usage window is over the threshold.
+write_config '{"chains":{"fallback":{"when":{"parentAgent":"codex"},"steps":[{"agent":"codex","model":"gpt-5.6-luna","effort":"high","until":{"usedPercent":95,"window":"5h"}},{"agent":"claude","model":"claude-sonnet-5","effort":"medium"}]}} ,"defaultSteps":[]}'
+limit_agent=codex
+limit_used=99
+limit_resets=4102444800
+spawn_json="$(run_spawn)"
+dispatch_id="$(printf '%s' "$spawn_json" | jq -r '.dispatch')"
+assert_equal "$(cut -f1 "$state_root/last-spawn")" claude
+assert_equal "$(jq -r '.chain.step' "$MEGABRAIN_STATE_DIR/dispatches/$dispatch_id/meta.json")" 2
+assert_contains "$(jq -r '.chain.reason' "$MEGABRAIN_STATE_DIR/dispatches/$dispatch_id/meta.json")" 'codex 5h window at 99 percent'
+printf 'spawn skips an exhausted first step: passed\n'
+
+# 9. Spawn falls through after a launch failure just as chain run does.
+clear_state
+write_config '{"chains":{"fallback":{"when":{"parentAgent":"codex"},"steps":[{"agent":"codex","model":"gpt-5.6-luna","effort":"high"},{"agent":"claude","model":"claude-sonnet-5","effort":"medium"}]}} ,"defaultSteps":[]}'
+fail_agent=codex
+spawn_json="$(run_spawn)"
+dispatch_id="$(printf '%s' "$spawn_json" | jq -r '.dispatch')"
+assert_equal "$(cut -f1 "$state_root/last-spawn")" claude
+assert_equal "$(jq -r '.chain.step' "$MEGABRAIN_STATE_DIR/dispatches/$dispatch_id/meta.json")" 2
+assert_contains "$(jq -r '.chain.reason' "$MEGABRAIN_STATE_DIR/dispatches/$dispatch_id/meta.json")" 'codex launch failed'
+printf 'spawn falls through after launch failure: passed\n'
+
+# 10. Chain run keeps the existing success fields and the skipped list.
+clear_state
+write_config '{"chains":{"fallback":{"when":{"parentAgent":"codex"},"steps":[{"agent":"codex","model":"gpt-5.6-luna","effort":"high","until":{"usedPercent":95,"window":"5h"}},{"agent":"claude","model":"claude-sonnet-5","effort":"medium"}]}} ,"defaultSteps":[]}'
+limit_agent=codex
+limit_used=99
+limit_resets=4102444800
+chain_json="$(command_chain run --chain fallback --worktree "$root" --prompt chain-test --tmux false --json)"
+assert_equal "$(printf '%s' "$chain_json" | jq -r '.ok,.chain,.step,.totalSteps,.agent' | paste -sd ' ' -)" 'true fallback 2 2 claude'
+assert_equal "$(printf '%s' "$chain_json" | jq -r '.skipped[0].kind,.skipped[0].step,.skipped[0].agent' | paste -sd ' ' -)" 'limit 1 codex'
+assert_contains "$(printf '%s' "$chain_json" | jq -r '.reason')" 'codex 5h window at 99 percent'
+printf 'chain run preserves skipped-step reporting: passed\n'
 
 printf 'ok: spawn chain scenarios\n'
