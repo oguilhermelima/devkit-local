@@ -41,6 +41,8 @@ megabrain_module_revert() {
 megabrain_install_one() {
   local module="$1"
   local assume_yes="${2:-false}" browser="${3:-both}" install_rc doctor_rc
+  MODULE_UNCERTAIN_REASONS='[]'
+  MODULE_RETAINED_REASONS='[]'
   megabrain_module_install "$module" "$assume_yes" "$browser"
   install_rc=$?
   megabrain_module_doctor "$module"
@@ -61,6 +63,8 @@ megabrain_doctor_one() {
   MODULE_UNCERTAIN_DISPATCHES=0
   MODULE_RETAINED_TERMINALS=0
   MODULE_PRUNABLE_DISPATCHES=0
+  MODULE_UNCERTAIN_REASONS='[]'
+  MODULE_RETAINED_REASONS='[]'
   megabrain_module_doctor "$module"
   local rc=$?
   if [ "$json" = true ]; then
@@ -68,7 +72,9 @@ megabrain_doctor_one() {
       --argjson uncertainDispatches "${MODULE_UNCERTAIN_DISPATCHES:-0}" \
       --argjson retainedTerminals "${MODULE_RETAINED_TERMINALS:-0}" \
       --argjson prunableDispatches "${MODULE_PRUNABLE_DISPATCHES:-0}" \
-      '{module: $moduleName, status: $status, reason: $reason, uncertainDispatches: $uncertainDispatches, retainedTerminals: $retainedTerminals, prunableDispatches: $prunableDispatches}'
+      --argjson uncertainReasons "${MODULE_UNCERTAIN_REASONS:-[]}" \
+      --argjson retainedReasons "${MODULE_RETAINED_REASONS:-[]}" \
+      '{module: $moduleName, status: $status, reason: $reason, uncertainDispatches: $uncertainDispatches, uncertainReasons: $uncertainReasons, retainedTerminals: $retainedTerminals, retainedReasons: $retainedReasons, prunableDispatches: $prunableDispatches}'
   else
     megabrain_status_line "$module" "$MODULE_STATUS" "$MODULE_REASON"
   fi
@@ -205,6 +211,16 @@ module_orchestration_doctor() {
   local orca_status superset_status counts_suffix tmux_runtime=false
   megabrain_dispatch_health_counts
   counts_suffix="; uncertain dispatches: $MODULE_UNCERTAIN_DISPATCHES (run megabrain orchestrate list --uncertain); retained terminals: $MODULE_RETAINED_TERMINALS; prunable dispatches: $MODULE_PRUNABLE_DISPATCHES"
+  if [ "${MODULE_UNCERTAIN_DISPATCHES:-0}" -gt 0 ]; then
+    counts_suffix="$counts_suffix; unresolved reasons: $(printf '%s' "${MODULE_UNCERTAIN_REASONS:-[]}" | jq -r '[.[].reason] | unique | join(", ")')"
+  fi
+  if [ "${MODULE_RETAINED_TERMINALS:-0}" -gt 0 ]; then
+    counts_suffix="$counts_suffix; retained reasons: $(printf '%s' "${MODULE_RETAINED_REASONS:-[]}" | jq -r '[.[].reason] | unique | join(", ")')"
+  fi
+  if [ "${MODULE_UNCERTAIN_DISPATCHES:-0}" -gt 0 ] || [ "${MODULE_RETAINED_TERMINALS:-0}" -gt 0 ]; then
+    megabrain_set_status misconfigured "dispatch state requires reconciliation$counts_suffix"
+    return 1
+  fi
   if megabrain_runtime_enabled && megabrain_tmux_available; then
     tmux_runtime=true
   fi

@@ -521,6 +521,8 @@ megabrain_dispatch_health_counts() {
   MODULE_UNCERTAIN_DISPATCHES=0
   MODULE_RETAINED_TERMINALS=0
   MODULE_PRUNABLE_DISPATCHES=0
+  MODULE_UNCERTAIN_REASONS='[]'
+  MODULE_RETAINED_REASONS='[]'
   MODULE_UNTRACKED_DISPATCHES=""
   for dispatch_path in "$MEGABRAIN_DISPATCH_DIR"/*; do
     [ -d "$dispatch_path" ] || continue
@@ -544,6 +546,8 @@ megabrain_dispatch_health_counts() {
   done
   MODULE_UNCERTAIN_DISPATCHES="$(printf '%s' "$records" | jq '[.[] | select((.processState // "") == "start-unproven" or (.processState // "") == "stop-unproven" or (.processState // "") == "abandoned")] | length')"
   MODULE_RETAINED_TERMINALS="$(printf '%s' "$records" | jq '[.[] | select((.terminalState // "") == "retained")] | length')"
+  MODULE_UNCERTAIN_REASONS="$(printf '%s' "$records" | jq '[.[] | select((.processState // "") == "start-unproven" or (.processState // "") == "stop-unproven" or (.processState // "") == "abandoned") | {dispatchId, reason: (if .processState == "start-unproven" then "process start was not proven" elif .processState == "stop-unproven" then "process stop was not proven" else "process was abandoned without proof" end), processState, terminalState}]')"
+  MODULE_RETAINED_REASONS="$(printf '%s' "$records" | jq '[.[] | select((.terminalState // "") == "retained") | {dispatchId, reason: (.terminalReason // "terminal identity remains unproven"), processState, terminalState}]')"
   cutoff=$(( $(date -u +%s) - MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS * 86400 ))
   for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
     [ -f "$meta_path" ] || continue
@@ -585,7 +589,7 @@ megabrain_dispatch_timestamp_epoch() {
 megabrain_dispatch_prune() {
   local older_than="$MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS" state_filter="$(megabrain_dispatch_prune_states)"
   local mode=archive dry_run=false json=false arg now_epoch cutoff archive_month
-  local meta_path dispatch_dir dispatch_id state timestamp timestamp_epoch reason target
+  local meta_path dispatch_dir dispatch_id state process_state terminal_state timestamp timestamp_epoch reason target reconcile_outcome
   local archived_ids='[]' deleted_ids='[]' skipped_dispatches='[]'
   local archived_count=0 deleted_count=0 skipped_count=0
   case "${1:-}" in
@@ -617,6 +621,21 @@ megabrain_dispatch_prune() {
     dispatch_dir="${meta_path%/meta.json}"
     dispatch_id="${dispatch_dir##*/}"
     state="$(jq -r '.state // empty' "$meta_path" 2>/dev/null || true)"
+    process_state="$(jq -r '.processState // empty' "$meta_path" 2>/dev/null || true)"
+    terminal_state="$(jq -r '.terminalState // empty' "$meta_path" 2>/dev/null || true)"
+    if ! megabrain_dispatch_prune_state_terminal "$state" && {
+      [ "$terminal_state" = retained ] ||
+      [ "$process_state" = start-unproven ] ||
+      [ "$process_state" = stop-unproven ] ||
+      [ "$process_state" = abandoned ];
+    }; then
+      megabrain_dispatch_reconcile_one "$dispatch_id" || continue
+      reconcile_outcome="${MEGABRAIN_RECONCILE_OUTCOME:-unchanged}"
+      state="$(jq -r '.state // empty' "$meta_path" 2>/dev/null || true)"
+      if [ "$reconcile_outcome" = terminal-missing ] && ! megabrain_dispatch_prune_state_terminal "$state"; then
+        state=failed
+      fi
+    fi
     reason=""
     if ! megabrain_dispatch_prune_state_terminal "$state"; then
       if [ -n "$state" ]; then
