@@ -170,6 +170,29 @@ IDE gives you cards, tabs and shared worktrees, and tmux gives you cheap panes a
 **And tmux stands alone.** With neither app installed, a session inside tmux identifies itself by
 its own session and pane, so the whole delegate-supervise-close loop works on a bare Linux box.
 
+### The shell wrapper: every agent starts in tmux
+
+`megabrain tmux wrapper` installs a shell function for `claude`, `codex` and `agy`, so typing the
+agent's name opens it inside its own tmux session instead of in the bare terminal. Nothing about
+how you start an agent changes.
+
+```sh
+megabrain tmux wrapper --yes    # zsh or bash, chosen from $SHELL
+```
+
+The session is named `megabrain-<agent>-<pid>` — a fixed prefix and the shell's pid, never the
+repository — and it is recorded under `~/.megabrain/sessions/`, with the directory it was started
+in. So `agy` in `~/Workspaces/stack` becomes `megabrain-agy-67074`, and megabrain can tell you what
+is running where.
+
+Such a session is a **main** session: it has no parent, no queue and no completion signal, which is
+exactly right for an agent you started yourself. A dispatch is the other thing — a child, with a
+mailbox — and only `orchestrate spawn` creates one.
+
+The wrapper stands aside when it would get in the way: already inside tmux, a non-interactive
+invocation, `--print`, `exec`, `--version`, `--help`, or `MEGABRAIN_NO_TMUX` set. It also falls
+back to the plain command if tmux fails to start, so a broken tmux never costs you the agent.
+
 ### Worktrees: one folder, both apps
 
 Point both apps at a single directory for worktrees. Every checkout then appears in the same place
