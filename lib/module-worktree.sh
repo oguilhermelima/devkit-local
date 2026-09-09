@@ -821,9 +821,9 @@ ${prompt}"
     megabrain_dispatch_failure_error "$dispatch_id" "could not send prompt to $child_host terminal $session_id"
     return 1
   fi
-  # The native host transport returned success, which is its delivery observation.
-  # The optional received command remains a durable queue fast path for callers that
-  # still use the explicit protocol, but launch does not depend on it.
+  # The native host transport returned success, which is the delivery observation.
+  # The optional received command only records a durable child message; launch does
+  # not depend on it.
   if ! megabrain_spawn_mark_prompt_delivered "$dispatch_id"; then
     megabrain_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-confirmation-failed

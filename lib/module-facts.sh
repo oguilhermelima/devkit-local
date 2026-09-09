@@ -161,9 +161,9 @@ megabrain_dispatch_protocol() {
   local command_path
   command_path="$(megabrain_dispatch_command_path 2>/dev/null || true)"
   if [ -n "$command_path" ]; then
-    printf 'This is a managed megabrain dispatch. Before starting work, run %s received to confirm that you received this prompt. If you need coordinator input, run %s ask "your question" and stop until the coordinator replies. When the requested work is complete, run %s done "short outcome summary". Do not print protocol markers and do not continue past an unanswered question.\n' "$command_path" "$command_path" "$command_path"
+    printf 'This is a managed megabrain dispatch. If you need coordinator input, run %s ask "your question" and stop until the coordinator replies. When the requested work is complete, run %s done "short outcome summary". Do not print protocol markers and do not continue past an unanswered question.\n' "$command_path" "$command_path"
   else
-    printf 'This is a managed megabrain dispatch. The megabrain command could not be resolved through PATH or an absolute executable path, so receipt, coordinator questions, and completion cannot be recorded. Do not print protocol markers and do not continue past an unanswered question.\n'
+    printf 'This is a managed megabrain dispatch. The megabrain command could not be resolved through PATH or an absolute executable path, so coordinator questions and completion cannot be recorded. Do not print protocol markers and do not continue past an unanswered question.\n'
   fi
 }
 
