@@ -152,7 +152,7 @@ megabrain_state_set() {
 # each site carried its own copy.
 megabrain_usage_line() {
   case "$1" in
-    install) printf 'install [module-id] [--yes] [--revert]' ;;
+    install) printf 'install [module-id] [--browser chromium|firefox|both] [--yes] [--revert]' ;;
     doctor) printf 'doctor [module-id] [--json]' ;;
     context) printf 'context [--json]' ;;
     worktree) printf 'worktree create|finish|list|adopt ...' ;;
@@ -197,6 +197,11 @@ megabrain_usage_line() {
     tv-disconnect) printf 'tv disconnect [<ip>]' ;;
     tmux-tune) printf 'tmux tune [--yes] [--dry-run] [--revert] [--json]' ;;
     tmux-wrapper) printf 'tmux wrapper [--yes] [--dry-run] [--revert] [--json]' ;;
+    web) printf 'web userscript install|list|remove ...' ;;
+    web-userscript) printf 'web userscript install|list|remove ...' ;;
+    web-userscript-install) printf 'web userscript install <file.user.js>' ;;
+    web-userscript-list) printf 'web userscript list' ;;
+    web-userscript-remove) printf 'web userscript remove <file.user.js>' ;;
     *) return 1 ;;
   esac
 }

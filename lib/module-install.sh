@@ -21,7 +21,7 @@ megabrain_module_install() {
     orchestration) module_orchestration_install ;;
     orchestration-hooks) module_orchestration_hooks_install ;;
     worktree) module_worktree_install ;;
-    simulator-web) module_simulator_web_install ;;
+    simulator-web) module_simulator_web_install "${2:-false}" "${3:-both}" ;;
     simulator-native) module_simulator_native_install ;;
     simulator-tv) module_simulator_tv_install ;;
     tv-adb) module_tv_adb_install ;;
@@ -40,8 +40,8 @@ megabrain_module_revert() {
 
 megabrain_install_one() {
   local module="$1"
-  local assume_yes="${2:-false}" install_rc doctor_rc
-  megabrain_module_install "$module" "$assume_yes"
+  local assume_yes="${2:-false}" browser="${3:-both}" install_rc doctor_rc
+  megabrain_module_install "$module" "$assume_yes" "$browser"
   install_rc=$?
   megabrain_module_doctor "$module"
   doctor_rc=$?
@@ -113,12 +113,17 @@ megabrain_interactive_modules() {
 }
 
 command_install() {
-  local module="" selected selected_modules rc=0 assume_yes=false revert=false arg
+  local module="" selected selected_modules rc=0 assume_yes=false revert=false browser=both arg
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --yes) assume_yes=true; shift ;;
       --revert) revert=true; shift ;;
+      --browser)
+        [ "$#" -gt 1 ] || { megabrain_usage_fail install; return "$MEGABRAIN_USAGE_ERROR"; }
+        browser="$2"
+        shift 2
+        ;;
       -h|--help)
         megabrain_usage_show install
         return 0
@@ -139,7 +144,7 @@ command_install() {
       megabrain_module_revert "$module"
       return $?
     fi
-    megabrain_install_one "$module" "$assume_yes"
+    megabrain_install_one "$module" "$assume_yes" "$browser"
     return $?
   fi
   if [ ! -t 0 ]; then
@@ -148,7 +153,7 @@ command_install() {
   fi
   selected_modules="$(megabrain_interactive_modules)" || return 1
   while IFS= read -r selected; do
-    megabrain_install_one "$selected" "$assume_yes" || rc=1
+    megabrain_install_one "$selected" "$assume_yes" "$browser" || rc=1
   done <<EOF
 $selected_modules
 EOF

@@ -28,7 +28,7 @@ megabrain_usage() {
 Usage: megabrain <command> [options]
 
 Commands:
-  install [module-id] [--yes]           Install one module or choose modules interactively
+  install [module-id] [--browser ...]   Install one module or choose modules interactively
   doctor [module-id]                   Check one module or all modules
   context [--json]                     Detect the current orchestration host
   worktree create ...                  Create a shared Orca/Superset worktree
@@ -48,6 +48,7 @@ Commands:
   chain list|limits|add|edit|delete|run ...  Manage ordered child-agent chains
   model list|add|refresh ...            Manage the versioned model registry
   fact list|add|edit|remove ...             Manage versioned environment facts
+  web userscript install|list|remove ...    Manage Chromium userscripts
   ask "question"                       Ask the direct coordinator from a child dispatch
   done "summary"                        Mark a child dispatch done
   check [options]                       Check for replies from the direct coordinator
@@ -75,6 +76,7 @@ megabrain_main() {
     chain) command_chain "$@" ;;
     model|models) command_model "$@" ;;
     fact) command_fact "$@" ;;
+    web) command_web "$@" ;;
     ask) command_ask "$@" ;;
     received) command_received "$@" ;;
     done) command_done "$@" ;;
