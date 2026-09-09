@@ -60,6 +60,14 @@ megabrain_present_agents() {
   done
 }
 
+megabrain_print_attributed_output() {
+  local agent="$1" output="$2" line
+  [ -n "$output" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    printf '%s: %s\n' "$agent" "$line"
+  done <<< "$output"
+}
+
 module_simulator_web_doctor() {
   local agent missing=0 config_path active_browser web_report web_status web_reason
   if ! megabrain_require_command npx; then
@@ -128,15 +136,16 @@ megabrain_register_playwright() {
   esac
   if [ "$rc" -ne 0 ]; then
     megabrain_error "$agent: playwright MCP registration failed"
-    [ -n "$output" ] && printf '%s\n' "$output" | sed '/^Added global MCP server /d' >&2
+    megabrain_print_attributed_output "$agent" "$output" >&2
     return "$rc"
   fi
-  [ -n "$output" ] && printf '%s\n' "$output"
+  megabrain_print_attributed_output "$agent" "$output"
   return 0
 }
 
 module_simulator_web_install() {
   local browser="${2:-both}" active_browser inactive_browser config_path agent rc=0 doctor_rc
+  local registered_agents="" failed_agents=""
   if ! megabrain_web_local_ready; then
     megabrain_error "node, npm, and the browser setup script are required for simulator-web"
     megabrain_set_status missing "node and npm are required for pinned Playwright $MEGABRAIN_PLAYWRIGHT_VERSION"
@@ -173,8 +182,14 @@ module_simulator_web_install() {
     megabrain_info "browser profile installed: $active_browser is active for MCP"
   fi
   for agent in $(megabrain_present_agents); do
-    megabrain_register_playwright "$agent" "$config_path" || rc=1
+    if megabrain_register_playwright "$agent" "$config_path"; then
+      registered_agents="${registered_agents:+$registered_agents }$agent"
+    else
+      failed_agents="${failed_agents:+$failed_agents }$agent"
+      rc=1
+    fi
   done
+  megabrain_info "Playwright MCP registration summary: registered ${registered_agents:-none}; failed ${failed_agents:-none}"
   module_simulator_web_doctor
   doctor_rc=$?
   [ "$rc" -eq 0 ] && [ "$doctor_rc" -eq 0 ]
