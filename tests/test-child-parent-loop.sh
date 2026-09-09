@@ -14,6 +14,39 @@ child_session=""
 fake_send_mode=ok
 fake_close=false
 MEGABRAIN_TEST_RECEIPT_DELAY=0.2
+timing_enabled=false
+timing_start_ms=0
+timing_last_ms=0
+
+case "${MEGABRAIN_TEST_TIMING:-}" in
+  1|true|yes) timing_enabled=true ;;
+esac
+
+timing_now_ms() {
+  local value
+  value="$(date +%s%N 2>/dev/null)"
+  case "$value" in
+    ''|*[!0-9]*) value="$(date +%s)000" ;;
+    *) value=$((value / 1000000)) ;;
+  esac
+  printf '%s\n' "$value"
+}
+
+timing_begin() {
+  [ "$timing_enabled" = true ] || return 0
+  timing_start_ms="$(timing_now_ms)"
+  timing_last_ms="$timing_start_ms"
+}
+
+timing_mark() {
+  local phase="$1" now elapsed total
+  [ "$timing_enabled" = true ] || return 0
+  now="$(timing_now_ms)"
+  elapsed=$((now - timing_last_ms))
+  total=$((now - timing_start_ms))
+  printf 'timing[%s] %s: +%sms (total %sms)\n' "$MEGABRAIN_TEST_RUNTIME" "$phase" "$elapsed" "$total"
+  timing_last_ms="$now"
+}
 
 cleanup_tmux_server() {
   local directory="${1:-}"
@@ -261,6 +294,7 @@ run_flow() {
   local question_delivery question_delivery_id pull_result pull_delivery_id pull_receipt pull_receipt_id done_delivery done_delivery_id
   local busy_pane busy_before receipt_before receipt_after ask_capture reply_capture reply_send_log
   MEGABRAIN_TEST_RUNTIME="$runtime"
+  timing_begin
   fake_send_mode=ok
   export MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS=1
   export MEGABRAIN_PROMPT_RECEIPT_POLL_INTERVAL=0.05
@@ -279,6 +313,7 @@ run_flow() {
     unset ORCA_TERMINAL_HANDLE TMUX TMUX_PANE
     spawn_choice=false
   fi
+  timing_mark 'setup'
   chain_output="$(command_chain_run loop --parent-agent codex --worktree "$root" --prompt chain-launch --tmux "$spawn_choice" --json)"
   assert_equal "$(printf '%s' "$chain_output" | jq -r '.step')" 1
   assert_equal "$(printf '%s' "$chain_output" | jq -r '.agent')" codex
@@ -301,11 +336,13 @@ run_flow() {
     assert_contains "$(cat "$state_dir/fake-sends.log")" "MEGABRAIN_DISPATCH_ID=$dispatch_id"
     assert_contains "$(cat "$state_dir/fake-sends.log")" "MEGABRAIN_STATE_DIR=$state_dir"
   fi
+  timing_mark 'spawn and prompt'
   receipt_message="$(find "$state_dir/dispatches/$dispatch_id/messages" -name '*-child-received.json' -print -quit)"
   [ -n "$receipt_message" ] || fail 'spawn returned before the delayed child receipt reached the queue'
   receipt_delivery="$(parent_watch)"
   receipt_delivery_id="$(jq -r '.deliveryId' <<<"$receipt_delivery")"
   parent_ack "$receipt_delivery_id" >/dev/null
+  timing_mark 'initial receipt'
   child_command ask "$runtime-question" >/dev/null
   if [ "$runtime" = tmux ]; then
     ask_capture="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -30)"
@@ -318,6 +355,7 @@ run_flow() {
   assert_equal "$(jq -r '.replayed' <<<"$replay")" true
   assert_equal "$(jq -r '.deliveryId' <<<"$replay")" "$delivery_id"
   parent_ack "$delivery_id" >/dev/null
+  timing_mark 'ask and replay'
   reply_result="$(megabrain_dispatch_reply "$dispatch_id" --text "printf $runtime-push-received" --json)"
   assert_equal "$(jq -r '.status' <<<"$reply_result")" queued
   if [ "$runtime" = tmux ]; then
@@ -339,6 +377,7 @@ run_flow() {
   assert_equal "$(jq -r '.messages[0].text' <<<"$push_receipt")" "$push_delivery"
   push_receipt_id="$(jq -r '.deliveryId' <<<"$push_receipt")"
   parent_ack "$push_receipt_id" >/dev/null
+  timing_mark 'push reply'
   child_command ask "$runtime-pull-question" >/dev/null
   question_delivery="$(parent_watch)"
   question_delivery_id="$(jq -r '.deliveryId' <<<"$question_delivery")"
@@ -373,6 +412,7 @@ run_flow() {
   assert_equal "$(jq -r '.messages[0].text' <<<"$pull_receipt")" "$pull_delivery_id"
   pull_receipt_id="$(jq -r '.deliveryId' <<<"$pull_receipt")"
   parent_ack "$pull_receipt_id" >/dev/null
+  timing_mark 'pull reply'
   child_command done "$runtime-complete" >/dev/null
   done_delivery="$(parent_watch)"
   assert_equal "$(jq -r '.messages[0].text' <<<"$done_delivery")" "$runtime-complete"
@@ -392,6 +432,7 @@ run_flow() {
   else
     megabrain_dispatch_close "$dispatch_id" --json >/dev/null
   fi
+  timing_mark 'done and close'
   assert_equal "$(jq -r '.state' "$state_dir/dispatches/$dispatch_id/meta.json")" closed
   assert_equal "$(find "$state_dir/dispatches/$dispatch_id/deliveries" -name '*.json' -exec jq -r 'select(.status == "outstanding") | .id' {} \; | wc -l | tr -d ' ')" 0
   printf '%s end-to-end: chain, queue, replay, push, busy reply, pull, done, duplicate ack, and close\n' "$runtime"
