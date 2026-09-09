@@ -181,7 +181,7 @@ scenario_launch_failure_rolls_back_owned_objects() {
   }
 
   branch='feat/test'
-  worktree_path="$shared_root/$branch"
+  worktree_path="$shared_root/feat-test"
   if output="$(megabrain_worktree_create --repo "$repo_dir" --branch "$branch" --agent codex --model gpt-5 --effort medium --prompt test --tmux false --orchestrate --json 2>&1)"; then
     fail 'launch failure unexpectedly succeeded'
   fi
@@ -195,7 +195,7 @@ scenario_launch_failure_rolls_back_owned_objects() {
 
   workspace_creation_mode=no-id
   branch='feat/no-workspace-id'
-  worktree_path="$shared_root/$branch"
+  worktree_path="$shared_root/feat-no-workspace-id"
   output="$(megabrain_worktree_create --repo "$repo_dir" --branch "$branch" --agent codex --model gpt-5 --effort medium --prompt test --tmux false --orchestrate --json 2>&1 || true)"
   assert_contains "$output" 'project-created'
   assert_contains "$output" 'workspace identity unavailable'
