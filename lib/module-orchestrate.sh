@@ -54,6 +54,29 @@ megabrain_dispatch_validate_transition() {
   fi
 }
 
+# A caller that wants to move a dispatch names the destination; the transition table
+# remains the only authority for whether the current state may make that move.
+megabrain_dispatch_require_transition() {
+  local axis="$1" from="$2" to="$3"
+  megabrain_dispatch_validate_transition "$axis" "$from" "$to"
+}
+
+# WHY: a reply to a completed child is a late queue message. It deliberately does not
+# reopen the dispatch, so done is the one named policy exception to the running move.
+megabrain_dispatch_reply_state_allowed() {
+  local state="$1"
+  if [ "$state" = done ]; then
+    return 0
+  fi
+  megabrain_dispatch_transition_allowed dispatch "$state" running
+}
+
+# WHY: done is terminal for child execution. The mark-running hook is idempotent there
+# and must not invent the forbidden done -> running transition just to refresh metadata.
+megabrain_dispatch_mark_running_noop() {
+  [ "$1" = done ]
+}
+
 megabrain_prompt_byte_length() {
   LC_ALL=C printf '%s' "$1" | wc -c | tr -d '[:space:]'
 }
@@ -1382,10 +1405,10 @@ megabrain_dispatch_reply() {
   megabrain_dispatch_require_session || return 1
   meta="$(megabrain_dispatch_require_parent "$dispatch_id")" || return 1
   state="$(printf '%s' "$meta" | jq -r '.state // empty')"
-  case "$state" in
-    running|waiting_for_reply|stalled|done) ;;
-    *) megabrain_error "dispatch $dispatch_id cannot receive a reply in state $state"; return 1 ;;
-  esac
+  if ! megabrain_dispatch_reply_state_allowed "$state"; then
+    megabrain_error "dispatch $dispatch_id cannot receive a reply in state $state"
+    return 1
+  fi
   megabrain_dispatch_message_append "$dispatch_id" parent reply "$answer" "$MEGABRAIN_SESSION_ID" >/dev/null || return 1
   status=queued
   if [ "$state" != done ]; then

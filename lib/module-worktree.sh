@@ -443,11 +443,14 @@ megabrain_spawn_mark_prompt_failed() {
 megabrain_spawn_mark_running_if_spawning() {
   local dispatch_id="$1" state
   state="$(megabrain_dispatch_meta_read "$dispatch_id" | jq -r '.state // empty')" || return 1
-  case "$state" in
-    spawning) megabrain_dispatch_meta_update_state "$dispatch_id" running ;;
-    running|waiting_for_reply|done) return 0 ;;
-    *) megabrain_error "dispatch $dispatch_id cannot become running from state $state"; return 1 ;;
-  esac
+  if megabrain_dispatch_mark_running_noop "$state"; then
+    return 0
+  fi
+  if ! megabrain_dispatch_require_transition dispatch "$state" running; then
+    megabrain_error "dispatch $dispatch_id cannot become running from state $state"
+    return 1
+  fi
+  megabrain_dispatch_meta_update_state "$dispatch_id" running
 }
 
 megabrain_launch_agent() {
