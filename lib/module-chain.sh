@@ -121,138 +121,91 @@ megabrain_chain_name_valid() {
   esac
 }
 
-megabrain_chain_validate_selector() {
-  local chain="$1" selector="$2" key value
-  if ! jq -e 'type == "object" and length > 0' >/dev/null 2>&1 <<EOF
-$selector
-EOF
-  then
-    megabrain_error "invalid chain $chain selector: expected a non-empty object"
-    return 1
-  fi
-  while IFS= read -r key; do
-    case "$key" in
-      parentAgent|parentModel|parentEffort) ;;
-      *)
-        megabrain_error "invalid chain $chain selector: unsupported field $key"
-        return 1
-        ;;
-    esac
-    value="$(printf '%s' "$selector" | jq -r --arg key "$key" '.[$key] // empty')"
-    [ -n "$value" ] || {
-      megabrain_error "invalid chain $chain selector field $key: value cannot be empty"
-      return 1
-    }
-    if [ "$key" = parentAgent ] && ! megabrain_chain_agent_known "$value"; then
-      megabrain_error "invalid chain $chain selector field parentAgent: unknown agent $value"
-      return 1
-    fi
-  done < <(printf '%s' "$selector" | jq -r 'keys_unsorted[]')
-}
-
-megabrain_chain_validate_step() {
-  local chain="$1" index="$2" step="$3" strict="${4:-false}" key agent model effort until_json used_percent window unvalidated has_effort
-  if ! printf '%s' "$step" | jq -e 'type == "object"' >/dev/null 2>&1; then
-    megabrain_error "invalid chain $chain step $index: expected an object"
-    return 1
-  fi
-  while IFS= read -r key; do
-    case "$key" in
-      agent|model|effort|until|unvalidated) ;;
-      *)
-        megabrain_error "invalid chain $chain step $index: unsupported field $key"
-        return 1
-        ;;
-    esac
-  done < <(printf '%s' "$step" | jq -r 'keys_unsorted[]')
-  agent="$(printf '%s' "$step" | jq -r '.agent // empty')"
-  model="$(printf '%s' "$step" | jq -r '.model // empty')"
-  effort="$(printf '%s' "$step" | jq -r '.effort // empty')"
-  has_effort="$(printf '%s' "$step" | jq -r 'has("effort")')"
-  unvalidated="$(printf '%s' "$step" | jq -r '.unvalidated // false')"
-  [ -n "$agent" ] || { megabrain_error "invalid chain $chain step $index: agent is required"; return 1; }
-  megabrain_chain_agent_known "$agent" || { megabrain_error "invalid chain $chain step $index: unknown agent $agent"; return 1; }
-  [ -n "$model" ] || { megabrain_error "invalid chain $chain step $index: model is required"; return 1; }
-  if [ "$unvalidated" != true ] && ! megabrain_model_known "$agent" "$model"; then
-    if [ "$strict" = true ]; then
-      megabrain_model_validate_step "$chain" "$index" "$agent" "$model" "$effort" || return 1
-    else
-      megabrain_model_error_unknown "$agent" "$model"
-      megabrain_error "chain migration required: chain $chain step $index uses unknown model '$model' for agent '$agent'; run megabrain chain repair $chain --step $index --model <valid-id> --effort <level>"
-    fi
-  elif [ "$unvalidated" != true ]; then
-    megabrain_model_warn_lifecycle "$agent" "$model"
-    if [ "$has_effort" = true ] && ! megabrain_model_effort_separate "$agent" "$model"; then
-      megabrain_model_validate_reasoning "$agent" "$model" __supplied__ || return 1
-    else
-      megabrain_model_validate_reasoning "$agent" "$model" "$effort" || return 1
-    fi
-  fi
-  if printf '%s' "$step" | jq -e 'has("until")' >/dev/null 2>&1; then
-    until_json="$(printf '%s' "$step" | jq -c '.until')"
-    if ! printf '%s' "$until_json" | jq -e 'type == "object" and ((keys | sort) == ["usedPercent", "window"])' >/dev/null 2>&1; then
-      megabrain_error "invalid chain $chain step $index until: expected usedPercent and window"
-      return 1
-    fi
-    used_percent="$(printf '%s' "$until_json" | jq -r '.usedPercent // empty')"
-    window="$(printf '%s' "$until_json" | jq -r '.window // empty')"
-    if ! printf '%s' "$until_json" | jq -e '.usedPercent | type == "number" and . >= 0 and . <= 100' >/dev/null 2>&1; then
-      megabrain_error "invalid chain $chain step $index until.usedPercent: expected a number from 0 to 100"
-      return 1
-    fi
-    megabrain_chain_window_known "$window" || { megabrain_error "invalid chain $chain step $index until.window: unsupported window $window"; return 1; }
-  fi
-}
 
 megabrain_chain_validate_config() {
-  local config="$1" strict="${2:-false}" chain selector steps step index live_provider field rc=0
-  if ! printf '%s' "$config" | jq -e 'type == "object" and (.chains | type == "object") and (.defaultSteps | type == "array")' >/dev/null 2>&1; then
-    megabrain_error "invalid chain config: expected chains object and defaultSteps array"
+  local config="$1" strict="${2:-false}" registry validation_output validation_filter rc=0
+  validation_filter="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/chain-validation.jq"
+  if [ -f "${MEGABRAIN_MODEL_FILE:-}" ]; then
+    registry="$(cat "$MEGABRAIN_MODEL_FILE")" || return 1
+  else
+    registry="$(megabrain_model_read)" || return 1
+  fi
+  validation_output="$(printf '%s' "$config" | jq -r \
+    --argjson registry "$registry" \
+    --argjson strict "$strict" \
+    -f "$validation_filter")" || {
+    megabrain_error 'invalid chain config: expected chains object and defaultSteps array'
     return 1
-  fi
-  if printf '%s' "$config" | jq -e 'has("usageLimits")' >/dev/null 2>&1; then
-    if ! printf '%s' "$config" | jq -e '.usageLimits | type == "object"' >/dev/null 2>&1; then
-      megabrain_error 'invalid usageLimits: expected an object'
-      return 1
-    fi
-    if ! printf '%s' "$config" | jq -e '(.usageLimits.liveProviders // []) | type == "array"' >/dev/null 2>&1; then
-      megabrain_error 'invalid usageLimits.liveProviders: expected an array'
-      return 1
-    fi
-    while IFS= read -r live_provider; do
-      megabrain_chain_agent_known "$live_provider" || { megabrain_error "invalid usageLimits.liveProviders provider: $live_provider"; return 1; }
-    done < <(printf '%s' "$config" | jq -r '.usageLimits.liveProviders[]?')
-    for field in cacheTtlSeconds timeoutSeconds; do
-      if ! printf '%s' "$config" | jq -e --arg field "$field" '.usageLimits[$field] // 0 | type == "number" and . >= 1 and . <= 3600 and floor == .' >/dev/null 2>&1; then
-        megabrain_error "invalid usageLimits.$field: expected an integer from 1 to 3600"
-        return 1
-      fi
-    done
-    if printf '%s' "$config" | jq -e '.usageLimits | has("notice")' >/dev/null 2>&1 && ! printf '%s' "$config" | jq -e '.usageLimits.notice | type == "object" and (.enabled | type == "boolean") and (.intervalSeconds | type == "number" and . >= 1 and . <= 604800 and floor == .)' >/dev/null 2>&1; then
-      megabrain_error 'invalid usageLimits.notice: expected enabled and intervalSeconds'
-      return 1
-    fi
-  fi
-  while IFS= read -r chain; do
-    megabrain_chain_name_valid "$chain" || { megabrain_error "invalid chain name: $chain"; return 1; }
-    selector="$(printf '%s' "$config" | jq -c --arg chain "$chain" '.chains[$chain].when // empty')"
-    megabrain_chain_validate_selector "$chain" "$selector" || return 1
-    steps="$(printf '%s' "$config" | jq -c --arg chain "$chain" '.chains[$chain].steps // empty')"
-    if ! printf '%s' "$steps" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
-      megabrain_error "invalid chain $chain: steps cannot be empty"
-      return 1
-    fi
-    index=0
-    while IFS= read -r step; do
-      index=$((index + 1))
-      megabrain_chain_validate_step "$chain" "$index" "$step" "$strict" || rc=1
-    done < <(printf '%s' "$steps" | jq -c '.[]')
-  done < <(printf '%s' "$config" | jq -r '.chains | keys[]')
-  index=0
-  while IFS= read -r step; do
-    index=$((index + 1))
-    megabrain_chain_validate_step default "$index" "$step" "$strict" || rc=1
-  done < <(printf '%s' "$config" | jq -c '.defaultSteps[]')
+  }
+  while IFS=$'\t' read -r validation_code chain index field value; do
+    [ -n "$validation_code" ] || continue
+    case "$validation_code" in
+      config_shape) megabrain_error 'invalid chain config: expected chains object and defaultSteps array'; rc=1 ;;
+      usage_object) megabrain_error 'invalid usageLimits: expected an object'; rc=1 ;;
+      usage_live_providers_array) megabrain_error 'invalid usageLimits.liveProviders: expected an array'; rc=1 ;;
+      usage_provider) megabrain_error "invalid usageLimits.liveProviders provider: $value"; rc=1 ;;
+      usage_integer) megabrain_error "invalid usageLimits.$field: expected an integer from 1 to 3600"; rc=1 ;;
+      usage_notice) megabrain_error 'invalid usageLimits.notice: expected enabled and intervalSeconds'; rc=1 ;;
+      chain_name) megabrain_error "invalid chain name: $value"; rc=1 ;;
+      selector_object) megabrain_error "invalid chain $chain selector: expected a non-empty object"; rc=1 ;;
+      selector_field) megabrain_error "invalid chain $chain selector: unsupported field $field"; rc=1 ;;
+      selector_empty) megabrain_error "invalid chain $chain selector field $field: value cannot be empty"; rc=1 ;;
+      selector_agent) megabrain_error "invalid chain $chain selector field parentAgent: unknown agent $value"; rc=1 ;;
+      steps_empty) megabrain_error "invalid chain $chain: steps cannot be empty"; rc=1 ;;
+      step_object) megabrain_error "invalid chain $chain step $index: expected an object"; rc=1 ;;
+      step_field) megabrain_error "invalid chain $chain step $index: unsupported field $field"; rc=1 ;;
+      agent_required) megabrain_error "invalid chain $chain step $index: agent is required"; rc=1 ;;
+      agent_unknown) megabrain_error "invalid chain $chain step $index: unknown agent $value"; rc=1 ;;
+      model_required) megabrain_error "invalid chain $chain step $index: model is required"; rc=1 ;;
+      unknown_model)
+        megabrain_error "unknown model '$value' for agent '$field'. Valid model ids:"
+        ;;
+      unknown_model_id) megabrain_error "  $value" ;;
+      invalid_unknown_model)
+        megabrain_error "invalid chain $chain step $index: model '$value' is not registered for agent '$field'"
+        rc=1
+        ;;
+      migration_required)
+        megabrain_error "chain migration required: chain $chain step $index uses unknown model '$value' for agent '$field'; run megabrain chain repair $chain --step $index --model <valid-id> --effort <level>"
+        ;;
+      lifecycle)
+        if [ "$value" != - ]; then
+          megabrain_error "Warning: model '$index' for agent '$chain' is $field (retirement date: $value)."
+        else
+          megabrain_error "Warning: model '$index' for agent '$chain' is $field."
+        fi
+        ;;
+      embedded_header)
+        megabrain_error "model '$value' for agent '$field' has effort as part of the model id; do not supply effort"
+        megabrain_error 'Model ids by embedded reasoning level:'
+        rc=1
+        ;;
+      embedded_level) megabrain_error "$value:" ;;
+      embedded_id) megabrain_error "  $value" ;;
+      missing_effort)
+        megabrain_error "model '$value' for agent '$field' requires a separate reasoning level"
+        rc=1
+        ;;
+      bad_effort_header)
+        megabrain_error "model '$index' for agent '$chain' does not support reasoning level '$field'. Supported reasoning levels:"
+        rc=1
+        ;;
+      bad_effort_level) megabrain_error "  $value" ;;
+      bad_effort_none) megabrain_error '  none' ;;
+      until_object)
+        megabrain_error "invalid chain $chain step $index until: expected usedPercent and window"
+        rc=1
+        ;;
+      until_used_percent)
+        megabrain_error "invalid chain $chain step $index until.usedPercent: expected a number from 0 to 100"
+        rc=1
+        ;;
+      until_window)
+        megabrain_error "invalid chain $chain step $index until.window: unsupported window $value"
+        rc=1
+        ;;
+    esac
+  done <<<"$validation_output"
   return "$rc"
 }
 
