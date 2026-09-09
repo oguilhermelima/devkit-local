@@ -43,8 +43,9 @@ appium() {
 }
 
 write_state() {
-  jq -n --argjson installed "$1" \
-    '{"simulator-native": {installed: $installed, details: "historical result"}}' \
+  local module="${2:-simulator-native}"
+  jq -n --arg moduleName "$module" --argjson installed "$1" \
+    '{($moduleName): {installed: $installed, details: "historical result"}}' \
     >"$MEGABRAIN_STATE_FILE"
 }
 
@@ -67,5 +68,17 @@ fi
 [ "$(jq -r '."simulator-native".installed' "$MEGABRAIN_STATE_FILE")" = false ] ||
   fail 'doctor left a true state after observing the missing driver'
 printf 'stale true state is reconciled to a missing native simulator\n'
+
+write_state true simulator-web
+megabrain_module_doctor() {
+  megabrain_set_status unknown 'latest extension versions unavailable'
+  return 1
+}
+if megabrain_doctor_one simulator-web >/dev/null 2>&1; then
+  fail 'doctor accepted an unknown web simulator status'
+fi
+[ "$(jq -r '."simulator-web".installed' "$MEGABRAIN_STATE_FILE")" = true ] ||
+  fail 'doctor downgraded an installed web simulator after an unknown check'
+printf 'unknown web simulator status preserves the installed state\n'
 
 printf 'ok: doctor does not stay silent when state.json disagrees with reality\n'
