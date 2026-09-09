@@ -154,6 +154,7 @@ scenario_explicit_base_wins() {
   local output
   setup_fixture
   make_stacked_worktrees
+  git -C "$repo_dir" branch release
   write_gh
   output="$(megabrain_worktree_pr "$fixture_shared_root/child" --base release --title custom --body details --json)"
   assert_equal "$(printf '%s' "$output" | jq -r '.base')" release
