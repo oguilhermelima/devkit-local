@@ -260,7 +260,7 @@ tmux() {
 }
 long_nudge='[megabrain] mail available; run megabrain orchestrate watch dispatch-with-a-very-long-identifier'
 capped_nudge="$(megabrain_tmux_nudge_text_for_pane %width "$long_nudge")"
-assert_equal "$(printf '%s' "$capped_nudge" | wc -c | tr -d ' ')" "$nudge_width"
+assert_equal "$(printf '%s' "$capped_nudge" | wc -m | tr -d ' ')" "$nudge_width"
 assert_contains "$capped_nudge" '…'
 printf 'nudge width: text is capped to pane columns with an ellipsis\n'
 unset -f tmux
