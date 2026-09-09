@@ -102,16 +102,17 @@ verb removes it.
 ## If you are the child
 
 ```
-megabrain received                 optionally record that the prompt was seen
+megabrain received                 confirm that the prompt was received
 megabrain ask "question"           ask the coordinator and keep working only if told to
 megabrain check [--timeout <seconds>] [--poll-interval <seconds>] [--json]
 megabrain ack <delivery-id> [--json]
 megabrain done "summary"           report the outcome and what you verified
 ```
 
-`received` is optional and only records a durable status message; prompt delivery is already
-known from the transport observation and does not depend on that command. A reply reaches you
-only if you look for it. `ask` queues the question and returns; it does not block. Poll with
+`received` confirms prompt delivery by writing a durable message to the queue; the parent waits
+for that receipt before considering the launch delivered and retries when it does not arrive. A
+reply reaches you only if you look for it. `ask` queues the question and returns; it does not
+block. Poll with
 `check` and do not proceed on a default when the answer would change the work.
 `done` is not optional: the task is not finished until the signal is sent. Sending it does not
 close your pane and is not meant to: the coordinator closes you once it has read what you left
