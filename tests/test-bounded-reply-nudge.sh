@@ -153,7 +153,7 @@ assert_equal "$(cat "$mock_pane_file")" ''
 assert_not_contains "$(cat "$mock_keys")" 'Tab'
 stuck_message="$state_root/state/dispatches/$dispatch_id/messages"/*.json
 assert_equal "$(find "$state_root/state/dispatches/$dispatch_id/messages" -name '*.json' | wc -l | tr -d ' ')" 1
-assert_equal "$(jq -r '.text' "$stuck_message")" "$stuck_answer"
+assert_equal "$(jq -r '.text' $stuck_message)" "$stuck_answer"
 printf 'stuck composer: failed nudge is queued and composer is cleared\n'
 
 # An accepting pane clears its composer after Enter and reports replied.
@@ -167,7 +167,7 @@ assert_equal "$(jq -r '.status' <<<"$accepted_output")" replied
 assert_equal "$(cat "$mock_pane_file")" ''
 accepted_message="$state_root/state/dispatches/$dispatch_id/messages"/*.json
 assert_equal "$(find "$state_root/state/dispatches/$dispatch_id/messages" -name '*.json' | wc -l | tr -d ' ')" 1
-assert_equal "$(jq -r '.text' "$accepted_message")" "$accepted_answer"
+assert_equal "$(jq -r '.text' $accepted_message)" "$accepted_answer"
 printf 'accepted composer: Enter reports replied and keeps one queue message\n'
 
 # The durable answer is long, but the transport must type only a short pull pointer.
