@@ -284,10 +284,11 @@ megabrain_tmux_agent_output_clean() {
 
 # WHY: a single Enter is lost often enough to matter. The agent launch path already
 # learned this and retries; this path, which carries every reply to a child and every
-# pointer to a parent, must report delivery only after reading a changed pane. A draft
-# that survives all attempts is cancelled before returning, so it cannot be glued to the
-# next operator message. Codex's Tab fallback was measured on 2026-09-09; claude and agy
-# stay on the conservative Enter-and-clear path because their Tab behavior is unmeasured.
+# pointer to a parent, must report delivery only when its leading text is absent from
+# the composer. A draft that survives all attempts is cancelled before returning, so
+# it cannot be glued to the next operator message. Codex's Tab fallback was measured on
+# 2026-09-09; claude and agy stay on the conservative Enter-and-clear path because their
+# Tab behavior is unmeasured.
 megabrain_tmux_kill_process_tree() {
   local pid="$1" child
   for child in $(pgrep -P "$pid" 2>/dev/null || true); do
@@ -327,38 +328,57 @@ megabrain_tmux_send_literal() {
   [ "$write_status" -eq 0 ] || return "$write_status"
 }
 
+megabrain_tmux_capture_composer() {
+  local pane="$1"
+  # The bottom four rows are the bounded composer region. Keeping this scope tight
+  # excludes submitted messages echoed into the transcript above it.
+  tmux capture-pane -p -J -t "$pane" -S -4 2>/dev/null || true
+}
+
+megabrain_tmux_normalize_text() {
+  printf '%s' "$1" | tr -d '[:space:]'
+}
+
 megabrain_tmux_send_text() {
-  local pane="$1" text="$2" agent="${3:-}" attempt=0 before after text_length
+  local pane="$1" text="$2" agent="${3:-}" attempt=0 after after_normalized text_length text_slice
   text_length="${#text}"
+  text_slice="$(megabrain_tmux_normalize_text "$text" | cut -c 1-32)"
   MEGABRAIN_TMUX_SEND_STATUS=queued
   megabrain_tmux_send_literal "$pane" "$text" || return 1
-  before="$(tmux capture-pane -p -J -t "$pane" -S -4 2>/dev/null || true)"
   while :; do
     tmux send-keys -t "$pane" Enter || return 1
     attempt=$((attempt + 1))
     [ "$attempt" -ge "$MEGABRAIN_TMUX_ENTER_RETRIES" ] || sleep "$MEGABRAIN_TMUX_ENTER_WAIT"
-    after="$(tmux capture-pane -p -J -t "$pane" -S -4 2>/dev/null || true)"
-    if [ "$after" != "$before" ]; then
+    after="$(megabrain_tmux_capture_composer "$pane")"
+    after_normalized="$(megabrain_tmux_normalize_text "$after")"
+    case "$after_normalized" in
+      *"$text_slice"*) ;;
+      *)
       MEGABRAIN_TMUX_SEND_STATUS=replied
       return 0
-    fi
+      ;;
+    esac
     [ "$attempt" -ge "$MEGABRAIN_TMUX_ENTER_RETRIES" ] && break
   done
   if [ "$agent" = codex ]; then
     tmux send-keys -t "$pane" Tab || return 1
     sleep "$MEGABRAIN_TMUX_ENTER_WAIT"
-    after="$(tmux capture-pane -p -J -t "$pane" -S -4 2>/dev/null || true)"
-    if [ "$after" != "$before" ]; then
+    after="$(megabrain_tmux_capture_composer "$pane")"
+    after_normalized="$(megabrain_tmux_normalize_text "$after")"
+    case "$after_normalized" in
+      *"$text_slice"*) ;;
+      *)
       MEGABRAIN_TMUX_SEND_STATUS=replied
       return 0
-    fi
+      ;;
+    esac
   fi
   # A failed nudge is normal because the durable queue already has the message. Move
   # to the end and erase exactly the typed characters; unlike C-c this cannot interrupt
   # a running process, and unlike C-u it also works in agent composers.
   tmux send-keys -t "$pane" C-e || return 1
   [ "$text_length" -eq 0 ] || tmux send-keys -N "$text_length" -t "$pane" BSpace || return 1
-  tmux capture-pane -p -J -t "$pane" -S -4 >/dev/null 2>&1 || true
+  megabrain_tmux_capture_composer "$pane" >/dev/null
   return 0
 }
 
