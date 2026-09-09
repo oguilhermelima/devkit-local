@@ -260,7 +260,10 @@ tmux() {
 }
 long_nudge='[megabrain] mail available; run megabrain orchestrate watch dispatch-with-a-very-long-identifier'
 capped_nudge="$(megabrain_tmux_nudge_text_for_pane %width "$long_nudge")"
-assert_equal "$(printf '%s' "$capped_nudge" | wc -m | tr -d ' ')" "$nudge_width"
+# The container's C locale counts the UTF-8 ellipsis as three characters. Replace
+# that display-cell marker before measuring so this assertion is locale-independent.
+capped_nudge_length="$(printf '%s' "$capped_nudge" | sed 's/…/x/g' | wc -m | tr -d ' ')"
+assert_equal "$capped_nudge_length" "$nudge_width"
 assert_contains "$capped_nudge" '…'
 printf 'nudge width: text is capped to pane columns with an ellipsis\n'
 unset -f tmux
