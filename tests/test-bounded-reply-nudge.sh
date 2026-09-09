@@ -70,9 +70,9 @@ parent_identity="$(megabrain_session_id)"
 child_pane="$(tmux_cmd split-window -d -t "$session_name" -c "$root" -P -F '#{pane_id}' 'exec sleep 60')"
 
 create_meta() {
-  local dispatch_id="$1" pane="$2"
+  local dispatch_id="$1" pane="$2" agent="${3:-codex}"
   megabrain_dispatch_meta_write "$dispatch_id" "$parent_identity" tmux tmux "" child-terminal \
-    "$root" main codex label running gpt-5 true codex "$session_name" "$pane" tmux tmux \
+    "$root" main "$agent" label running gpt-5 true "$agent" "$session_name" "$pane" tmux tmux \
     "$session_name" "$parent_pane" "" >/dev/null
 }
 
@@ -103,15 +103,66 @@ if [ ! -f "$done_file" ]; then
   fail 'reply remained blocked while the child pane did not read stdin'
 fi
 wait "$reply_pid"
-case "$(jq -r '.status' "$reply_output")" in
-  queued|replied) ;;
-  *) fail "reply did not queue or nudge: $(cat "$reply_output")" ;;
-esac
+assert_equal "$(jq -r '.status' "$reply_output")" queued
 assert_equal "$(find "$state_root/state/dispatches/$dispatch_id/messages" -name '*.json' | wc -l | tr -d ' ')" 1
 assert_equal "$(jq -r '.text' "$state_root/state/dispatches/$dispatch_id/messages"/*.json)" "$answer"
 printf 'busy child: reply returns within the bound and keeps the full queue message\n'
 
 tmux_cmd kill-pane -t "$child_pane"
+
+# A non-codex pane must not receive the codex-only Tab fallback. Its composer is
+# cleared after the failed Enter attempt, and the durable queue still owns the reply.
+mock_mode=stuck
+mock_pane_file="$state_root/mock-pane"
+mock_keys="$state_root/mock-keys"
+: >"$mock_keys"
+printf 'draft\n' >"$mock_pane_file"
+tmux() {
+  local command="${1:-}"
+  case "$command" in
+    display-message) printf '%s\n' "$session_name" ;;
+    capture-pane) cat "$mock_pane_file" ;;
+    send-keys)
+      printf '%s\n' "$*" >>"$mock_keys"
+      case "${4:-}" in
+        -l) printf '%s\n' "${5:-}" >"$mock_pane_file" ;;
+        C-c) : >"$mock_pane_file" ;;
+        Enter) [ "$mock_mode" = accept ] && : >"$mock_pane_file" ;;
+      esac
+      ;;
+    *) return 0 ;;
+  esac
+}
+megabrain_tmux_session_exists() {
+  return 0
+}
+export MEGABRAIN_TMUX_ENTER_WAIT=0
+
+dispatch_id=stuck-reply
+create_meta "$dispatch_id" '%stuck' claude
+stuck_answer='reply stays durable when claude composer does not submit'
+stuck_output="$(megabrain_dispatch_reply "$dispatch_id" --text "$stuck_answer" --json)"
+assert_equal "$(jq -r '.status' <<<"$stuck_output")" queued
+assert_equal "$(cat "$mock_pane_file")" ''
+assert_not_contains "$(cat "$mock_keys")" 'Tab'
+stuck_message="$state_root/state/dispatches/$dispatch_id/messages"/*.json
+assert_equal "$(find "$state_root/state/dispatches/$dispatch_id/messages" -name '*.json' | wc -l | tr -d ' ')" 1
+assert_equal "$(jq -r '.text' "$stuck_message")" "$stuck_answer"
+printf 'stuck composer: failed nudge is queued and composer is cleared\n'
+
+# An accepting pane clears its composer after Enter and reports replied.
+mock_mode=accept
+printf 'draft\n' >"$mock_pane_file"
+dispatch_id=accepted-reply
+create_meta "$dispatch_id" '%accepted' codex
+accepted_answer='reply accepted by codex composer'
+accepted_output="$(megabrain_dispatch_reply "$dispatch_id" --text "$accepted_answer" --json)"
+assert_equal "$(jq -r '.status' <<<"$accepted_output")" replied
+assert_equal "$(cat "$mock_pane_file")" ''
+accepted_message="$state_root/state/dispatches/$dispatch_id/messages"/*.json
+assert_equal "$(find "$state_root/state/dispatches/$dispatch_id/messages" -name '*.json' | wc -l | tr -d ' ')" 1
+assert_equal "$(jq -r '.text' "$accepted_message")" "$accepted_answer"
+printf 'accepted composer: Enter reports replied and keeps one queue message\n'
 
 # The durable answer is long, but the transport must type only a short pull pointer.
 log_file="$state_root/tmux-send.log"

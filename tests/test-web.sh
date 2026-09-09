@@ -21,6 +21,7 @@ const {
   validateBrowserConfig,
   compareManifest,
   upsertUserScriptRecord,
+  userScriptSource,
 } = await import(script);
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'megabrain-web-test-'));
@@ -60,7 +61,10 @@ NODE
 
 node --input-type=module - "$root/scripts/playwright-web.mjs" <<'NODE'
 import assert from 'node:assert/strict';
-const { compareManifest, upsertUserScriptRecord } = await import(process.argv[2]);
+import path from 'node:path';
+const { compareManifest, upsertUserScriptRecord, userScriptSource } = await import(process.argv[2]);
+const work = '/tmp/megabrain-web-test-scenarios';
+const userscripts = path.join(work, 'userscripts');
 
 const expected = {
   playwrightVersion: '1.63.0',
@@ -78,6 +82,11 @@ let records = upsertUserScriptRecord([], { name: 'hello.user.js', hash: 'one' })
 records = upsertUserScriptRecord(records, { name: 'hello.user.js', hash: 'two' });
 assert.equal(records.length, 1, 'refresh must not duplicate a userscript');
 assert.equal(records[0].hash, 'two');
+assert.throws(
+  () => userScriptSource(userscripts, path.join(userscripts, 'hello.user.js')),
+  error => error.message.includes(userscripts) && error.message.includes('file name'),
+  'a userscript path must explain the expected directory and filename form',
+);
 console.log('ok: web profile, manifest, and userscript scenarios');
 NODE
 
