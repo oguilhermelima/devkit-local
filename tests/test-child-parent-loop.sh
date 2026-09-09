@@ -54,7 +54,11 @@ set_state_dir() {
   MEGABRAIN_DISPATCH_DIR="$state_dir/dispatches"
   MEGABRAIN_TMUX_SESSION_DIR="$state_dir/sessions"
   mkdir -p "$state_dir"
-  jq -n '{chains:{loop:{when:{parentAgent:"codex"},steps:[{agent:"codex",model:"test-model",effort:"low"}]}},defaultSteps:[]}' >"$MEGABRAIN_CHAIN_FILE"
+  mkdir -p "$state_dir/bin"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$state_dir/bin/codex"
+  chmod +x "$state_dir/bin/codex"
+  export PATH="$state_dir/bin:$PATH"
+  jq -n '{chains:{loop:{when:{parentAgent:"codex"},steps:[{agent:"codex",model:"gpt-5.6-luna",effort:"low"}]}},defaultSteps:[]}' >"$MEGABRAIN_CHAIN_FILE"
 }
 
 fake_codex() {
