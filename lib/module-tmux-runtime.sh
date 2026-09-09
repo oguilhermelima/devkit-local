@@ -1101,11 +1101,17 @@ module_tmux_runtime_doctor() {
   else
     detail="$detail; megabrain session config will apply when a session launches"
   fi
-  if [ "$enabled" = enabled ]; then
+  if [ "$enabled" = enabled ] &&
+    [ "$tuning_block" = true ] && [ "$tuning_file" = true ] &&
+    [ "$wrapper_block" = true ] && [ "$wrapper_file" = true ]; then
     megabrain_set_status ok "$detail"
     return 0
   fi
-  megabrain_set_status misconfigured "$detail; install tmux-runtime to enable it"
+  if [ "$enabled" = enabled ]; then
+    megabrain_set_status misconfigured "$detail; tmux runtime files are not current; run megabrain install tmux-runtime"
+  else
+    megabrain_set_status misconfigured "$detail; install tmux-runtime to enable it"
+  fi
   return 1
 }
 
