@@ -84,8 +84,32 @@ megabrain_chain_seed() {
   }'
 }
 
+megabrain_chain_reconcile_seed() {
+  local config="$1" seed="$2" temp reconciled
+  reconciled="$(printf '%s' "$config" | jq --argjson seedUsage "$(printf '%s' "$seed" | jq '.usageLimits')" '
+    if has("usageLimits") and (.usageLimits != null) and ((.usageLimits | type) != "object") then
+      .
+    else
+      (.usageLimits // {}) as $current
+      | ($seedUsage * $current) as $merged
+      | ($seedUsage.notice * (if (($current.notice // {}) | type) == "object" then ($current.notice // {}) else {} end)) as $notice
+      | .usageLimits = ($merged + {notice: $notice})
+    end
+  ')" || return 1
+  temp="$(mktemp "$MEGABRAIN_STATE_DIR/chains.XXXXXX")" || return 1
+  if ! printf '%s\n' "$reconciled" >"$temp"; then
+    rm -f "$temp"
+    return 1
+  fi
+  if cmp -s "$temp" "$MEGABRAIN_CHAIN_FILE"; then
+    rm -f "$temp"
+  else
+    mv -f "$temp" "$MEGABRAIN_CHAIN_FILE"
+  fi
+}
+
 megabrain_chain_init() {
-  local tmp seed
+  local tmp seed config
   mkdir -p "$MEGABRAIN_STATE_DIR" || return 1
   megabrain_model_init || return 1
   if [ ! -f "$MEGABRAIN_CHAIN_FILE" ]; then
@@ -100,6 +124,10 @@ megabrain_chain_init() {
   elif ! jq empty "$MEGABRAIN_CHAIN_FILE" >/dev/null 2>&1; then
     megabrain_error "chain file is not valid JSON: $MEGABRAIN_CHAIN_FILE"
     return 1
+  else
+    seed="$(megabrain_chain_seed)" || return 1
+    config="$(cat "$MEGABRAIN_CHAIN_FILE")" || return 1
+    megabrain_chain_reconcile_seed "$config" "$seed" || return 1
   fi
 }
 
