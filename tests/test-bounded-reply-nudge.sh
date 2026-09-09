@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+state_root="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-reply-nudge.XXXXXX")"
+state_root="$(cd -P "$state_root" && pwd -P)"
+socket_name=mbreply
+session_name=megabrain-reply-nudge
+parent_pane=""
+child_pane=""
+tmux_info=""
+parent_identity=""
+
+unset TMUX TMUX_PANE
+export TMUX_TMPDIR="$state_root"
+export MEGABRAIN_STATE_DIR="$state_root/state"
+export ORCA_TERMINAL_HANDLE=""
+export SUPERSET_TERMINAL_ID=""
+
+tmux_cmd() {
+  tmux -L "$socket_name" "$@"
+}
+
+cleanup() {
+  local rc=$?
+  tmux -L "$socket_name" kill-server >/dev/null 2>&1 || true
+  rm -rf "$state_root"
+  return "$rc"
+}
+trap cleanup EXIT
+
+fail() {
+  printf 'FAIL: %s\n' "$*" >&2
+  exit 1
+}
+
+assert_equal() {
+  [ "$1" = "$2" ] || fail "expected '$2', got '$1'"
+}
+
+assert_contains() {
+  case "$1" in
+    *"$2"*) ;;
+    *) fail "expected '$1' to contain '$2'" ;;
+  esac
+}
+
+assert_not_contains() {
+  case "$1" in
+    *"$2"*) fail "expected output not to contain '$2'" ;;
+    *) ;;
+  esac
+}
+
+source "$root/lib/common.sh"
+source "$root/lib/module-tmux-runtime.sh"
+source "$root/lib/module-orchestrate.sh"
+
+tmux_cmd new-session -d -s "$session_name" -x 120 -y 30 bash
+parent_pane="$(tmux_cmd display-message -p -t "$session_name" '#{pane_id}')"
+tmux_info="$(tmux_cmd display-message -p -t "$parent_pane" '#{socket_path},#{pid},#{session_id}')"
+case "${tmux_info%%,*}" in
+  "$state_root"/*) ;;
+  *) fail "refusing to run: the tmux server is outside $state_root" ;;
+esac
+export TMUX="$tmux_info"
+export TMUX_PANE="$parent_pane"
+parent_identity="$(megabrain_session_id)"
+child_pane="$(tmux_cmd split-window -d -t "$session_name" -c "$root" -P -F '#{pane_id}' 'exec sleep 60')"
+
+create_meta() {
+  local dispatch_id="$1" pane="$2"
+  megabrain_dispatch_meta_write "$dispatch_id" "$parent_identity" tmux tmux "" child-terminal \
+    "$root" main codex label running gpt-5 true codex "$session_name" "$pane" tmux tmux \
+    "$session_name" "$parent_pane" "" >/dev/null
+}
+
+# A process that never reads stdin makes a long literal write exercise the real pty backpressure.
+dispatch_id=bounded-reply
+create_meta "$dispatch_id" "$child_pane"
+answer="$(printf '%65536s' '' | tr ' ' x)"
+done_file="$state_root/reply-done"
+reply_output="$state_root/reply-output"
+reply_error="$state_root/reply-error"
+(
+  if megabrain_dispatch_reply "$dispatch_id" --text "$answer" --json >"$reply_output" 2>"$reply_error"; then
+    printf '0\n' >"$done_file"
+  else
+    printf '1\n' >"$done_file"
+  fi
+) &
+reply_pid=$!
+started="$(date +%s)"
+while [ ! -f "$done_file" ]; do
+  now="$(date +%s)"
+  [ $((now - started)) -lt 3 ] || break
+  sleep 0.1
+done
+if [ ! -f "$done_file" ]; then
+  kill "$reply_pid" >/dev/null 2>&1 || true
+  wait "$reply_pid" 2>/dev/null || true
+  fail 'reply remained blocked while the child pane did not read stdin'
+fi
+wait "$reply_pid"
+case "$(jq -r '.status' "$reply_output")" in
+  queued|replied) ;;
+  *) fail "reply did not queue or nudge: $(cat "$reply_output")" ;;
+esac
+assert_equal "$(find "$state_root/state/dispatches/$dispatch_id/messages" -name '*.json' | wc -l | tr -d ' ')" 1
+assert_equal "$(jq -r '.text' "$state_root/state/dispatches/$dispatch_id/messages"/*.json)" "$answer"
+printf 'busy child: reply returns within the bound and keeps the full queue message\n'
+
+tmux_cmd kill-pane -t "$child_pane"
+
+# The durable answer is long, but the transport must type only a short pull pointer.
+log_file="$state_root/tmux-send.log"
+tmux() {
+  case "${1:-}" in
+    display-message) printf '%s\n' "$session_name" ;;
+    send-keys) printf '%s\n' "$*" >>"$log_file" ;;
+    *) return 0 ;;
+  esac
+}
+megabrain_tmux_session_exists() {
+  return 0
+}
+dispatch_id=pointer-reply
+create_meta "$dispatch_id" '%fake'
+pointer_answer='answer body must stay in the queue'
+pointer_output="$(megabrain_dispatch_reply "$dispatch_id" --text "$pointer_answer" --json)"
+assert_equal "$(jq -r '.status' <<<"$pointer_output")" replied
+typed="$(cat "$log_file")"
+assert_contains "$typed" 'megabrain check'
+assert_not_contains "$typed" "$pointer_answer"
+pointer_message="$state_root/state/dispatches/$dispatch_id/messages"/*.json
+assert_equal "$(jq -r '.text' $pointer_message)" "$pointer_answer"
+assert_contains "$(jq -r '.sessionId' $pointer_message)" ':'
+printf 'reply transport: pointer excludes the answer and parent provenance is recorded\n'
+
+printf 'ok: bounded reply nudge scenarios\n'
