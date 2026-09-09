@@ -130,7 +130,7 @@ started="$(date +%s)"
 while [ ! -f "$done_file" ]; do
   now="$(date +%s)"
   [ $((now - started)) -lt 3 ] || break
-  sleep 0.1
+  sleep 0.05
 done
 if [ ! -f "$done_file" ]; then
   kill "$reply_pid" >/dev/null 2>&1 || true

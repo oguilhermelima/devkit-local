@@ -324,7 +324,7 @@ interrupt_pid=$!
 interrupt_attempt=0
 while [ "$interrupt_attempt" -lt 100 ] &&
   [ "$(find "$interrupt_state" -name 'chain-run.*' -type f -print 2>/dev/null | wc -l | tr -d ' ')" -eq 0 ]; do
-  sleep 0.02
+  sleep 0.05
   interrupt_attempt=$((interrupt_attempt + 1))
 done
 [ "$interrupt_attempt" -lt 100 ] || fail 'interrupted chain walk did not create its scratch file'

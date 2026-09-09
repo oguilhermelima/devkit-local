@@ -47,7 +47,7 @@ wait_for_file() {
   local path="$1" attempt
   for ((attempt = 1; attempt <= 100; attempt++)); do
     [ -f "$path" ] && return 0
-    sleep 0.02
+    sleep 0.05
   done
   fail "timed out waiting for $path"
 }
@@ -57,7 +57,7 @@ wait_for_message() {
   for ((attempt = 1; attempt <= 100; attempt++)); do
     count="$(find "$state_dir/dispatches/$dispatch_id/messages" -name '*.json' -print 2>/dev/null | wc -l | tr -d ' ')"
     [ "$count" -ge 1 ] && return 0
-    sleep 0.02
+    sleep 0.05
   done
   fail "timed out waiting for a message in $dispatch_id"
 }

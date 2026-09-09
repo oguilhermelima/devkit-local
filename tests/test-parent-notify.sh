@@ -62,6 +62,30 @@ assert_not_contains() {
   esac
 }
 
+wait_for_pane_text() {
+  local pane="$1" expected="$2" socket="${3:-$socket_name}" attempt=0 capture=""
+  while [ "$attempt" -lt 200 ]; do
+    capture="$(tmux -L "$socket" capture-pane -J -p -t "$pane" -S -20)"
+    case "$capture" in
+      *"$expected"*) return 0 ;;
+    esac
+    sleep 0.05
+    attempt=$((attempt + 1))
+  done
+  fail "timed out waiting for '$expected' in pane $pane"
+}
+
+wait_for_pane_command() {
+  local pane="$1" expected="$2" attempt=0 actual=""
+  while [ "$attempt" -lt 200 ]; do
+    actual="$(tmux_cmd display-message -p -t "$pane" '#{pane_current_command}')"
+    [ "$actual" = "$expected" ] && return 0
+    sleep 0.05
+    attempt=$((attempt + 1))
+  done
+  fail "timed out waiting for pane $pane command '$expected' (got '$actual')"
+}
+
 tmux_cmd() {
   tmux -L "$socket_name" "$@"
 }
@@ -91,7 +115,7 @@ export TMUX="$tmux_info"
 export TMUX_PANE="$parent_pane"
 tmux_cmd send-keys -t "$parent_pane" -l "PS1='IDLE$ '; export PS1; printf 'parent-ready\\n'"
 tmux_cmd send-keys -t "$parent_pane" Enter
-sleep 0.1
+wait_for_pane_text "$parent_pane" parent-ready
 
 create_meta tmux-idle "$parent_pane"
 idle_meta="$(megabrain_dispatch_meta_read tmux-idle)"
@@ -114,7 +138,7 @@ printf 'no double delivery: one message, then empty queue\n'
 
 tmux_cmd send-keys -t "$parent_pane" -l 'sleep 2'
 tmux_cmd send-keys -t "$parent_pane" Enter
-sleep 0.1
+wait_for_pane_command "$parent_pane" sleep
 create_meta tmux-busy "$parent_pane"
 append_message tmux-busy 'busy body'
 busy_before="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
@@ -151,7 +175,7 @@ printf 'active waiter: nudge suppressed and delivery remained readable\n'
 create_meta tmux-broken "$parent_pane"
 tmux_cmd send-keys -t "$parent_pane" -l "PS1='BUSY$ '; export PS1; printf 'busy-marker\\n'"
 tmux_cmd send-keys -t "$parent_pane" Enter
-sleep 0.1
+wait_for_pane_text "$parent_pane" busy-marker
 broken_meta="$(megabrain_dispatch_meta_read tmux-broken)"
 broken_pointer="$(megabrain_parent_notify_pointer tmux-broken)"
 broken_before="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
@@ -227,7 +251,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   if [ -f "$state_dir/dispatches/$nudged_id/waiter.json" ]; then
     break
   fi
-  sleep 0.1
+  sleep 0.05
 done
 append_message "$nudged_id" 'nudge woke watcher'
 nudge_meta="$(megabrain_dispatch_meta_read "$nudged_id")"
@@ -248,7 +272,7 @@ outside_pane="$(tmux -L "$outside_socket" display-message -p -t "$outside_sessio
 outside_tmux="$(tmux -L "$outside_socket" display-message -p -t "$outside_pane" '#{socket_path},#{pid},#{session_id}')"
 env MEGABRAIN_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" send-keys -t "$outside_pane" -l "PS1='OUTSIDE$ '; export PS1; printf 'outside-ready\\n'"
 env MEGABRAIN_STATE_DIR="$outside_state_dir" tmux -L "$outside_socket" send-keys -t "$outside_pane" Enter
-sleep 0.1
+wait_for_pane_text "$outside_pane" outside-ready "$outside_socket"
 megabrain_dispatch_meta_write cross-context parent-terminal superset superset workspace-test cross-context-child "$root" main codex label running gpt-5 true codex "$outside_session" "$outside_pane" tmux tmux "$outside_session" "$outside_pane" "$workspace_id" >/dev/null
 cross_context_meta="$(megabrain_dispatch_meta_read cross-context)"
 export TMUX="$outside_tmux" TMUX_PANE="$outside_pane"
@@ -275,7 +299,7 @@ no_context_pane="$(tmux_cmd display-message -p -t "$no_context_session" '#{pane_
 tmux_cmd set-environment -u -t "$no_context_session" MEGABRAIN_STATE_DIR >/dev/null 2>&1 || true
 tmux_cmd send-keys -t "$no_context_pane" -l "PS1='NO-CONTEXT$ '; export PS1; printf 'no-context-ready\\n'"
 tmux_cmd send-keys -t "$no_context_pane" Enter
-sleep 0.1
+wait_for_pane_text "$no_context_pane" no-context-ready
 create_meta no-context "$no_context_pane" tmux superset "$no_context_pane" "$no_context_session"
 no_context_meta="$(megabrain_dispatch_meta_read no-context)"
 megabrain_parent_notify_dispatch "$no_context_meta"

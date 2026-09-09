@@ -50,8 +50,32 @@ assert_not_contains() {
   esac
 }
 
+wait_for_pane_count() {
+  local session="$1" expected="$2" attempt=0 actual
+  while [ "$attempt" -lt 200 ]; do
+    actual="$(tmux_cmd list-panes -t "$session" -F '#{pane_id}' | wc -l | tr -d ' ')"
+    [ "$actual" -eq "$expected" ] && return 0
+    sleep 0.05
+    attempt=$((attempt + 1))
+  done
+  fail "timed out waiting for $expected panes in $session (got $actual)"
+}
+
+wait_for_pane_text() {
+  local pane="$1" expected="$2" attempt=0 capture=""
+  while [ "$attempt" -lt 200 ]; do
+    capture="$(tmux_cmd capture-pane -p -J -t "$pane" -S -20)"
+    case "$capture" in
+      *"$expected"*) return 0 ;;
+    esac
+    sleep 0.05
+    attempt=$((attempt + 1))
+  done
+  fail "timed out waiting for '$expected' in pane $pane"
+}
+
 tmux_cmd new-session -d -s "$session_name" -x 120 -y 30 bash
-sleep 0.2
+wait_for_pane_count "$session_name" 1
 session_info="$(tmux_cmd display-message -p -t "$session_name" '#{socket_path},#{pid},#{session_id}')"
 
 # The library calls bare tmux, so it has to be pointed at this test's server. Refuse to
@@ -70,7 +94,7 @@ assert_equal "$(tmux_cmd list-panes -t "$session_name" -F '#{pane_id}' | wc -l |
 
 child_pane="$(megabrain_tmux_split_pane "$session_name" "$root")"
 [ -n "$child_pane" ] || fail 'split produced no pane'
-sleep 0.2
+wait_for_pane_count "$session_name" 2
 
 assert_equal "$(tmux_cmd list-panes -t "$session_name" -F '#{pane_id}' | wc -l | tr -d ' ')" 2
 [ "$child_pane" != "$operator_pane" ] || fail 'split returned the operator pane'
@@ -83,7 +107,7 @@ printf 'split: a child pane is created and the operator keeps the focus\n'
 export MEGABRAIN_TMUX_ENTER_TIMEOUT_SECONDS=6
 export MEGABRAIN_TMUX_ENTER_WAIT=0.3
 tmux_cmd send-keys -t "$child_pane" -l 'mo'
-sleep 0.3
+wait_for_pane_text "$child_pane" mo
 
 if ! megabrain_tmux_send_agent "$child_pane" 'sleep 30'; then
   fail 'the launch command was never submitted from a pane holding a stray keystroke'
@@ -93,8 +117,8 @@ fi
 # execed the command, so reading the pane straight away catches zsh about one run in three.
 waited=0
 while [ "$(tmux_cmd display-message -p -t "$child_pane" '#{pane_current_command}')" != sleep ] &&
-  [ "$waited" -lt 40 ]; do
-  sleep 0.25
+  [ "$waited" -lt 200 ]; do
+  sleep 0.05
   waited=$((waited + 1))
 done
 assert_equal "$(tmux_cmd display-message -p -t "$child_pane" '#{pane_current_command}')" sleep

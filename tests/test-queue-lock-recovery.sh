@@ -30,11 +30,12 @@ assert_equal() {
 # Runs one append with a wall-clock bound and reports what happened, so a mailbox that
 # never returns shows up as a failed assertion instead of a hung suite.
 append_bounded() { # append_bounded <dispatch> <text> <seconds>
-  local dispatch_id="$1" text="$2" limit="$3" pid waited=0
+  local dispatch_id="$1" text="$2" limit="$3" pid waited=0 max_attempts
+  max_attempts=$((limit * 20))
   ( megabrain_dispatch_message_append "$dispatch_id" child ask "$text" child-terminal >/dev/null 2>&1 ) &
   pid=$!
-  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$limit" ]; do
-    sleep 1
+  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$max_attempts" ]; do
+    sleep 0.05
     waited=$((waited + 1))
   done
   if kill -0 "$pid" 2>/dev/null; then

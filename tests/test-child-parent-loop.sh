@@ -55,6 +55,19 @@ assert_not_contains() {
   esac
 }
 
+wait_for_pane_text() {
+  local pane="$1" expected="$2" attempt=0 capture=""
+  while [ "$attempt" -lt 200 ]; do
+    capture="$(tmux_cmd capture-pane -p -J -t "$pane" -S -20)"
+    case "$capture" in
+      *"$expected"*) return 0 ;;
+    esac
+    sleep 0.05
+    attempt=$((attempt + 1))
+  done
+  fail "timed out waiting for '$expected' in pane $pane"
+}
+
 tmux_cmd() {
   tmux -L "$socket_name" "$@"
 }
@@ -163,7 +176,7 @@ prepare_tmux_parent() {
   export TMUX="$parent_tmux" TMUX_PANE="$parent_pane"
   tmux_cmd send-keys -t "$parent_pane" -l "PS1='PARENT$ '; export PS1; printf 'parent-ready\\n'"
   tmux_cmd send-keys -t "$parent_pane" Enter
-  sleep 0.1
+  wait_for_pane_text "$parent_pane" parent-ready
 }
 
 child_command() {
