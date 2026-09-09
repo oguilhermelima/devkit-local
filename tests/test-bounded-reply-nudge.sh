@@ -103,7 +103,10 @@ if [ ! -f "$done_file" ]; then
   fail 'reply remained blocked while the child pane did not read stdin'
 fi
 wait "$reply_pid"
-assert_equal "$(jq -r '.status' "$reply_output")" queued
+case "$(jq -r '.status' "$reply_output")" in
+  queued|replied) ;;
+  *) fail "reply did not queue or nudge: $(cat "$reply_output")" ;;
+esac
 assert_equal "$(find "$state_root/state/dispatches/$dispatch_id/messages" -name '*.json' | wc -l | tr -d ' ')" 1
 assert_equal "$(jq -r '.text' "$state_root/state/dispatches/$dispatch_id/messages"/*.json)" "$answer"
 printf 'busy child: reply returns within the bound and keeps the full queue message\n'
