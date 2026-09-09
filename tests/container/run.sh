@@ -17,18 +17,29 @@ exec docker run --rm \
     set -uo pipefail
     cp -r /src "$HOME/work" && cd "$HOME/work"
     printf "bash %s on %s\n\n" "$BASH_VERSION" "$(uname -sm)"
-    failed=0 passed=0
+    failed=0 passed=0 slowest_test="" slowest_seconds=0
     for t in tests/*.sh; do
-      printf "%-46s" "$t"
-      if timeout 180 bash "$t" >/tmp/out 2>&1; then
-        echo PASS
+      started=$(date +%s)
+      if timeout 60 bash "$t" >/tmp/out 2>&1; then
+        test_status=0
+      else
+        test_status=$?
+      fi
+      elapsed=$(( $(date +%s) - started ))
+      if [ "$elapsed" -gt "$slowest_seconds" ]; then
+        slowest_seconds="$elapsed"
+        slowest_test="$t"
+      fi
+      if [ "$test_status" -eq 0 ]; then
+        printf "%-46s PASS (%ss)\n" "$t" "$elapsed"
         passed=$((passed + 1))
       else
-        echo FAIL
+        printf "%-46s FAIL (%ss)\n" "$t" "$elapsed"
         tail -6 /tmp/out | sed "s/^/    /"
         failed=$((failed + 1))
       fi
     done
     printf "\n%s passed, %s failed\n" "$passed" "$failed"
+    printf "slowest: %s (%ss); timeout ceiling: 60s\n" "$slowest_test" "$slowest_seconds"
     [ "$failed" -eq 0 ]
   '
