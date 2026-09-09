@@ -115,6 +115,8 @@ esac
 EOF
   chmod +x "$work_dir/bin/gh"
   export GH_LOG="$work_dir/gh.log"
+  GH_AUTH=yes
+  export GH_AUTH
   : >"$GH_LOG"
   export PATH="$work_dir/bin:/usr/bin:/bin:/opt/homebrew/bin"
 }
