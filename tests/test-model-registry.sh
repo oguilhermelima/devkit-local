@@ -62,7 +62,9 @@ assert_equal "$(printf '%s' "$list_output" | jq -r '.models[] | select(.agent ==
 assert_equal "$(printf '%s' "$list_output" | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-5.4") | [.status, .retirementDate] | join(",")')" 'retired,2026-08-31'
 assert_equal "$(printf '%s' "$list_output" | jq -r '.models[] | select(.agent == "claude" and .model == "claude-mythos-preview") | .status')" deprecated
 assert_equal "$(printf '%s' "$list_output" | jq -r '[.models[] | select(.agent == "claude" and .status == "retired")] | length')" 6
-printf 'registry inventory: 14 agy, 10 codex, 18 claude with sourced provenance\n'
+assert_equal "$(printf '%s' "$list_output" | jq -r '.models[] | select(.agent == "codex") | .reasoning.provenance.kind' | sort -u)" verified
+assert_equal "$(printf '%s' "$list_output" | jq -r '.models[] | select(.agent == "claude") | .reasoning.provenance.kind' | sort -u)" verified
+printf 'registry inventory: sourced model provenance and verified reasoning provenance\n'
 
 assert_equal "$(grep -l '^command_model()' "$root"/lib/*.sh | wc -l | tr -d ' ')" 1
 printf 'dispatcher ownership: one command_model owner\n'

@@ -191,10 +191,10 @@ printf 'reply to a done dispatch stays queued and keeps done state\n'
 
 model_output="$("$root/megabrain" model list)"
 assert_contains "$model_output" 'sourced'
-assert_contains "$model_output" 'inferred'
+assert_contains "$model_output" 'verified'
 assert_equal "$("$root/megabrain" model list --json | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-5.6-luna") | .provenance.kind')" sourced
-assert_equal "$("$root/megabrain" model list --json | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-5.6-luna") | .reasoning.provenance.kind')" inferred
+assert_equal "$("$root/megabrain" model list --json | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-5.6-luna") | .reasoning.provenance.kind')" verified
 assert_equal "$("$root/megabrain" model list --json | jq -r '.models[] | select(.agent == "codex" and .model == "gpt-5.6-luna") | .reasoning.provenance.verified[0]')" xhigh
-printf 'model list separates sourced ids from inferred effort spellings\n'
+printf 'model list separates sourced ids from verified effort spellings\n'
 
 printf 'ok: end to end findings coverage\n'

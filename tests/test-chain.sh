@@ -299,4 +299,31 @@ notice_message="$(find "$MEGABRAIN_STATE_DIR/dispatches/notice-dispatch/messages
 assert_contains "$(jq -r '.text' "$notice_message")" 'Usage limits:'
 printf 'chat notice: queued and delivery failure did not break caller\n'
 
+# A process killed while the fallback walk is waiting for a launch must not leave its
+# stderr scratch file in the shared state directory.
+interrupt_state="$state_dir/interrupted"
+mkdir -p "$interrupt_state"
+(
+  export MEGABRAIN_STATE_DIR="$interrupt_state"
+  source "$root/lib/common.sh"
+  source "$root/lib/module-chain.sh"
+  MEGABRAIN_CHAIN_SELECTED_NAME=interrupted
+  MEGABRAIN_CHAIN_SELECTION_DEFAULT=false
+  MEGABRAIN_CHAIN_SELECTED_STEPS='[{"agent":"codex","model":"gpt-6-astra","effort":"high"}]'
+  megabrain_chain_run_spawn() { sleep 30; }
+  megabrain_chain_walk "$root" '' '' '' '' interrupted-prompt interrupted-label false '' '' false false
+) &
+interrupt_pid=$!
+interrupt_attempt=0
+while [ "$interrupt_attempt" -lt 100 ] &&
+  [ "$(find "$interrupt_state" -name 'chain-run.*' -type f -print 2>/dev/null | wc -l | tr -d ' ')" -eq 0 ]; do
+  sleep 0.02
+  interrupt_attempt=$((interrupt_attempt + 1))
+done
+[ "$interrupt_attempt" -lt 100 ] || fail 'interrupted chain walk did not create its scratch file'
+kill -TERM "$interrupt_pid"
+wait "$interrupt_pid" 2>/dev/null || true
+assert_equal "$(find "$interrupt_state" -name 'chain-run.*' -type f -print 2>/dev/null | wc -l | tr -d ' ')" 0
+printf 'interrupted chain walk: scratch file removed\n'
+
 printf 'ok: chain selection, limits, failure advance, exhaustion, and reporting\n'
