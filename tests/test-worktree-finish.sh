@@ -122,7 +122,7 @@ scenario_unmerged_branch_is_still_refused() {
     fail 'a branch merged into neither base was deleted'
   fi
   assert_contains "$output" 'refusing to delete unmerged branch: stack/child'
-  assert_contains "$output" 'base main'
+  assert_contains "$output" 'base stack/base'
   git -C "$work_dir/repo" branch --list stack/child | grep -q stack/child ||
     fail 'an unmerged branch was deleted despite the refusal'
   printf 'a branch merged into neither base remains refused\n'
