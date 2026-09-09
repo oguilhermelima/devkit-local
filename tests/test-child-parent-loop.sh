@@ -135,8 +135,11 @@ megabrain_workspace_id_for_target() {
 }
 
 megabrain_agent_command() {
-  # Keep the fake's visible bottom line faithful to the measured Codex idle composer.
   printf '%s\n' "awk 'BEGIN { fflush() } { for (i = 1; i <= 20; i++) print \"\"; print \"agent-response:\" \$0; print \"CHILD$\"; print \"› Ask Codex to do anything\"; fflush() }'"
+}
+
+megabrain_dispatch_send_prompt_with_receipt() {
+  return 0
 }
 
 megabrain_superset_available() {
@@ -285,7 +288,7 @@ run_flow() {
   assert_equal "$(jq -r '.deliveryId' <<<"$replay")" "$delivery_id"
   parent_ack "$delivery_id" >/dev/null
   reply_result="$(megabrain_dispatch_reply "$dispatch_id" --text "printf $runtime-push-received" --json)"
-  assert_equal "$(jq -r '.status' <<<"$reply_result")" replied
+  assert_equal "$(jq -r '.status' <<<"$reply_result")" queued
   if [ "$runtime" = tmux ]; then
     reply_capture="$(tmux_cmd capture-pane -p -t "$child_pane" -S -30)"
     assert_contains "$reply_capture" "megabrain check"
