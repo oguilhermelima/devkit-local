@@ -289,9 +289,43 @@ megabrain_worktree_parent_resolve() {
   MEGABRAIN_PARENT_TAG="$(megabrain_superset_tag_from_branch "$branch")"
 }
 
+megabrain_worktree_parent_branch() {
+  local path="$1" branch response
+  branch="$(git -C "$path" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  [ -n "$branch" ] || return 1
+  git -C "$path" config --get "branch.$branch.megabrain-parent" 2>/dev/null && return 0
+  if megabrain_require_command orca; then
+    response="$(orca worktree show --worktree "path:$path" --json 2>/dev/null || true)"
+    printf '%s' "$response" | jq -r '
+      .result.worktree.parentWorktree.branch //
+      .result.worktree.parent.branch //
+      .result.parentWorktree.branch //
+      .parentWorktree.branch // empty
+    ' 2>/dev/null | head -n 1
+  fi
+}
+
+megabrain_worktree_target_path() {
+  local target="$1" shared_root="${2:-}" path
+  if [ -d "$target" ]; then
+    git -C "$target" rev-parse --show-toplevel 2>/dev/null && return 0
+  fi
+  if [ -n "$shared_root" ]; then
+    path="$(megabrain_find_worktree_path "$target" "$shared_root" 2>/dev/null || true)"
+    [ -n "$path" ] && { printf '%s\n' "$path"; return 0; }
+  fi
+  git worktree list --porcelain 2>/dev/null | awk -v target="$target" '
+    /^worktree / { path = $0; sub(/^worktree /, "", path) }
+    /^branch / {
+      branch = $0; sub(/^branch refs\/heads\//, "", branch)
+      if (branch == target || path ~ "/" target "$" ) print path
+    }
+  ' | head -n 1
+}
+
 megabrain_workspace_create() {
   local project_id="$1" branch="$2" slug="$3" record=false
-  local response id existing_id created=false command_status=0 tag=""
+  local response id existing_id created=false command_status=0 tag="" pr_number=""
   MEGABRAIN_WORKSPACE_TAG_SET=false
   MEGABRAIN_WORKSPACE_TAG_ERROR=""
   shift 3
@@ -299,6 +333,7 @@ megabrain_workspace_create() {
     case "$1" in
       --record) record=true; shift ;;
       --tag) tag="$2"; shift 2 ;;
+      --pr) pr_number="$2"; shift 2 ;;
       *) megabrain_error "unknown Superset workspace option: $1"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
@@ -315,7 +350,11 @@ megabrain_workspace_create() {
     fi
   else
     command_status=0
-    response="$(megabrain_superset workspaces create --local --project "$project_id" --branch "$branch" --name "$slug" --json 2>/dev/null)" || command_status=$?
+    if [ -n "$pr_number" ]; then
+      response="$(megabrain_superset workspaces create --local --project "$project_id" --pr "$pr_number" --name "$slug" --json 2>/dev/null)" || command_status=$?
+    else
+      response="$(megabrain_superset workspaces create --local --project "$project_id" --branch "$branch" --name "$slug" --json 2>/dev/null)" || command_status=$?
+    fi
     id="$(printf '%s' "$response" | jq -r '.result.workspace.id // .result.id // .workspace.id // .id // empty' 2>/dev/null)"
     [ -n "$id" ] && created=true
     if [ -z "$id" ]; then
@@ -1343,13 +1382,14 @@ megabrain_worktree_create_rollback() {
 }
 
 megabrain_worktree_create() {
-  local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" chain_name="" prompt="" label="" worktree_selector="" parent_selector="" orchestrate=false json=false reused=false
+  local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" chain_name="" prompt="" label="" worktree_selector="" parent_selector="" issue="" linear_issue="" pr_number="" orchestrate=false json=false reused=false
   local parent_requested=false no_parent=false parent_path="" parent_branch="" parent_tag=""
-  local lineage_set=false grouping_set=false lineage_error="" grouping_error=""
+  local parent_metadata_set=false parent_metadata_error="" lineage_set=false grouping_set=false lineage_error="" grouping_error=""
+  local links_set=false links_error=""
   local model_explicit=false effort_explicit=false chain_selected=false chain_config=""
   local arg repo_path shared_root worktree_path project_id workspace_id dispatch="" host runtime="" tmux_choice=auto walk_status parent_json
   local project_record workspace_record project_created=false workspace_created=false workspace_existing_id="" worktree_created=false launch_status=0
-  local -a agent_args=()
+  local -a agent_args=() orca_set_args=()
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -1367,6 +1407,21 @@ megabrain_worktree_create() {
         [ "$parent_requested" = false ] || { megabrain_error '--parent cannot be combined with --no-parent'; return "$MEGABRAIN_USAGE_ERROR"; }
         no_parent=true
         shift
+        ;;
+      --issue)
+        [ "$#" -ge 2 ] && [ -n "${2:-}" ] || { megabrain_error '--issue requires a non-empty number'; return "$MEGABRAIN_USAGE_ERROR"; }
+        issue="$2"
+        shift 2
+        ;;
+      --linear-issue)
+        [ "$#" -ge 2 ] && [ -n "${2:-}" ] || { megabrain_error '--linear-issue requires a non-empty identifier or URL'; return "$MEGABRAIN_USAGE_ERROR"; }
+        linear_issue="$2"
+        shift 2
+        ;;
+      --pr)
+        [ "$#" -ge 2 ] && [ -n "${2:-}" ] || { megabrain_error '--pr requires a non-empty number'; return "$MEGABRAIN_USAGE_ERROR"; }
+        pr_number="$2"
+        shift 2
         ;;
       --name) slug="${2:-}"; shift 2 ;;
       --agent) agent="${2:-}"; shift 2 ;;
@@ -1538,9 +1593,13 @@ megabrain_worktree_create() {
     project_created="$(printf '%s' "$project_record" | jq -r '.created // false')"
     workspace_existing_id="$(megabrain_workspace_id_for_target "$branch" 2>/dev/null || true)"
     if [ "$parent_requested" = true ]; then
-      if ! workspace_record="$(megabrain_workspace_create "$project_id" "$branch" "$slug" --tag "$parent_tag" --record)"; then
-        workspace_record=""
+      if [ -n "$pr_number" ]; then
+        workspace_record="$(megabrain_workspace_create "$project_id" "$branch" "$slug" --tag "$parent_tag" --pr "$pr_number" --record)" || workspace_record=""
+      else
+        workspace_record="$(megabrain_workspace_create "$project_id" "$branch" "$slug" --tag "$parent_tag" --record)" || workspace_record=""
       fi
+    elif [ -n "$pr_number" ]; then
+      workspace_record="$(megabrain_workspace_create "$project_id" "$branch" "$slug" --pr "$pr_number" --record)" || workspace_record=""
     elif ! workspace_record="$(megabrain_workspace_create "$project_id" "$branch" "$slug" --record)"; then
       workspace_record=""
     fi
@@ -1564,6 +1623,13 @@ megabrain_worktree_create() {
     fi
   fi
   if [ "$parent_requested" = true ]; then
+    if git -C "$worktree_path" config "branch.$branch.megabrain-parent" "$parent_branch"; then
+      parent_metadata_set=true
+    else
+      parent_metadata_error="Git stack parent metadata was not recorded for $branch"
+    fi
+  fi
+  if [ "$parent_requested" = true ]; then
     if [ "$reused" = true ]; then
       if [ -n "$workspace_id" ]; then
         workspace_record="$(megabrain_workspace_create "" "$branch" "$(basename "$worktree_path")" --tag "$parent_tag" --record 2>/dev/null || true)"
@@ -1575,19 +1641,41 @@ megabrain_worktree_create() {
         grouping_error="Superset workspace is not registered for $worktree_path"
       fi
     fi
+  fi
+  if [ "$parent_requested" = true ] || [ -n "$issue" ] || [ -n "$linear_issue" ]; then
     if megabrain_require_command orca; then
-      if orca worktree set --worktree "path:$worktree_path" --parent-worktree "$parent_selector" --json >/dev/null 2>&1; then
-        lineage_set=true
+      orca_set_args=(worktree set --worktree "path:$worktree_path")
+      if [ "$parent_requested" = true ]; then
+        orca_set_args+=(--parent-worktree "$parent_selector")
+      fi
+      if [ -n "$issue" ]; then
+        orca_set_args+=(--issue "$issue")
+      fi
+      if [ -n "$linear_issue" ]; then
+        orca_set_args+=(--linear-issue "$linear_issue")
+      fi
+      orca_set_args+=(--json)
+      if orca "${orca_set_args[@]}" >/dev/null 2>&1; then
+        [ "$parent_requested" = true ] && lineage_set=true
+        [ -n "$issue" ] || [ -n "$linear_issue" ] && links_set=true
       else
-        lineage_error="Orca parent lineage was not set for $parent_selector"
+        [ "$parent_requested" = true ] && lineage_error="Orca parent lineage was not set for $parent_selector"
+        [ -n "$issue" ] || [ -n "$linear_issue" ] && links_error="Orca issue links were not set"
       fi
     else
-      lineage_error="Orca CLI is not available"
+      [ "$parent_requested" = true ] && lineage_error="Orca CLI is not available"
+      [ -n "$issue" ] || [ -n "$linear_issue" ] && links_error="Orca CLI is not available"
     fi
+  fi
+  if [ "$parent_requested" = true ]; then
     if [ "$json" != true ]; then
       [ "$lineage_set" = true ] || megabrain_notice "$lineage_error"
+      [ "$parent_metadata_set" = true ] || megabrain_notice "${parent_metadata_error:-Git stack parent metadata was not recorded}"
       [ "$grouping_set" = true ] || megabrain_notice "${grouping_error:-Superset parent grouping was not set}"
     fi
+  fi
+  if [ "$json" != true ] && { [ -n "$issue" ] || [ -n "$linear_issue" ]; }; then
+    [ "$links_set" = true ] || megabrain_notice "${links_error:-Orca issue links were not set}"
   fi
   if [ "$json" != true ]; then
     printf 'worktree: %s\nbranch: %s\nworkspace: %s\nreused: %s\n' "$worktree_path" "$branch" "$workspace_id" "$reused"
@@ -1625,18 +1713,21 @@ megabrain_worktree_create() {
       parent_json="$(jq -n --arg selector "$parent_selector" --arg branch "$parent_branch" --arg tag "$parent_tag" \
         --argjson lineageSet "$lineage_set" --arg lineageError "$lineage_error" \
         --argjson groupingSet "$grouping_set" --arg groupingError "$grouping_error" \
-        '{requested: true, selector: $selector, branch: $branch, tag: $tag, lineage: {set: $lineageSet, error: (if $lineageError|length > 0 then $lineageError else null end)}, grouping: {set: $groupingSet, error: (if $groupingError|length > 0 then $groupingError else null end)}}')"
+        --argjson metadataSet "$parent_metadata_set" --arg metadataError "$parent_metadata_error" \
+        '{requested: true, selector: $selector, branch: $branch, tag: $tag, metadata: {set: $metadataSet, error: (if $metadataError|length > 0 then $metadataError else null end)}, lineage: {set: $lineageSet, error: (if $lineageError|length > 0 then $lineageError else null end)}, grouping: {set: $groupingSet, error: (if $groupingError|length > 0 then $groupingError else null end)}}')"
     else
       parent_json='{"requested":false}'
     fi
     if [ -n "${dispatch:-}" ]; then
       jq -n --arg worktree "$worktree_path" --arg branch "$branch" --arg workspace "$workspace_id" --arg dispatch "$dispatch" --arg reused "$reused" --arg runtime "$runtime" \
         --argjson parent "$parent_json" \
-        '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end), dispatch: $dispatch, reused: ($reused == "true"), runtime: $runtime, parent: $parent}'
+        --arg issue "$issue" --arg linearIssue "$linear_issue" --argjson linksSet "$links_set" --arg linksError "$links_error" \
+        '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end), dispatch: $dispatch, reused: ($reused == "true"), runtime: $runtime, parent: $parent, links: {issue: (if $issue|length > 0 then $issue else null end), linearIssue: (if $linearIssue|length > 0 then $linearIssue else null end), set: $linksSet, error: (if $linksError|length > 0 then $linksError else null end)}}'
     else
       jq -n --arg worktree "$worktree_path" --arg branch "$branch" --arg workspace "$workspace_id" --arg reused "$reused" \
         --argjson parent "$parent_json" \
-        '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end), reused: ($reused == "true"), parent: $parent}'
+        --arg issue "$issue" --arg linearIssue "$linear_issue" --argjson linksSet "$links_set" --arg linksError "$links_error" \
+        '{worktree: $worktree, branch: $branch, workspace: (if $workspace|length > 0 then $workspace else null end), reused: ($reused == "true"), parent: $parent, links: {issue: (if $issue|length > 0 then $issue else null end), linearIssue: (if $linearIssue|length > 0 then $linearIssue else null end), set: $linksSet, error: (if $linksError|length > 0 then $linksError else null end)}}'
     fi
   fi
   return 0
@@ -1754,13 +1845,95 @@ megabrain_worktree_finish() {
   fi
 }
 
+megabrain_worktree_pr() {
+  local target="" base="" title="" body="" arg shared_root path repo_path branch parent_branch="" ahead="" response="" json=false
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --base) base="${2:-}"; shift 2 ;;
+      --title) title="${2:-}"; shift 2 ;;
+      --body) body="${2:-}"; shift 2 ;;
+      --json) json=true; shift ;;
+      -h|--help) megabrain_usage_show worktree-pr; return 0 ;;
+      *)
+        [ -z "$target" ] || { megabrain_error "unknown worktree pr option: $arg"; return "$MEGABRAIN_USAGE_ERROR"; }
+        target="$arg"
+        shift
+        ;;
+    esac
+  done
+  [ -n "$target" ] || { megabrain_usage_fail worktree-pr; return "$MEGABRAIN_USAGE_ERROR"; }
+  shared_root="$(megabrain_worktree_root --read-only 2>/dev/null || true)"
+  path="$(megabrain_worktree_target_path "$target" "$shared_root" || true)"
+  [ -n "$path" ] || { megabrain_error "worktree not found: $target"; return 1; }
+  repo_path="$(git -C "$path" rev-parse --show-toplevel)"
+  branch="$(git -C "$path" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  [ -n "$branch" ] || { megabrain_error "cannot open a pull request from detached worktree: $path"; return 1; }
+  [ -n "$title" ] || title="$branch"
+  if [ -z "$base" ]; then
+    parent_branch="$(megabrain_worktree_parent_branch "$path" 2>/dev/null || true)"
+    if [ -n "$parent_branch" ]; then
+      base="$parent_branch"
+    else
+      base="$(megabrain_repo_default_base "$repo_path")"
+    fi
+  fi
+  if ! megabrain_require_command gh; then
+    megabrain_error "gh CLI is not installed"
+    return 1
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    megabrain_error "gh CLI is not authenticated"
+    return 1
+  fi
+  if ! git -C "$path" rev-parse --verify "$base^{commit}" >/dev/null 2>&1; then
+    megabrain_error "pull request base does not exist: $base"
+    return 1
+  fi
+  ahead="$(git -C "$path" rev-list --count "$base..$branch" 2>/dev/null || printf '0')"
+  if [ "$ahead" -eq 0 ]; then
+    megabrain_error "refusing to open a pull request: no commits ahead of base $base"
+    return 1
+  fi
+  response="$(gh pr create --base "$base" --head "$branch" --title "$title" --body "$body" 2>&1)" || {
+    megabrain_error "could not open pull request: $response"
+    return 1
+  }
+  if [ "$json" = true ]; then
+    jq -n --arg path "$path" --arg branch "$branch" --arg base "$base" --arg title "$title" --arg body "$body" --arg url "$response" \
+      '{worktree: $path, branch: $branch, base: $base, title: $title, body: $body, url: $url}'
+  else
+    printf '%s\n' "$response"
+  fi
+}
+
+megabrain_worktree_list_tree_node() {
+  local wanted_parent="$1" indent="$2" line path branch parent in_superset pr_state pr_number pr_url
+  while IFS='|' read -r path branch parent in_superset pr_state pr_number pr_url; do
+    [ -n "$branch" ] || continue
+    [ "$parent" = "$wanted_parent" ] || continue
+    if [ -n "$pr_state" ]; then
+      printf '%s%s %s [%s]\n' "$indent" "$branch" "$path" "$pr_state"
+    else
+      printf '%s%s %s\n' "$indent" "$branch" "$path"
+    fi
+    megabrain_worktree_list_tree_node "$branch" "${indent}  " <<EOF
+${MEGABRAIN_WORKTREE_LIST_ENTRIES}
+EOF
+  done <<EOF
+${MEGABRAIN_WORKTREE_LIST_ENTRIES}
+EOF
+}
+
 megabrain_worktree_list() {
-  local repo_selector="" arg shared_root repo_filter path branch in_superset workspaces_json json=false entry entries
+  local repo_selector="" arg shared_root repo_filter path branch parent in_superset workspaces_json json=false flat=false entry entries pr_json pr_state pr_number pr_url
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --repo) repo_selector="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
+      --flat) flat=true; shift ;;
+      --tree) flat=false; shift ;;
       -h|--help) megabrain_usage_show worktree-list; return 0 ;;
       *) megabrain_error "unknown worktree list option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
@@ -1775,9 +1948,10 @@ megabrain_worktree_list() {
     workspaces_json="$(megabrain_superset_workspaces_json || printf '[]')"
   fi
   entries=''
-  if [ "$json" != true ]; then
+  if [ "$json" != true ] && [ "$flat" = true ]; then
     printf '%-52s %-32s %s\n' PATH BRANCH IN_SUPERSET
   fi
+  MEGABRAIN_WORKTREE_LIST_ENTRIES=''
   for path in "$shared_root"/*; do
     [ -d "$path" ] || continue
     git -C "$path" rev-parse --show-toplevel >/dev/null 2>&1 || continue
@@ -1788,19 +1962,32 @@ megabrain_worktree_list() {
     if printf '%s' "$workspaces_json" | jq -e --arg path "$path" 'any((if type == "array" then . else (.result.workspaces? // .workspaces? // .result? // []) end)[]?; (.worktreePath // .path // .worktree.path // "") == $path)' >/dev/null 2>&1; then
       in_superset="yes"
     fi
+    parent="$(megabrain_worktree_parent_branch "$path" 2>/dev/null || true)"
+    pr_state=""
+    pr_number=""
+    pr_url=""
+    if megabrain_require_command gh; then
+      pr_json="$(gh pr view "$branch" --json number,state,url 2>/dev/null || true)"
+      pr_state="$(printf '%s' "$pr_json" | jq -r '.state // empty' 2>/dev/null || true)"
+      pr_number="$(printf '%s' "$pr_json" | jq -r '.number // empty' 2>/dev/null || true)"
+      pr_url="$(printf '%s' "$pr_json" | jq -r '.url // empty' 2>/dev/null || true)"
+    fi
+    MEGABRAIN_WORKTREE_LIST_ENTRIES="${MEGABRAIN_WORKTREE_LIST_ENTRIES}${path}|${branch}|${parent}|${in_superset}|${pr_state}|${pr_number}|${pr_url}"$'\n'
     if [ "$json" = true ]; then
-      if [ "$in_superset" = yes ]; then
-        entry="$(jq -n --arg path "$path" --arg branch "$branch" '{path: $path, branch: $branch, inSuperset: true}')"
-      else
-        entry="$(jq -n --arg path "$path" --arg branch "$branch" '{path: $path, branch: $branch, inSuperset: false}')"
-      fi
+      entry="$(jq -n --arg path "$path" --arg branch "$branch" --arg parent "$parent" \
+        --arg prState "$pr_state" --arg prNumber "$pr_number" --arg prUrl "$pr_url" \
+        --argjson inSuperset "$(if [ "$in_superset" = yes ]; then printf true; else printf false; fi)" \
+        '{path: $path, branch: $branch, parent: (if $parent|length > 0 then $parent else null end), inSuperset: $inSuperset, pullRequest: (if $prNumber|length > 0 then {number: ($prNumber|tonumber), state: $prState, url: $prUrl} else null end)}')"
       entries="${entries}${entry}"$'\n'
-    else
+    elif [ "$flat" = true ]; then
       printf '%-52s %-32s %s\n' "$path" "$branch" "$in_superset"
     fi
   done
   if [ "$json" = true ]; then
     printf '%s' "$entries" | jq -s .
+  elif [ "$flat" != true ]; then
+    printf '%-52s %-32s\n' BRANCH PATH
+    megabrain_worktree_list_tree_node "" ""
   fi
 }
 
@@ -1853,6 +2040,7 @@ command_worktree() {
   shift || true
   case "$subcommand" in
     create) megabrain_worktree_create "$@" ;;
+    pr|open-pr) megabrain_worktree_pr "$@" ;;
     finish) megabrain_worktree_finish "$@" ;;
     list) megabrain_worktree_list "$@" ;;
     adopt) megabrain_worktree_adopt "$@" ;;

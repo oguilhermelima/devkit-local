@@ -157,10 +157,11 @@ megabrain_usage_line() {
     install) printf 'install [module-id] [--browser chromium|firefox|both] [--yes] [--revert]' ;;
     doctor) printf 'doctor [module-id] [--json]' ;;
     context) printf 'context [--json]' ;;
-    worktree) printf 'worktree create|finish|list|adopt ...' ;;
-    worktree-create) printf 'worktree create --repo <name|path> --branch <branch> [--base <ref>] [--parent <branch:branch|path:path>] [--no-parent] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
+    worktree) printf 'worktree create|pr|finish|list|adopt ...' ;;
+    worktree-create) printf 'worktree create --repo <name|path> --branch <branch> [--base <ref>] [--parent <branch:branch|path:path>] [--no-parent] [--issue <number>] [--linear-issue <identifier-or-url>] [--pr <number>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
+    worktree-pr) printf 'worktree pr <branch|path|slug> [--base <ref>] [--title <text>] [--body <text>] [--json]' ;;
     worktree-finish) printf 'worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]' ;;
-    worktree-list) printf 'worktree list [--repo <name|path>] [--json]' ;;
+    worktree-list) printf 'worktree list [--repo <name|path>] [--tree|--flat] [--json]' ;;
     worktree-adopt) printf 'worktree adopt <path|branch> [--json]' ;;
     terminal-create) printf 'terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]' ;;
     terminal-list) printf 'terminal list [--worktree <path>] [--json]' ;;
