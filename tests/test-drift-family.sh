@@ -39,23 +39,22 @@ assert_equal "$(grep -Fxc '# megabrain recipes (old)' "$pointer_file")" 0
 assert_equal "$(grep -Fxc '# megabrain recipes (new)' "$pointer_file")" 1
 printf 'scenario 1: changed AGENTS pointer replaces the old generated line\n'
 
-agy_root="$work/agy-plugin"
-mkdir -p "$agy_root/skills/megabrain"
-cp "$root/skills/megabrain/SKILL.md" "$agy_root/skills/megabrain/SKILL.md"
 agy() {
   case "${1:-}:${2:-}" in
-    plugin:list) jq -n --arg path "$agy_root" '{plugins:[{name:"megabrain",path:$path}]}' ;;
+    plugin:list) jq -n '{imports:[{name:"megabrain",source:"claude-code",components:["skills"]}]}' ;;
     *) return 1 ;;
   esac
 }
 if ! installer_verify_plugin agy; then
-  fail 'matching agy plugin path and content were reported stale'
+  fail 'matching agy import metadata was reported stale'
 fi
-printf 'changed skill\n' >>"$agy_root/skills/megabrain/SKILL.md"
+agy() {
+  jq -n '{imports:[{name:"megabrain",source:"other",components:["skills"]}]}'
+}
 if installer_verify_plugin agy; then
-  fail 'stale agy plugin content was reported current'
+  fail 'drifted agy import source was reported current'
 fi
-printf 'scenario 2: agy plugin compares installed path and skill content\n'
+printf 'scenario 2: agy plugin validates import source and components\n'
 
 chain_state="$work/chain-state"
 mkdir -p "$chain_state"
