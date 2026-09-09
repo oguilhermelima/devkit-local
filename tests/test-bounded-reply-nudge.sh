@@ -76,16 +76,39 @@ create_meta() {
     "$session_name" "$parent_pane" "" >/dev/null
 }
 
-# A pane can repaint without accepting stdin. Pane movement is not proof that Enter submitted.
-repaint_pane="$(tmux_cmd split-window -d -t "$session_name" -c "$root" -P -F '#{pane_id}' \
-  "sh -c 'n=0; while :; do n=\$((n + 1)); printf \"\\033[2J\\033[HREPAINT %s\\n\\n\\n\" \"\$n\"; sleep 0.1; done'")"
+# A pane can repaint without accepting Enter. Pane movement is not proof that submission occurred.
+repaint_pane='%repaint'
+repaint_composer_file="$state_root/repaint-composer"
+repaint_count=0
+: >"$repaint_composer_file"
+tmux() {
+  local command="${1:-}"
+  case "$command" in
+    capture-pane)
+      repaint_count=$((repaint_count + 1))
+      printf 'REPAINT %s\n' "$repaint_count"
+      cat "$repaint_composer_file"
+      ;;
+    send-keys)
+      case "${4:-}" in
+        -l) printf '%s\n' "${5:-}" >"$repaint_composer_file" ;;
+        C-e) : ;;
+      esac
+      case "$*" in
+        *BSpace*) : >"$repaint_composer_file" ;;
+      esac
+      return 0
+      ;;
+    *) return 0 ;;
+  esac
+}
 repaint_answer='TEXTO QUE NAO SUBMETE'
 repaint_output="$(megabrain_tmux_send_text "$repaint_pane" "$repaint_answer" claude; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
 assert_equal "$repaint_output" queued
-repaint_capture="$(tmux_cmd capture-pane -p -J -t "$repaint_pane" -S -4)"
+repaint_capture="$(cat "$repaint_composer_file")"
 assert_not_contains "$repaint_capture" "$repaint_answer"
-tmux_cmd kill-pane -t "$repaint_pane"
 printf 'repainting pane: ignored activity, queued the nudge, and cleared the composer\n'
+unset -f tmux
 
 # A process that never reads stdin makes a long literal write exercise the real pty backpressure.
 dispatch_id=bounded-reply
@@ -228,10 +251,21 @@ printf 'similar second nudge: transcript text did not override the composer resu
 
 # The durable answer is long, but the transport must type only a short pull pointer.
 log_file="$state_root/tmux-send.log"
+pointer_composer_file="$state_root/pointer-composer"
+: >"$pointer_composer_file"
 tmux() {
   case "${1:-}" in
     display-message) printf '%s\n' "$session_name" ;;
-    send-keys) printf '%s\n' "$*" >>"$log_file" ;;
+    capture-pane) cat "$pointer_composer_file" ;;
+    send-keys)
+      printf '%s\n' "$*" >>"$log_file"
+      case "${4:-}" in
+        -l) printf '%s\n' "${5:-}" >"$pointer_composer_file" ;;
+      esac
+      case "$*" in
+        *BSpace*) : >"$pointer_composer_file" ;;
+      esac
+      ;;
     *) return 0 ;;
   esac
 }
