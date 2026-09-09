@@ -81,6 +81,24 @@ fi
 MEGABRAIN_HOOK_DISPATCH="$MEGABRAIN_FOUND_DISPATCH"
 MEGABRAIN_HOOK_META="$(megabrain_dispatch_meta_read "$MEGABRAIN_HOOK_DISPATCH" 2>/dev/null)" || megabrain_hook_finish
 MEGABRAIN_HOOK_STATE="$(printf '%s' "$MEGABRAIN_HOOK_META" | jq -r '.state // empty' 2>/dev/null)"
+
+megabrain_hook_check_reply() {
+  local output message_count
+  output="$(megabrain_dispatch_child_check --timeout 0 --poll-interval 0 --wait-mode poll --json 2>/dev/null || true)"
+  message_count="$(printf '%s' "$output" | jq -r '(.messages // []) | length' 2>/dev/null || printf '0')"
+  [[ "$message_count" =~ ^[1-9][0-9]*$ ]] || return 0
+  if [ "${MEGABRAIN_HOOK_AGENT:-}" = cursor ]; then
+    MEGABRAIN_HOOK_RESPONSE='{"continue":true}'
+  else
+    MEGABRAIN_HOOK_RESPONSE='{"decision":"block","reason":"megabrain reply available; run megabrain check and act on it"}'
+  fi
+  MEGABRAIN_HOOK_REPLY_AVAILABLE=true
+}
+
+MEGABRAIN_HOOK_REPLY_AVAILABLE=false
+megabrain_hook_check_reply
+[ "$MEGABRAIN_HOOK_REPLY_AVAILABLE" = true ] && megabrain_hook_finish
+
 case "$MEGABRAIN_HOOK_STATE" in
   waiting_for_reply|done|stalled|closed|orphaned) megabrain_hook_finish ;;
 esac
