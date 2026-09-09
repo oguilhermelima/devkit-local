@@ -805,7 +805,7 @@ megabrain_terminal_create() {
 megabrain_worktree_create() {
   local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" chain_name="" prompt="" label="" worktree_selector="" orchestrate=false json=false reused=false
   local model_explicit=false effort_explicit=false chain_selected=false chain_config=""
-  local arg repo_path shared_root worktree_path project_id workspace_id dispatch="" host runtime="" tmux_choice=auto
+  local arg repo_path shared_root worktree_path project_id workspace_id dispatch="" host runtime="" tmux_choice=auto walk_status
   local -a agent_args=()
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -871,23 +871,32 @@ megabrain_worktree_create() {
   host="$(megabrain_context_detect)"
   if [ "$orchestrate" = true ]; then
     if [ -z "$agent" ]; then
-      if ! declare -F megabrain_chain_select_spawn_step >/dev/null 2>&1; then
+      if ! declare -F megabrain_chain_walk >/dev/null 2>&1; then
         # shellcheck source=local/megabrain/lib/module-chain.sh
         source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/module-chain.sh" || return 1
       fi
       chain_config="$(megabrain_chain_read)" || return 1
       megabrain_chain_validate_config "$chain_config" || return 1
       if [ -n "$chain_name" ]; then
-        megabrain_chain_select_spawn_step "$chain_config" "$chain_name" "${SUPERSET_AGENT_ID:-}" "${SUPERSET_AGENT_MODEL:-}" "${SUPERSET_AGENT_EFFORT:-}" flag || return 1
+        megabrain_chain_select "$chain_config" "$chain_name" "${SUPERSET_AGENT_ID:-}" "${SUPERSET_AGENT_MODEL:-}" "${SUPERSET_AGENT_EFFORT:-}" flag || return 1
       else
-        megabrain_chain_select_spawn_step "$chain_config" '' "${SUPERSET_AGENT_ID:-}" "${SUPERSET_AGENT_MODEL:-}" "${SUPERSET_AGENT_EFFORT:-}" selector || return 1
+        megabrain_chain_select "$chain_config" '' "${SUPERSET_AGENT_ID:-}" "${SUPERSET_AGENT_MODEL:-}" "${SUPERSET_AGENT_EFFORT:-}" selector || return 1
       fi
-      agent="$MEGABRAIN_CHAIN_SELECTED_AGENT"
-      [ "$model_explicit" = true ] || model="$MEGABRAIN_CHAIN_SELECTED_MODEL"
-      [ "$effort_explicit" = true ] || effort="$MEGABRAIN_CHAIN_SELECTED_EFFORT"
-      chain_selected=true
-      [ "$model_explicit" = true ] && MEGABRAIN_CHAIN_REASON="$MEGABRAIN_CHAIN_REASON; explicit --model override"
-      [ "$effort_explicit" = true ] && MEGABRAIN_CHAIN_REASON="$MEGABRAIN_CHAIN_REASON; explicit --effort override"
+      if [ "${#agent_args[@]}" -gt 0 ]; then
+        if megabrain_chain_walk "$worktree_selector" "$repo_selector" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$model_explicit" "$effort_explicit" "${agent_args[@]}"; then
+          printf '%s\n' "$MEGABRAIN_CHAIN_WALK_OUTPUT"
+          return 0
+        else
+          walk_status="$?"
+          return "$walk_status"
+        fi
+      elif megabrain_chain_walk "$worktree_selector" "$repo_selector" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$model_explicit" "$effort_explicit"; then
+        printf '%s\n' "$MEGABRAIN_CHAIN_WALK_OUTPUT"
+        return 0
+      else
+        walk_status="$?"
+        return "$walk_status"
+      fi
     fi
     [ -n "$agent" ] || { megabrain_error "no agent selected; add a chain with megabrain chain add or pass --agent"; return "$MEGABRAIN_USAGE_ERROR"; }
     [ -n "$model" ] || { megabrain_error "--model is required for orchestrate spawn"; return "$MEGABRAIN_USAGE_ERROR"; }

@@ -1052,30 +1052,6 @@ megabrain_chain_select() {
   MEGABRAIN_CHAIN_SELECTED_STEPS="$(printf '%s' "$config" | jq -c '.defaultSteps')"
 }
 
-megabrain_chain_select_spawn_step() {
-  local config="$1" explicit_name="${2:-}" parent_agent="${3:-}" parent_model="${4:-}" parent_effort="${5:-}" explicit_source="${6:-selector}"
-  local step_count step report_chain
-  megabrain_chain_select "$config" "$explicit_name" "$parent_agent" "$parent_model" "$parent_effort" "$explicit_source" || return 1
-  step_count="$(printf '%s' "$MEGABRAIN_CHAIN_SELECTED_STEPS" | jq 'length')" || return 1
-  if [ "$step_count" -eq 0 ]; then
-    megabrain_error 'no usable chain steps; add a chain with megabrain chain add'
-    return 1
-  fi
-  step="$(printf '%s' "$MEGABRAIN_CHAIN_SELECTED_STEPS" | jq -c '.[0]')" || return 1
-  MEGABRAIN_CHAIN_SELECTED_AGENT="$(printf '%s' "$step" | jq -r '.agent')"
-  MEGABRAIN_CHAIN_SELECTED_MODEL="$(printf '%s' "$step" | jq -r '.model')"
-  MEGABRAIN_CHAIN_SELECTED_EFFORT="$(printf '%s' "$step" | jq -r '.effort // empty')"
-  report_chain="$MEGABRAIN_CHAIN_SELECTED_NAME"
-  if [ "$MEGABRAIN_CHAIN_SELECTION_DEFAULT" = true ]; then
-    report_chain=defaultSteps
-  fi
-  MEGABRAIN_CHAIN_NAME="$report_chain"
-  MEGABRAIN_CHAIN_STEP=1
-  MEGABRAIN_CHAIN_TOTAL="$step_count"
-  MEGABRAIN_CHAIN_REASON="$MEGABRAIN_CHAIN_SELECTION_REASON"
-  MEGABRAIN_CHAIN_DEFAULT="$MEGABRAIN_CHAIN_SELECTION_DEFAULT"
-}
-
 megabrain_chain_run_spawn() {
   local worktree="$1" repo="$2" branch="$3" base="$4" slug="$5" prompt="$6" label="$7" tmux_choice="$8" model="$9" effort="${10}" agent="${11}"
   local -a agent_args=() spawn_args=() arg
@@ -1114,10 +1090,140 @@ megabrain_chain_clear_dispatch_context() {
   MEGABRAIN_CHAIN_DEFAULT=false
 }
 
+MEGABRAIN_CHAIN_WALK_OUTPUT=""
+MEGABRAIN_CHAIN_WALK_SPAWN_JSON=null
+MEGABRAIN_CHAIN_WALK_AGENT=""
+MEGABRAIN_CHAIN_WALK_STEP=""
+MEGABRAIN_CHAIN_WALK_TOTAL=""
+MEGABRAIN_CHAIN_WALK_REASON=""
+MEGABRAIN_CHAIN_WALK_SKIPPED='[]'
+MEGABRAIN_CHAIN_WALK_DISPATCH_ID=""
+
+# WHY: chain run and orchestrate spawn are two front doors to the same fallback
+# policy. Keeping the limit checks and launch retry in one walk prevents the front
+# door from silently bypassing a chain's usage windows.
+megabrain_chain_walk() {
+  local worktree="$1" repo="$2" branch="$3" base="$4" slug="$5" prompt="$6" label="$7" tmux_choice="$8"
+  local model_override="$9" effort_override="${10}" model_explicit="${11}" effort_explicit="${12}"
+  local step_count index step agent model effort until_json threshold window limit_reason reason reset_text failure_reason final_reason report_chain
+  local spawn_output spawn_json spawn_error error_file dispatch_id spawn_succeeded
+  local -a agent_args=()
+  shift 12
+  [ "$#" -gt 0 ] && agent_args=("$@")
+  MEGABRAIN_CHAIN_WALK_OUTPUT=""
+  MEGABRAIN_CHAIN_WALK_SPAWN_JSON=null
+  MEGABRAIN_CHAIN_WALK_AGENT=""
+  MEGABRAIN_CHAIN_WALK_STEP=""
+  MEGABRAIN_CHAIN_WALK_TOTAL=""
+  MEGABRAIN_CHAIN_WALK_REASON=""
+  MEGABRAIN_CHAIN_WALK_SKIPPED='[]'
+  MEGABRAIN_CHAIN_WALK_DISPATCH_ID=""
+  step_count="$(printf '%s' "$MEGABRAIN_CHAIN_SELECTED_STEPS" | jq 'length')" || return 1
+  report_chain="$MEGABRAIN_CHAIN_SELECTED_NAME"
+  [ "$MEGABRAIN_CHAIN_SELECTION_DEFAULT" = true ] && report_chain=defaultSteps
+  MEGABRAIN_CHAIN_WALK_TOTAL="$step_count"
+  if [ "$step_count" -eq 0 ]; then
+    MEGABRAIN_CHAIN_WALK_REASON='chain has no usable steps; add a chain with megabrain chain add'
+    megabrain_error 'no usable chain steps; add a chain with megabrain chain add'
+    return 1
+  fi
+  error_file="$(mktemp "$MEGABRAIN_STATE_DIR/chain-run.XXXXXX")" || return 1
+  index=0
+  while IFS= read -r step; do
+    index=$((index + 1))
+    agent="$(printf '%s' "$step" | jq -r '.agent')"
+    model="$(printf '%s' "$step" | jq -r '.model')"
+    effort="$(printf '%s' "$step" | jq -r '.effort // empty')"
+    [ "$model_explicit" = true ] && model="$model_override"
+    [ "$effort_explicit" = true ] && effort="$effort_override"
+    if [ "$model_explicit" = true ] || [ "$effort_explicit" = true ]; then
+      if ! megabrain_model_known "$agent" "$model"; then
+        rm -f "$error_file"
+        megabrain_error "--model '$model' is not valid for chain-selected agent '$agent'; list models with megabrain model list"
+        return "$MEGABRAIN_USAGE_ERROR"
+      fi
+      if ! megabrain_model_validate_reasoning "$agent" "$model" "$effort"; then
+        rm -f "$error_file"
+        return "$MEGABRAIN_USAGE_ERROR"
+      fi
+    fi
+    until_json="$(printf '%s' "$step" | jq -c '.until // empty')"
+    limit_reason=""
+    MEGABRAIN_CHAIN_LIMIT_RESETS=""
+    if [ -n "$until_json" ]; then
+      threshold="$(printf '%s' "$until_json" | jq -r '.usedPercent')"
+      window="$(printf '%s' "$until_json" | jq -r '.window')"
+      megabrain_chain_limit_read "$agent" "$window"
+      limit_reason="$MEGABRAIN_CHAIN_LIMIT_REASON"
+      if [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = current ] && awk -v used="$MEGABRAIN_CHAIN_LIMIT_USED" -v threshold="$threshold" 'BEGIN { exit !(used >= threshold) }'; then
+        reset_text=""
+        [ -n "$MEGABRAIN_CHAIN_LIMIT_RESETS" ] && reset_text="; resets at $(megabrain_chain_reset_display "$MEGABRAIN_CHAIN_LIMIT_RESETS")"
+        reason="$MEGABRAIN_CHAIN_LIMIT_REASON$reset_text"
+        MEGABRAIN_CHAIN_WALK_SKIPPED="$(printf '%s' "$MEGABRAIN_CHAIN_WALK_SKIPPED" | jq --argjson step "$index" --arg agent "$agent" --arg reason "$reason" '. + [{step: $step, agent: $agent, kind: "limit", reason: $reason}]')"
+        continue
+      fi
+    fi
+    final_reason="$(printf '%s' "$MEGABRAIN_CHAIN_WALK_SKIPPED" | jq -r '[.[].reason] | join("; ")')"
+    [ -n "$final_reason" ] || final_reason='no earlier steps skipped'
+    if [ "$MEGABRAIN_CHAIN_SELECTION_DEFAULT" = true ]; then
+      final_reason="used defaultSteps; $final_reason"
+    else
+      final_reason="$final_reason; $MEGABRAIN_CHAIN_SELECTION_REASON"
+    fi
+    [ "$model_explicit" = true ] && final_reason="$final_reason; explicit --model override"
+    [ "$effort_explicit" = true ] && final_reason="$final_reason; explicit --effort override"
+    [ -n "$limit_reason" ] && [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = unknown ] && final_reason="$final_reason; $limit_reason"
+    MEGABRAIN_CHAIN_NAME="$report_chain"
+    MEGABRAIN_CHAIN_STEP="$index"
+    MEGABRAIN_CHAIN_TOTAL="$step_count"
+    MEGABRAIN_CHAIN_REASON="$final_reason"
+    MEGABRAIN_CHAIN_DEFAULT="$MEGABRAIN_CHAIN_SELECTION_DEFAULT"
+    spawn_succeeded=false
+    if [ "${#agent_args[@]}" -gt 0 ]; then
+      if spawn_output="$(megabrain_chain_run_spawn "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$agent" "${agent_args[@]}" 2>"$error_file")"; then
+        spawn_succeeded=true
+      fi
+    else
+      if spawn_output="$(megabrain_chain_run_spawn "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$agent" 2>"$error_file")"; then
+        spawn_succeeded=true
+      fi
+    fi
+    if [ "$spawn_succeeded" = true ]; then
+      cat "$error_file" >&2
+      if printf '%s' "$spawn_output" | jq -e . >/dev/null 2>&1; then
+        spawn_json="$spawn_output"
+      else
+        spawn_json=null
+      fi
+      dispatch_id="$(printf '%s' "$spawn_json" | jq -r '.dispatch // empty' 2>/dev/null)"
+      if [ -n "$dispatch_id" ]; then
+        megabrain_chain_usage_notice_maybe "$dispatch_id"
+      fi
+      MEGABRAIN_CHAIN_WALK_OUTPUT="$spawn_output"
+      MEGABRAIN_CHAIN_WALK_SPAWN_JSON="$spawn_json"
+      MEGABRAIN_CHAIN_WALK_AGENT="$agent"
+      MEGABRAIN_CHAIN_WALK_STEP="$index"
+      MEGABRAIN_CHAIN_WALK_REASON="$final_reason"
+      MEGABRAIN_CHAIN_WALK_DISPATCH_ID="$dispatch_id"
+      rm -f "$error_file"
+      return 0
+    fi
+    spawn_error="$(cat "$error_file")"
+    [ -n "$spawn_error" ] || spawn_error='launch failed'
+    failure_reason="$agent launch failed: $spawn_error"
+    [ -n "$limit_reason" ] && [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = unknown ] && failure_reason="$failure_reason; $limit_reason"
+    MEGABRAIN_CHAIN_WALK_SKIPPED="$(printf '%s' "$MEGABRAIN_CHAIN_WALK_SKIPPED" | jq --argjson step "$index" --arg agent "$agent" --arg reason "$failure_reason" '. + [{step: $step, agent: $agent, kind: "failure", reason: $reason}]')"
+  done < <(printf '%s' "$MEGABRAIN_CHAIN_SELECTED_STEPS" | jq -c '.[]')
+  rm -f "$error_file"
+  MEGABRAIN_CHAIN_WALK_REASON="$(printf '%s' "$MEGABRAIN_CHAIN_WALK_SKIPPED" | jq -r '[.[].reason] | join("; ")')"
+  [ -n "$MEGABRAIN_CHAIN_WALK_REASON" ] || MEGABRAIN_CHAIN_WALK_REASON='chain has no usable steps; add a chain with megabrain chain add'
+  return 1
+}
+
 command_chain_run() {
   local explicit_name="" chain_option="" selection_name="" selection_source=name parent_agent="${SUPERSET_AGENT_ID:-}" parent_model="${SUPERSET_AGENT_MODEL:-}" parent_effort="${SUPERSET_AGENT_EFFORT:-}"
   local repo="" branch="" base="" slug="" worktree="" prompt="" label="" tmux_choice="" json=false arg config step_count index step agent model effort until_json threshold window
-  local spawn_output spawn_json spawn_error error_file reason limit_reason reset_text failure_reason final_reason report_chain reasons_json spawn_succeeded dispatch_id
+  local spawn_output spawn_json spawn_error error_file reason limit_reason reset_text failure_reason final_reason report_chain reasons_json spawn_succeeded dispatch_id walk_status
   local -a agent_args=()
   if [ "$#" -gt 0 ] && [ "${1#--}" = "$1" ]; then
     explicit_name="$1"
@@ -1166,87 +1272,38 @@ command_chain_run() {
     selection_name="$chain_option"
   fi
   megabrain_chain_select "$config" "$selection_name" "$parent_agent" "$parent_model" "$parent_effort" "$selection_source" || return 1
-  step_count="$(printf '%s' "$MEGABRAIN_CHAIN_SELECTED_STEPS" | jq 'length')"
+  if [ "${#agent_args[@]}" -gt 0 ]; then
+    if megabrain_chain_walk "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "" "" false false "${agent_args[@]}"; then
+      walk_status=0
+    else
+      walk_status="$?"
+    fi
+  elif megabrain_chain_walk "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "" "" false false; then
+    walk_status=0
+  else
+    walk_status="$?"
+  fi
+  step_count="$MEGABRAIN_CHAIN_WALK_TOTAL"
   report_chain="$MEGABRAIN_CHAIN_SELECTED_NAME"
   [ "$MEGABRAIN_CHAIN_SELECTION_DEFAULT" = true ] && report_chain=defaultSteps
-  reasons_json='[]'
-  error_file="$(mktemp "$MEGABRAIN_STATE_DIR/chain-run.XXXXXX")" || return 1
-  index=0
-  while IFS= read -r step; do
-    index=$((index + 1))
-    agent="$(printf '%s' "$step" | jq -r '.agent')"
-    model="$(printf '%s' "$step" | jq -r '.model')"
-    effort="$(printf '%s' "$step" | jq -r '.effort // empty')"
-    until_json="$(printf '%s' "$step" | jq -c '.until // empty')"
-    limit_reason=""
-    MEGABRAIN_CHAIN_LIMIT_RESETS=""
-    if [ -n "$until_json" ]; then
-      threshold="$(printf '%s' "$until_json" | jq -r '.usedPercent')"
-      window="$(printf '%s' "$until_json" | jq -r '.window')"
-      megabrain_chain_limit_read "$agent" "$window"
-      limit_reason="$MEGABRAIN_CHAIN_LIMIT_REASON"
-      if [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = current ] && awk -v used="$MEGABRAIN_CHAIN_LIMIT_USED" -v threshold="$threshold" 'BEGIN { exit !(used >= threshold) }'; then
-        reset_text=""
-        [ -n "$MEGABRAIN_CHAIN_LIMIT_RESETS" ] && reset_text="; resets at $(megabrain_chain_reset_display "$MEGABRAIN_CHAIN_LIMIT_RESETS")"
-        reason="$MEGABRAIN_CHAIN_LIMIT_REASON$reset_text"
-        reasons_json="$(printf '%s' "$reasons_json" | jq --argjson step "$index" --arg agent "$agent" --arg reason "$reason" '. + [{step: $step, agent: $agent, kind: "limit", reason: $reason}]')"
-        continue
-      fi
-    fi
-    final_reason="$(printf '%s' "$reasons_json" | jq -r '[.[].reason] | join("; ")')"
-    [ -n "$final_reason" ] || final_reason="no earlier steps skipped"
-    if [ "$MEGABRAIN_CHAIN_SELECTION_DEFAULT" = true ]; then
-      final_reason="used defaultSteps; $final_reason"
+  reasons_json="$MEGABRAIN_CHAIN_WALK_SKIPPED"
+  if [ "$walk_status" -eq 0 ]; then
+    spawn_output="$MEGABRAIN_CHAIN_WALK_OUTPUT"
+    spawn_json="$MEGABRAIN_CHAIN_WALK_SPAWN_JSON"
+    index="$MEGABRAIN_CHAIN_WALK_STEP"
+    agent="$MEGABRAIN_CHAIN_WALK_AGENT"
+    final_reason="$MEGABRAIN_CHAIN_WALK_REASON"
+    if [ "$json" = true ]; then
+      jq -cn --arg chain "$report_chain" --argjson step "$index" --argjson total "$step_count" --arg reason "$final_reason" --argjson skipped "$reasons_json" --arg agent "$agent" --argjson spawn "$spawn_json" '{ok: true, chain: $chain, step: $step, totalSteps: $total, agent: $agent, reason: $reason, skipped: $skipped, dispatch: $spawn}'
     else
-      final_reason="$final_reason; $MEGABRAIN_CHAIN_SELECTION_REASON"
+      printf 'chain %s, step %s of %s, reason: %s\n' "$report_chain" "$index" "$step_count" "$final_reason"
+      printf '%s\n' "$spawn_output"
     fi
-    [ -n "$limit_reason" ] && [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = unknown ] && final_reason="$final_reason; $limit_reason"
-    MEGABRAIN_CHAIN_NAME="$report_chain"
-    MEGABRAIN_CHAIN_STEP="$index"
-    MEGABRAIN_CHAIN_TOTAL="$step_count"
-    MEGABRAIN_CHAIN_REASON="$final_reason"
-    MEGABRAIN_CHAIN_DEFAULT="$MEGABRAIN_CHAIN_SELECTION_DEFAULT"
-    spawn_succeeded=false
-    if [ "${#agent_args[@]}" -gt 0 ]; then
-      if spawn_output="$(megabrain_chain_run_spawn "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$agent" "${agent_args[@]}" 2>"$error_file")"; then
-        spawn_succeeded=true
-      fi
-    else
-      if spawn_output="$(megabrain_chain_run_spawn "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$agent" 2>"$error_file")"; then
-        spawn_succeeded=true
-      fi
-    fi
-    if [ "$spawn_succeeded" = true ]; then
-      cat "$error_file" >&2
-      if printf '%s' "$spawn_output" | jq -e . >/dev/null 2>&1; then
-        spawn_json="$spawn_output"
-      else
-        spawn_json=null
-      fi
-      dispatch_id="$(printf '%s' "$spawn_json" | jq -r '.dispatch // empty' 2>/dev/null)"
-      if [ -n "$dispatch_id" ]; then
-        megabrain_chain_usage_notice_maybe "$dispatch_id"
-      fi
-      if [ "$json" = true ]; then
-        jq -cn --arg chain "$report_chain" --argjson step "$index" --argjson total "$step_count" --arg reason "$final_reason" --argjson skipped "$reasons_json" --arg agent "$agent" --argjson spawn "$spawn_json" '{ok: true, chain: $chain, step: $step, totalSteps: $total, agent: $agent, reason: $reason, skipped: $skipped, dispatch: $spawn}'
-      else
-        printf 'chain %s, step %s of %s, reason: %s\n' "$report_chain" "$index" "$step_count" "$final_reason"
-        printf '%s\n' "$spawn_output"
-      fi
-      rm -f "$error_file"
-      megabrain_chain_clear_dispatch_context
-      return 0
-    fi
-    spawn_error="$(cat "$error_file")"
-    [ -n "$spawn_error" ] || spawn_error="launch failed"
-    failure_reason="$agent launch failed: $spawn_error"
-    [ -n "$limit_reason" ] && [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = unknown ] && failure_reason="$failure_reason; $limit_reason"
-    reasons_json="$(printf '%s' "$reasons_json" | jq --argjson step "$index" --arg agent "$agent" --arg reason "$failure_reason" '. + [{step: $step, agent: $agent, kind: "failure", reason: $reason}]')"
-  done < <(printf '%s' "$MEGABRAIN_CHAIN_SELECTED_STEPS" | jq -c '.[]')
-  rm -f "$error_file"
+    megabrain_chain_clear_dispatch_context
+    return 0
+  fi
+  final_reason="$MEGABRAIN_CHAIN_WALK_REASON"
   megabrain_chain_clear_dispatch_context
-  final_reason="$(printf '%s' "$reasons_json" | jq -r '[.[].reason] | join("; ")')"
-  [ -n "$final_reason" ] || final_reason="chain has no usable steps; add a chain with megabrain chain add"
   if [ "$json" = true ]; then
     jq -cn --arg chain "$report_chain" --argjson total "$step_count" --arg reason "$final_reason" --argjson skipped "$reasons_json" '{ok: false, chain: $chain, totalSteps: $total, reason: $reason, skipped: $skipped}'
   else
