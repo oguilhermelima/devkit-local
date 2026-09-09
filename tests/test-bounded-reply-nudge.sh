@@ -76,6 +76,17 @@ create_meta() {
     "$session_name" "$parent_pane" "" >/dev/null
 }
 
+# A pane can repaint without accepting stdin. Pane movement is not proof that Enter submitted.
+repaint_pane="$(tmux_cmd split-window -d -t "$session_name" -c "$root" -P -F '#{pane_id}' \
+  "sh -c 'n=0; while :; do n=\$((n + 1)); printf \"\\033[2J\\033[HREPAINT %s\\n\\n\\n\" \"\$n\"; sleep 0.1; done'")"
+repaint_answer='TEXTO QUE NAO SUBMETE'
+repaint_output="$(megabrain_tmux_send_text "$repaint_pane" "$repaint_answer" claude; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
+assert_equal "$repaint_output" queued
+repaint_capture="$(tmux_cmd capture-pane -p -J -t "$repaint_pane" -S -4)"
+assert_not_contains "$repaint_capture" "$repaint_answer"
+tmux_cmd kill-pane -t "$repaint_pane"
+printf 'repainting pane: ignored activity, queued the nudge, and cleared the composer\n'
+
 # A process that never reads stdin makes a long literal write exercise the real pty backpressure.
 dispatch_id=bounded-reply
 create_meta "$dispatch_id" "$child_pane"
@@ -172,6 +183,48 @@ accepted_message="$state_root/state/dispatches/$dispatch_id/messages"/*.json
 assert_equal "$(find "$state_root/state/dispatches/$dispatch_id/messages" -name '*.json' | wc -l | tr -d ' ')" 1
 assert_equal "$(jq -r '.text' $accepted_message)" "$accepted_answer"
 printf 'accepted composer: Enter reports replied and keeps one queue message\n'
+
+# A prior pointer in the transcript must not make a similar, newly submitted pointer look queued.
+second_composer_file="$state_root/second-composer"
+second_transcript='megabrain check --timeout 120 dispatch-old'
+second_answer='megabrain check --timeout 120 dispatch-new'
+: >"$second_composer_file"
+mock_mode=accept
+tmux() {
+  local command="${1:-}" pane_output
+  case "$command" in
+    display-message) printf '%s\n' "$session_name" ;;
+    capture-pane)
+      pane_output="$(
+        printf '%s\n' "$second_transcript"
+        printf 'history filler\n%.0s' 1 2 3 4 5 6
+        cat "$second_composer_file"
+      )"
+      case "$*" in
+        *'-S -4'*) printf '%s\n' "$pane_output" | tail -n 4 ;;
+        *) printf '%s\n' "$pane_output" ;;
+      esac
+      ;;
+    send-keys)
+      case "${4:-}" in
+        -l) printf '%s\n' "${5:-}" >"$second_composer_file" ;;
+        Enter)
+          if [ "$mock_mode" = accept ]; then : >"$second_composer_file"; fi
+          ;;
+        C-e) : ;;
+      esac
+      case "$*" in
+        *BSpace*) : >"$second_composer_file" ;;
+      esac
+      return 0
+      ;;
+    *) return 0 ;;
+  esac
+}
+second_output="$(megabrain_tmux_send_text %second "$second_answer" claude; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
+assert_equal "$second_output" replied
+assert_equal "$(cat "$second_composer_file")" ''
+printf 'similar second nudge: transcript text did not override the composer result\n'
 
 # The durable answer is long, but the transport must type only a short pull pointer.
 log_file="$state_root/tmux-send.log"
