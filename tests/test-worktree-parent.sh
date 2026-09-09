@@ -51,6 +51,8 @@ megabrain_require_command() {
 
 setup_fixture() {
   local branch="${1:-stack/base}"
+  orca_mode=success
+  tag_mode=success
   rm -rf "$work_dir/repo" "$work_dir/shared" "$work_dir/state" "$work_dir/calls.log"
   mkdir -p "$work_dir/shared" "$work_dir/state"
   repo_dir="$work_dir/repo"
@@ -109,6 +111,8 @@ megabrain_superset() {
 scenario_without_parent_does_not_decorate() {
   local output
   setup_fixture
+  orca_mode=success
+  tag_mode=success
   output="$(megabrain_worktree_create --repo "$repo_dir" --branch stack/child --json)"
   assert_equal "$(printf '%s' "$output" | jq -r '.parent.requested')" false
   assert_not_contains "$(cat "$work_dir/calls.log")" 'orca worktree set'
@@ -119,6 +123,8 @@ scenario_without_parent_does_not_decorate() {
 scenario_parent_sets_both_sides() {
   local output calls parent_path child_path
   setup_fixture 'stack/base/branch'
+  orca_mode=success
+  tag_mode=success
   parent_path="$fixture_shared_root/parent"
   child_path="$fixture_shared_root/stack-child"
   output="$(megabrain_worktree_create --repo "$repo_dir" --branch stack/child --parent "path:$parent_path" --json)"
@@ -135,6 +141,8 @@ scenario_parent_sets_both_sides() {
 scenario_unresolvable_parent_is_preflight_error() {
   local output child_path
   setup_fixture
+  orca_mode=success
+  tag_mode=success
   child_path="$fixture_shared_root/stack-child"
   if output="$(megabrain_worktree_create --repo "$repo_dir" --branch stack/child --parent branch:missing --json 2>&1)"; then
     fail 'unresolvable parent unexpectedly succeeded'
@@ -149,6 +157,7 @@ scenario_lineage_failure_is_reported_but_non_fatal() {
   local output
   setup_fixture
   orca_mode=fail
+  tag_mode=success
   output="$(megabrain_worktree_create --repo "$repo_dir" --branch stack/child --parent branch:stack/base --json)"
   assert_equal "$(printf '%s' "$output" | jq -r '.parent.lineage.set')" false
   assert_equal "$(printf '%s' "$output" | jq -r '.parent.grouping.set')" true
@@ -159,6 +168,7 @@ scenario_lineage_failure_is_reported_but_non_fatal() {
 scenario_grouping_failure_is_reported_but_non_fatal() {
   local output
   setup_fixture
+  orca_mode=success
   tag_mode=fail
   output="$(megabrain_worktree_create --repo "$repo_dir" --branch stack/child --parent branch:stack/base --json)"
   assert_equal "$(printf '%s' "$output" | jq -r '.parent.lineage.set')" true
@@ -170,6 +180,8 @@ scenario_grouping_failure_is_reported_but_non_fatal() {
 scenario_parent_flags_are_mutually_exclusive() {
   local output
   setup_fixture
+  orca_mode=success
+  tag_mode=success
   if output="$(megabrain_worktree_create --repo "$repo_dir" --branch stack/child --parent branch:stack/base --no-parent --json 2>&1)"; then
     fail '--parent and --no-parent unexpectedly succeeded'
   fi
