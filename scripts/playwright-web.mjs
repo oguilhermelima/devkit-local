@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-export const PLAYWRIGHT_VERSION = '1.63.0';
+export const PLAYWRIGHT_VERSION = '1.62.1';
 export const DEFAULT_ROOT = path.join(os.homedir(), '.megabrain', 'playwright');
 export const DEFAULT_USERSCRIPTS = path.join(os.homedir(), '.megabrain', 'userscripts');
 export const EXTENSION_IDS = {
@@ -382,17 +382,27 @@ async function installUserScript(root, userscripts, name) {
   const manifest = manifestFor(root);
   if (!manifest.profiles?.chromium) throw new Error('Chromium profile is not installed; userscripts require Chromium');
   const source = userScriptSource(userscripts, name);
+  const installUrl = `https://megabrain.local/userscripts/${name}`;
   const { context } = await loadChromium(root, manifest, { chromeUrls: true });
   try {
     const worker = await extensionWorker(context, 'Violentmonkey');
     const extensionId = new URL(worker.url()).hostname;
     await toggleUserScripts(context, extensionId);
+    const before = await sendToOptions(context, extensionId, { cmd: 'GetData', data: { sizes: true } });
+    const previous = (before?.scripts || []).find(item => item.props?.id === (manifest.userscripts || []).find(record => record.name === name)?.id ||
+      item.custom?.lastInstallURL === installUrl || item.meta?.name === name.replace(/\.user\.js$/, '') || item.meta?.name === name);
     const response = await sendToOptions(context, extensionId, {
       cmd: 'ParseScript',
-      data: { code: source.code, url: `https://megabrain.local/userscripts/${name}`, update: true, isNew: true },
+      data: {
+        code: source.code,
+        url: installUrl,
+        update: true,
+        isNew: !previous,
+        ...(previous?.props?.id != null ? { id: previous.props.id } : {}),
+      },
     });
     const message = response?.update?.message || '';
-    if (response?.error || !/Script instalado|installed/i.test(message)) throw new Error(`Violentmonkey rejected ${name}: ${response?.error || message || JSON.stringify(response)}`);
+    if (response?.error || !/Script instalado|Script atualizado|installed|updated|atualiz/i.test(message)) throw new Error(`Violentmonkey rejected ${name}: ${response?.error || message || JSON.stringify(response)}`);
     const data = await sendToOptions(context, extensionId, { cmd: 'GetData', data: { sizes: true } });
     const installed = data?.scripts?.find(item => item.meta?.name === name.replace(/\.user\.js$/, '') || item.meta?.name === name);
     manifest.userscripts = upsertUserScriptRecord(manifest.userscripts || [], {
