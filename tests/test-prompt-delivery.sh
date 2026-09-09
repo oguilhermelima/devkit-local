@@ -121,6 +121,49 @@ megabrain_tmux_send_text %1 'responsive message'
 assert_equal "$tmux_enter_count" 1
 printf 'message delivery: responsive pane stops after the first Enter\n'
 
+# pane_current_command proves that the agent process exists, not that its composer
+# accepts input. This fake keeps reporting codex while MCP startup is visible and
+# exposes Codex's measured idle-composer text only on the third capture.
+readiness_capture_count=0
+readiness_send_log="$state_dir/readiness-sends"
+: >"$readiness_send_log"
+tmux() {
+  local command="${1:-}" format="${5:-}"
+  case "$command" in
+    display-message)
+      case "$format" in
+        '#{pane_current_command}') printf 'codex\n' ;;
+        '#{pane_height}') printf '20\n' ;;
+        *) return 1 ;;
+      esac
+      return 0
+      ;;
+    send-keys)
+      if [ "${4:-}" = -l ]; then
+        printf '%s\t%s\n' "$([ "$readiness_capture_count" -ge 3 ] && printf ready || printf starting)" "${5:-}" >>"$readiness_send_log"
+      fi
+      return 0
+      ;;
+    capture-pane)
+      readiness_capture_count=$((readiness_capture_count + 1))
+      if [ "$readiness_capture_count" -ge 3 ]; then
+        printf '› Ask Codex to do anything\n'
+      else
+        printf 'Starting MCP servers (2/4): codex_apps, playwright\n'
+      fi
+      return 0
+      ;;
+    *) return 1 ;;
+  esac
+}
+export MEGABRAIN_TMUX_SETTLE_ATTEMPTS=3
+export MEGABRAIN_TMUX_SETTLE_SECONDS=0
+megabrain_tmux_settle_pane %1 codex || fail 'pane readiness unexpectedly timed out'
+megabrain_tmux_send_agent %1 'prompt sent only after composer readiness' prompt || fail 'ready fake pane rejected prompt'
+assert_equal "$(sed -n '1p' "$readiness_send_log" | cut -f1)" ready
+assert_equal "$(sed -n '1p' "$readiness_send_log" | cut -f2-)" 'prompt sent only after composer readiness'
+printf 'composer readiness: prompt waits for Codex idle-composer signal\n'
+
 create_dispatch running-reply running
 reply_result="$(megabrain_dispatch_reply running-reply --text 'Continue work' --json)"
 assert_equal "$(jq -r '.status' <<<"$reply_result")" queued
