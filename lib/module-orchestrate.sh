@@ -12,6 +12,10 @@ MEGABRAIN_DISPATCH_CLOSE_OUTCOME=unknown
 MEGABRAIN_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS=60
 MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS=7
 
+megabrain_dispatch_prune_states() {
+  printf 'closed,done,failed,orphaned,circuit_broken,timeout\n'
+}
+
 if ! declare -F megabrain_dispatch_preamble >/dev/null 2>&1; then
   # shellcheck source=local/megabrain/lib/module-facts.sh
   source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/module-facts.sh"
@@ -541,20 +545,23 @@ megabrain_dispatch_health_counts() {
   done
   MODULE_UNCERTAIN_DISPATCHES="$(printf '%s' "$records" | jq '[.[] | select((.processState // "") == "start-unproven" or (.processState // "") == "stop-unproven" or (.processState // "") == "abandoned")] | length')"
   MODULE_RETAINED_TERMINALS="$(printf '%s' "$records" | jq '[.[] | select((.terminalState // "") == "retained")] | length')"
-  MODULE_PRUNABLE_DISPATCHES="$(printf '%s' "$records" | jq --argjson cutoff "$(($(date -u +%s) - MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS * 86400))" '
-    [.[]
-      | select((.state // "") == "closed" or (.state // "") == "done" or (.state // "") == "failed" or (.state // "") == "orphaned" or (.state // "") == "circuit_broken" or (.state // "") == "timeout")
-      | ((.updatedAt // .createdAt) // "") as $timestamp
-      | (try ($timestamp | fromdateiso8601) catch null) as $epoch
-      | select($epoch != null and $epoch <= $cutoff)]
-    | length')"
+  cutoff=$(( $(date -u +%s) - MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS * 86400 ))
+  for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
+    [ -f "$meta_path" ] || continue
+    state="$(jq -r '.state // empty' "$meta_path" 2>/dev/null || true)"
+    megabrain_dispatch_prune_state_terminal "$state" || continue
+    timestamp="$(jq -r 'if has("updatedAt") and .updatedAt != null and .updatedAt != "" then .updatedAt else .createdAt // empty end' "$meta_path" 2>/dev/null || true)"
+    timestamp_epoch="$(megabrain_dispatch_timestamp_epoch "$timestamp" 2>/dev/null || true)"
+    [[ "$timestamp_epoch" =~ ^[0-9]+$ ]] && [ "$timestamp_epoch" -le "$cutoff" ] || continue
+    MODULE_PRUNABLE_DISPATCHES=$((MODULE_PRUNABLE_DISPATCHES + 1))
+  done
 }
 
 megabrain_dispatch_prune_state_terminal() {
   # WHY: this is the archive policy, narrower than the transition table. A state may
   # still be recoverable (orphaned) while old dispatch records are safe to archive.
-  case "$1" in
-    closed|done|failed|orphaned|circuit_broken|timeout) return 0 ;;
+  case ",$(megabrain_dispatch_prune_states)," in
+    *,"$1",*) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -577,7 +584,7 @@ megabrain_dispatch_timestamp_epoch() {
 }
 
 megabrain_dispatch_prune() {
-  local older_than="$MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS" state_filter="closed,done,failed,orphaned,circuit_broken,timeout"
+  local older_than="$MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS" state_filter="$(megabrain_dispatch_prune_states)"
   local mode=archive dry_run=false json=false arg now_epoch cutoff archive_month
   local meta_path dispatch_dir dispatch_id state timestamp timestamp_epoch reason target
   local archived_ids='[]' deleted_ids='[]' skipped_dispatches='[]'
