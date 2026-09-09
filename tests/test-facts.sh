@@ -76,6 +76,8 @@ printf 'edit changes one fact through the validated temporary copy\n'
 preamble="$(bash -c 'source "$1/lib/common.sh"; source "$1/lib/module-orchestrate.sh"; megabrain_dispatch_preamble "$1"' _ "$root")"
 assert_contains "$preamble" 'received to confirm that you received this prompt'
 assert_contains "$preamble" 'ask "your question"'
+assert_contains "$preamble" 'check until a reply arrives'
+assert_contains "$preamble" 'ack <delivery-id>'
 assert_contains "$preamble" 'done "short outcome summary"'
 assert_not_contains "$preamble" './megabrain'
 assert_not_contains "$preamble" './megabrain'
