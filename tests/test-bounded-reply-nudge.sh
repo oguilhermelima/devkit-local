@@ -110,7 +110,8 @@ assert_not_contains "$repaint_capture" "$repaint_answer"
 printf 'repainting pane: ignored activity, queued the nudge, and cleared the composer\n'
 unset -f tmux
 
-# A process that never reads stdin makes a long literal write exercise the real pty backpressure.
+# A process that never reads stdin exercises the real pty backpressure. This is a
+# transport-bound test only; the composer-delivery proof is the repainting scenario above.
 dispatch_id=bounded-reply
 create_meta "$dispatch_id" "$child_pane"
 answer="$(printf '%65536s' '' | tr ' ' x)"
@@ -248,6 +249,21 @@ second_output="$(megabrain_tmux_send_text %second "$second_answer" claude; print
 assert_equal "$second_output" replied
 assert_equal "$(cat "$second_composer_file")" ''
 printf 'similar second nudge: transcript text did not override the composer result\n'
+
+# Width is read from the target pane, so the cap follows narrow and wide terminals.
+nudge_width=70
+tmux() {
+  case "$1" in
+    display-message) printf '%s\n' "$nudge_width" ;;
+    *) return 0 ;;
+  esac
+}
+long_nudge='[megabrain] mail available; run megabrain orchestrate watch dispatch-with-a-very-long-identifier'
+capped_nudge="$(megabrain_tmux_nudge_text_for_pane %width "$long_nudge")"
+assert_equal "$(printf '%s' "$capped_nudge" | wc -c | tr -d ' ')" "$nudge_width"
+assert_contains "$capped_nudge" '…'
+printf 'nudge width: text is capped to pane columns with an ellipsis\n'
+unset -f tmux
 
 # The durable answer is long, but the transport must type only a short pull pointer.
 log_file="$state_root/tmux-send.log"

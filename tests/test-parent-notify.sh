@@ -76,6 +76,13 @@ append_message() {
   megabrain_dispatch_message_append "$dispatch_id" child ask "$text" "$dispatch_id-child" >/dev/null
 }
 
+single_pointer="$(megabrain_parent_notify_pointer dispatch-id)"
+assert_equal "$single_pointer" '[megabrain] mail: megabrain orchestrate watch <id>'
+many_pointer="$(megabrain_parent_notify_pointer_many 3 'dispatch-one, dispatch-two, dispatch-three')"
+assert_equal "$many_pointer" '[megabrain] 3 mails: megabrain orchestrate watch <id>'
+assert_not_contains "$many_pointer" dispatch-one
+printf 'pointer format: one-line actionable text caps multi-dispatch detail by count\n'
+
 tmux_cmd new-session -d -s "$session_name" -x 120 -y 30 bash
 parent_pane="$(tmux_cmd display-message -p -t "$session_name" '#{pane_id}')"
 tmux_info="$(tmux_cmd display-message -p -t "$parent_pane" '#{socket_path},#{pid},#{session_id}')"

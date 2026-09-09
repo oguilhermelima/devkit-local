@@ -189,6 +189,23 @@ late_reply_message="$MEGABRAIN_DISPATCH_DIR/late-reply/messages/0001-parent-repl
 assert_equal "$(jq -r '.text' "$late_reply_message")" 'late answer'
 printf 'reply to a done dispatch stays queued and keeps done state\n'
 
+stalled_reply_send_mode=success
+megabrain_dispatch_native_send() {
+  [ "$stalled_reply_send_mode" = success ]
+}
+megabrain_dispatch_meta_write stalled-reply-accepted parent-terminal superset superset workspace-test stalled-reply-terminal "$root" main codex label stalled gpt-5 true codex '' '' host ide >/dev/null
+stalled_reply_output="$(megabrain_dispatch_reply stalled-reply-accepted --text 'reply reaches stalled child' --json)"
+assert_equal "$(printf '%s' "$stalled_reply_output" | jq -r '.status')" replied
+assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-reply-accepted/meta.json")" running
+printf 'stalled reply: accepted and resumed the dispatch\n'
+
+stalled_reply_send_mode=failure
+megabrain_dispatch_meta_write stalled-reply-resumed parent-terminal superset superset workspace-test stalled-reply-resumed-terminal "$root" main codex label stalled gpt-5 true codex '' '' host ide >/dev/null
+stalled_reply_output="$(megabrain_dispatch_reply stalled-reply-resumed --text 'queued reply resumes stalled child' --json)"
+assert_equal "$(printf '%s' "$stalled_reply_output" | jq -r '.status')" queued
+assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-reply-resumed/meta.json")" running
+printf 'stalled reply queue: transport failure still resumed the dispatch\n'
+
 model_output="$("$root/megabrain" model list)"
 assert_contains "$model_output" 'sourced'
 assert_contains "$model_output" 'verified'
