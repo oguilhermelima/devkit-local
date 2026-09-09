@@ -1383,7 +1383,7 @@ megabrain_dispatch_reply() {
   meta="$(megabrain_dispatch_require_parent "$dispatch_id")" || return 1
   state="$(printf '%s' "$meta" | jq -r '.state // empty')"
   case "$state" in
-    running|waiting_for_reply|done) ;;
+    running|waiting_for_reply|stalled|done) ;;
     *) megabrain_error "dispatch $dispatch_id cannot receive a reply in state $state"; return 1 ;;
   esac
   megabrain_dispatch_message_append "$dispatch_id" parent reply "$answer" "$MEGABRAIN_SESSION_ID" >/dev/null || return 1
