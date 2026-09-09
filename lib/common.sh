@@ -158,7 +158,7 @@ megabrain_usage_line() {
     doctor) printf 'doctor [module-id] [--json]' ;;
     context) printf 'context [--json]' ;;
     worktree) printf 'worktree create|finish|list|adopt ...' ;;
-    worktree-create) printf 'worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
+    worktree-create) printf 'worktree create --repo <name|path> --branch <branch> [--base <ref>] [--parent <branch:branch|path:path>] [--no-parent] [--name <slug>] [--agent <id>] [--model <id>] [--effort <level>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
     worktree-finish) printf 'worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]' ;;
     worktree-list) printf 'worktree list [--repo <name|path>] [--json]' ;;
     worktree-adopt) printf 'worktree adopt <path|branch> [--json]' ;;

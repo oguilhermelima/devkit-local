@@ -141,7 +141,7 @@ New providers belong in `lib/module-chain.sh` under `megabrain_chain_limit_read`
 ## Worktrees and terminals
 
 ```
-megabrain worktree create --repo <name|path> --branch <branch> [--base <ref>] [--name <slug>] [--json]
+megabrain worktree create --repo <name|path> --branch <branch> [--base <ref>] [--parent <branch:branch|path:path>] [--no-parent] [--name <slug>] [--json]
 megabrain worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]
 megabrain worktree list [--repo <name|path>] [--json]
 megabrain worktree adopt <path|branch> [--json]
@@ -151,7 +151,14 @@ megabrain terminal restart <selector> [--command <cmd>] [--wait-port <port>] [--
 ```
 
 `worktree create` does the git worktree add and registers the workspace so Orca and Superset both
-see it from the start. `adopt` registers the missing side of a worktree that exists on only one.
+see it from the start. `--parent` accepts the documented Orca selector subset `branch:<branch>` or
+`path:<path>` and explicitly stacks the new worktree under that existing worktree; without it,
+megabrain does not infer a parent. `adopt` registers the missing side of a worktree that exists on only one.
+The direct parent branch becomes the Superset sidebar tag after replacing `/` with `-`, so equivalent
+branch and path selectors share one folder. Orca preserves the full nested lineage; Superset has
+flat folders, so siblings share their parent's folder while a grandchild is grouped by its direct
+parent rather than its ancestor. JSON reports the selector, canonical parent branch and whether Orca
+lineage and Superset grouping were each set; a decoration failure does not undo the checkout.
 `finish` refuses an unmerged branch unless `--force` is given. `terminal create` with no
 `--command` runs the worktree's `.superset/config.json` run script. Superset tabs come back
 untitled; only Orca tabs carry a title. Terminal identities, commands and creation times are

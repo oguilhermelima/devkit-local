@@ -222,6 +222,26 @@ superset settings set worktreeBaseDir ~/Workspaces/Worktrees
 megabrain worktree create --repo api --branch feat/rate-limit --json
 ```
 
+To stack a worktree under an existing checkout, opt in explicitly with an Orca `branch:` or
+`path:` selector:
+
+```sh
+megabrain worktree create --repo api --branch feat/rate-limit-ui \
+  --parent branch:feat/rate-limit --json
+```
+
+The parent branch is the canonical grouping key. Superset receives it as a sidebar tag with `/`
+replaced by `-`, so `feat/rate-limit` becomes `feat-rate-limit` regardless of whether the parent
+was selected by branch or path. `--base` remains independent: it controls the Git starting point,
+while `--parent` decorates the two app views. Use `--no-parent` to state explicitly that the new
+worktree is a root; `--parent` and `--no-parent` cannot be combined.
+
+Orca shows the complete nested lineage for a multi-level stack. Superset has only flat sidebar
+folders: siblings share the folder named for their direct parent branch, while a grandchild is
+grouped by its direct parent rather than its ancestor. The JSON result reports independently
+whether Orca lineage and Superset grouping were set; a failure in either decoration does not fail
+the Git checkout.
+
 > [!TIP]
 > Keep it beside your repositories rather than inside one — `~/Workspaces/Worktrees` next to
 > `~/Workspaces/api`. A worktree nested inside its own repository confuses tooling that walks up
