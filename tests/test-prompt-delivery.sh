@@ -78,12 +78,16 @@ printf 'failed dispatch reports the child stalled message\n'
 
 tmux_mode=unresponsive
 tmux_enter_count=0
+tmux_draft=''
 tmux_capture_file="$state_dir/tmux-captures"
 printf '0\n' >"$tmux_capture_file"
 tmux() {
   local command="${1:-}" count
   case "$command" in
     send-keys)
+      if [ "${4:-}" = -l ]; then
+        tmux_draft="${5:-}"
+      fi
       if [ "${4:-}" = Enter ]; then
         tmux_enter_count=$((tmux_enter_count + 1))
       fi
@@ -96,7 +100,7 @@ tmux() {
       if [ "$tmux_mode" = responsive ] && [ "$count" -ge 2 ]; then
         printf 'submitted\n'
       else
-        printf 'composer\n'
+        printf 'composer %s\n' "$tmux_draft"
       fi
       return 0
       ;;
