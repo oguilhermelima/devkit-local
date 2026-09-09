@@ -522,7 +522,7 @@ megabrain_dispatch_health_counts() {
   MODULE_RETAINED_TERMINALS="$(printf '%s' "$records" | jq '[.[] | select((.terminalState // "") == "retained")] | length')"
   MODULE_PRUNABLE_DISPATCHES="$(printf '%s' "$records" | jq --argjson cutoff "$(($(date -u +%s) - MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS * 86400))" '
     [.[]
-      | select((.state // "") == "closed" or (.state // "") == "done" or (.state // "") == "failed" or (.state // "") == "orphaned" or (.state // "") == "circuit_broken")
+      | select((.state // "") == "closed" or (.state // "") == "done" or (.state // "") == "failed" or (.state // "") == "orphaned" or (.state // "") == "circuit_broken" or (.state // "") == "timeout")
       | ((.updatedAt // .createdAt) // "") as $timestamp
       | (try ($timestamp | fromdateiso8601) catch null) as $epoch
       | select($epoch != null and $epoch <= $cutoff)]
@@ -530,8 +530,10 @@ megabrain_dispatch_health_counts() {
 }
 
 megabrain_dispatch_prune_state_terminal() {
+  # WHY: this is the archive policy, narrower than the transition table. A state may
+  # still be recoverable (orphaned) while old dispatch records are safe to archive.
   case "$1" in
-    closed|done|failed|orphaned|circuit_broken) return 0 ;;
+    closed|done|failed|orphaned|circuit_broken|timeout) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -554,7 +556,7 @@ megabrain_dispatch_timestamp_epoch() {
 }
 
 megabrain_dispatch_prune() {
-  local older_than="$MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS" state_filter="closed,done,failed,orphaned,circuit_broken"
+  local older_than="$MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS" state_filter="closed,done,failed,orphaned,circuit_broken,timeout"
   local mode=archive dry_run=false json=false arg now_epoch cutoff archive_month
   local meta_path dispatch_dir dispatch_id state timestamp timestamp_epoch reason target
   local archived_ids='[]' deleted_ids='[]' skipped_dispatches='[]'
