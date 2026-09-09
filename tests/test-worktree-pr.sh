@@ -169,6 +169,8 @@ scenario_gh_failures_are_distinct() {
   make_stacked_worktrees
   write_gh
   rm -f "$work_dir/bin/gh"
+  PATH="/usr/bin:/bin"
+  export PATH
   if output="$(megabrain_worktree_pr "$fixture_shared_root/child" 2>&1)"; then
     fail 'missing gh unexpectedly opened a pull request'
   fi
