@@ -328,7 +328,8 @@ megabrain_tmux_send_literal() {
 }
 
 megabrain_tmux_send_text() {
-  local pane="$1" text="$2" agent="${3:-}" attempt=0 before after
+  local pane="$1" text="$2" agent="${3:-}" attempt=0 before after text_length
+  text_length="${#text}"
   MEGABRAIN_TMUX_SEND_STATUS=queued
   megabrain_tmux_send_literal "$pane" "$text" || return 1
   before="$(tmux capture-pane -p -J -t "$pane" -S -4 2>/dev/null || true)"
@@ -352,9 +353,11 @@ megabrain_tmux_send_text() {
       return 0
     fi
   fi
-  # A failed nudge is normal because the durable queue already has the message. C-u
-  # clears a line-editor draft without interrupting a running process, unlike C-c.
-  tmux send-keys -t "$pane" C-u || return 1
+  # A failed nudge is normal because the durable queue already has the message. Move
+  # to the end and erase exactly the typed characters; unlike C-c this cannot interrupt
+  # a running process, and unlike C-u it also works in agent composers.
+  tmux send-keys -t "$pane" C-e || return 1
+  [ "$text_length" -eq 0 ] || tmux send-keys -N "$text_length" -t "$pane" BSpace || return 1
   tmux capture-pane -p -J -t "$pane" -S -4 >/dev/null 2>&1 || true
   return 0
 }
