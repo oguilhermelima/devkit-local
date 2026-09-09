@@ -148,7 +148,11 @@ PATH="$installer_bin:$PATH"
 MODULES_REQUEST=""
 INSTALLER_INTERACTIVE=false
 installer_select_modules
-assert_equal "$SELECTED_MODULES" 'tmux-runtime,orchestration,orchestration-hooks'
+expected_modules='tmux-runtime,orchestration,orchestration-hooks'
+if command -v superset >/dev/null 2>&1 || [ -x "$HOME/.superset/bin/superset" ]; then
+  expected_modules="$expected_modules,worktree"
+fi
+assert_equal "$SELECTED_MODULES" "$expected_modules"
 MODULES_REQUEST=none
 installer_select_modules
 assert_equal "$SELECTED_MODULES" ''
