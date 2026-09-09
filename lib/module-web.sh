@@ -136,7 +136,7 @@ megabrain_register_playwright() {
 }
 
 module_simulator_web_install() {
-  local browser="${2:-both}" active_browser config_path agent rc=0 doctor_rc
+  local browser="${2:-both}" active_browser inactive_browser config_path agent rc=0 doctor_rc
   if ! megabrain_web_local_ready; then
     megabrain_error "node, npm, and the browser setup script are required for simulator-web"
     megabrain_set_status missing "node and npm are required for pinned Playwright $MEGABRAIN_PLAYWRIGHT_VERSION"
@@ -162,6 +162,16 @@ module_simulator_web_install() {
     megabrain_set_status misconfigured "browser setup did not write the active MCP config"
     return 1
   }
+  if [ "$browser" = both ]; then
+    case "$active_browser" in
+      chromium) inactive_browser=firefox ;;
+      firefox) inactive_browser=chromium ;;
+      *) inactive_browser=the-other-browser ;;
+    esac
+    megabrain_info "browser profiles installed: $active_browser is active for MCP; $inactive_browser is available for $inactive_browser-only runs"
+  else
+    megabrain_info "browser profile installed: $active_browser is active for MCP"
+  fi
   for agent in $(megabrain_present_agents); do
     megabrain_register_playwright "$agent" "$config_path" || rc=1
   done
