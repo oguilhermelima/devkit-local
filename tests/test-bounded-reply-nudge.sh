@@ -127,8 +127,11 @@ tmux() {
       case "${4:-}" in
         -l) printf '%s\n' "${5:-}" >"$mock_pane_file" ;;
         C-c) : >"$mock_pane_file" ;;
-        Enter) [ "$mock_mode" = accept ] && : >"$mock_pane_file" ;;
+        Enter)
+          if [ "$mock_mode" = accept ]; then : >"$mock_pane_file"; fi
+          ;;
       esac
+      return 0
       ;;
     *) return 0 ;;
   esac
