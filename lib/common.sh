@@ -21,6 +21,7 @@ MODULE_DETAILS=""
 MODULE_UNCERTAIN_DISPATCHES=0
 MODULE_RETAINED_TERMINALS=0
 MODULE_PRUNABLE_DISPATCHES=0
+MEGABRAIN_STATE_RECONCILIATION=""
 
 megabrain_error() {
   printf 'megabrain: %s\n' "$*" >&2
@@ -141,12 +142,70 @@ megabrain_state_set() {
     --arg configuredAt "$configured_at" \
     --arg details "$details" \
     '._meta = {kind: "installation-record", recordedAt: $configuredAt, source: "megabrain install", liveStatusCommand: "megabrain doctor"} |
-     .[$moduleName] = {installed: $installed, configuredAt: $configuredAt, details: $details}' \
+     .[$moduleName] = {installed: $installed, configuredAt: $configuredAt, statusSource: "megabrain install", details: $details}' \
     "$MEGABRAIN_STATE_FILE" >"$tmp"; then
     rm -f "$tmp"
     return 1
   fi
   mv -f "$tmp" "$MEGABRAIN_STATE_FILE"
+}
+
+megabrain_state_recorded_status() {
+  local module="$1" recorded
+  [ -f "$MEGABRAIN_STATE_FILE" ] || {
+    printf 'unknown\n'
+    return 0
+  }
+  recorded="$(jq -r --arg moduleName "$module" '
+    if ((.[$moduleName] // null) | type) == "object" and (.[$moduleName].installed | type) == "boolean" then
+      .[$moduleName].installed | tostring
+    else
+      "unknown"
+    end
+  ' "$MEGABRAIN_STATE_FILE" 2>/dev/null || printf 'unknown\n')"
+  case "$recorded" in
+    true|false) printf '%s\n' "$recorded" ;;
+    *) printf 'unknown\n' ;;
+  esac
+}
+
+megabrain_state_reconcile() {
+  local module="$1"
+  local installed="$2"
+  local details="$3"
+  local recorded_status checked_at tmp
+
+  MEGABRAIN_STATE_RECONCILIATION=""
+  recorded_status="$(megabrain_state_recorded_status "$module")"
+  megabrain_state_init || return 1
+  checked_at="$(megabrain_iso_now)"
+  tmp="$(mktemp "$MEGABRAIN_STATE_DIR/state.XXXXXX")" || return 1
+  if ! jq --arg moduleName "$module" \
+    --argjson installed "$installed" \
+    --arg checkedAt "$checked_at" \
+    --arg details "$details" \
+    'if (._meta // null) == null then
+       ._meta = {kind: "installation-record", recordedAt: $checkedAt, source: "megabrain doctor", liveStatusCommand: "megabrain doctor"}
+     else . end |
+     .[$moduleName] = ((.[$moduleName] // {}) + {
+       installed: $installed,
+       checkedAt: $checkedAt,
+       statusSource: "megabrain doctor",
+       details: $details
+     })' \
+    "$MEGABRAIN_STATE_FILE" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$MEGABRAIN_STATE_FILE" || return 1
+
+  if [ "$recorded_status" != "$installed" ]; then
+    if [ "$recorded_status" = unknown ]; then
+      MEGABRAIN_STATE_RECONCILIATION="state reconciled: $module recorded as installed=$installed"
+    else
+      MEGABRAIN_STATE_RECONCILIATION="state reconciled: $module installed $recorded_status -> $installed"
+    fi
+  fi
 }
 
 # WHY: one string per command. Help output, group listings and missing-argument

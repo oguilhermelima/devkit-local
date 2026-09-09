@@ -60,6 +60,7 @@ megabrain_install_one() {
 megabrain_doctor_one() {
   local module="$1"
   local json="${2:-false}"
+  local observed_installed=false
   MODULE_UNCERTAIN_DISPATCHES=0
   MODULE_RETAINED_TERMINALS=0
   MODULE_PRUNABLE_DISPATCHES=0
@@ -67,6 +68,14 @@ megabrain_doctor_one() {
   MODULE_RETAINED_REASONS='[]'
   megabrain_module_doctor "$module"
   local rc=$?
+  [ "$rc" -eq 0 ] && observed_installed=true
+  if ! megabrain_state_reconcile "$module" "$observed_installed" "$MODULE_DETAILS"; then
+    MODULE_REASON="$MODULE_REASON; state reconciliation failed"
+    MODULE_DETAILS="$MODULE_REASON"
+    rc=1
+  elif [ -n "$MEGABRAIN_STATE_RECONCILIATION" ]; then
+    MODULE_REASON="$MODULE_REASON; $MEGABRAIN_STATE_RECONCILIATION"
+  fi
   if [ "$json" = true ]; then
     jq -n --arg moduleName "$module" --arg status "$MODULE_STATUS" --arg reason "$MODULE_REASON" \
       --argjson uncertainDispatches "${MODULE_UNCERTAIN_DISPATCHES:-0}" \
