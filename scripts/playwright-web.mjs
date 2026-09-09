@@ -331,19 +331,22 @@ async function extensionWorker(context, name) {
 
 async function waitForUserScriptRuntime(worker, timeout = 10000) {
   const deadline = Date.now() + timeout;
+  let lastState = { available: false, type: 'undefined', scripts: [] };
   while (Date.now() < deadline) {
     const state = await worker.evaluate(async () => {
-      if (typeof chrome.userScripts === 'undefined') return { available: false, count: 0 };
+      if (typeof chrome.userScripts === 'undefined') return { available: false, type: 'undefined', scripts: [] };
       try {
-        return { available: true, count: (await chrome.userScripts.getScripts()).length };
-      } catch {
-        return { available: true, count: 0 };
+        return { available: true, type: typeof chrome.userScripts, scripts: await chrome.userScripts.getScripts() };
+      } catch (error) {
+        return { available: true, type: typeof chrome.userScripts, scripts: [], error: String(error) };
       }
-    }).catch(() => ({ available: false, count: 0 }));
-    if (state.available && state.count > 0) return;
+    }).catch(() => ({ available: false, type: 'unavailable', scripts: [] }));
+    lastState = state;
+    if (state.available && state.scripts.length > 0) return state;
     await new Promise(resolve => setTimeout(resolve, 250));
   }
-  throw new Error('Violentmonkey user-script runtime did not become ready');
+  const detail = lastState.error || `${lastState.type}, ${lastState.scripts.length} registered scripts`;
+  throw new Error(`Violentmonkey user-script runtime did not become ready (${detail})`);
 }
 
 async function toggleUserScripts(context, extensionId) {
@@ -388,6 +391,25 @@ async function sendToOptions(context, extensionId, message) {
   return result;
 }
 
+async function installUserScriptInContext(context, extensionId, { code, url, id, isNew }) {
+  const response = await sendToOptions(context, extensionId, {
+    cmd: 'ParseScript',
+    data: {
+      code,
+      url,
+      update: true,
+      isNew,
+      ...(id != null ? { id } : {}),
+    },
+  });
+  const message = response?.update?.message || '';
+  if (response?.error || !/Script instalado|Script atualizado|installed|updated|atualiz/i.test(message)) {
+    throw new Error(`Violentmonkey rejected ${path.basename(url)}: ${response?.error || message || JSON.stringify(response)}`);
+  }
+  if (response.update?.props?.id == null) throw new Error(`Violentmonkey accepted ${path.basename(url)} without a script id`);
+  return response;
+}
+
 export function userScriptSource(userscripts, name) {
   if (path.basename(name) !== name || !name.endsWith('.user.js')) {
     throw new Error(`userscript must be a .user.js file name inside ${userscripts}; pass the file name, not a path`);
@@ -410,18 +432,13 @@ async function installUserScript(root, userscripts, name) {
     const before = await sendToOptions(context, extensionId, { cmd: 'GetData', data: { sizes: true } });
     const previous = (before?.scripts || []).find(item => item.props?.id === (manifest.userscripts || []).find(record => record.name === name)?.id ||
       item.custom?.lastInstallURL === installUrl || item.meta?.name === name.replace(/\.user\.js$/, '') || item.meta?.name === name);
-    const response = await sendToOptions(context, extensionId, {
-      cmd: 'ParseScript',
-      data: {
-        code: source.code,
-        url: installUrl,
-        update: true,
-        isNew: !previous,
-        ...(previous?.props?.id != null ? { id: previous.props.id } : {}),
-      },
+    const response = await installUserScriptInContext(context, extensionId, {
+      code: source.code,
+      url: installUrl,
+      isNew: !previous,
+      ...(previous?.props?.id != null ? { id: previous.props.id } : {}),
     });
     const message = response?.update?.message || '';
-    if (response?.error || !/Script instalado|Script atualizado|installed|updated|atualiz/i.test(message)) throw new Error(`Violentmonkey rejected ${name}: ${response?.error || message || JSON.stringify(response)}`);
     const data = await sendToOptions(context, extensionId, { cmd: 'GetData', data: { sizes: true } });
     const installed = data?.scripts?.find(item => item.meta?.name === name.replace(/\.user\.js$/, '') || item.meta?.name === name);
     manifest.userscripts = upsertUserScriptRecord(manifest.userscripts || [], {
@@ -462,21 +479,71 @@ async function removeUserScript(root, name) {
 
 async function e2eProof(root) {
   const manifest = manifestFor(root);
-  const { context } = await loadChromium(root, manifest);
+  const chromiumProfile = manifest.profiles?.chromium;
+  if (!chromiumProfile) throw new Error('Chromium profile is required for the end-to-end proof');
+  const sourceConfig = readJson(chromiumProfile.configPath);
+  if (!sourceConfig?.browser) throw new Error(`Chromium config is missing at ${chromiumProfile.configPath}`);
+
+  const isolatedRoot = mkdtempSync(path.join(os.tmpdir(), 'megabrain-web-e2e-'));
+  const isolatedProfile = path.join(isolatedRoot, 'profile');
+  const isolatedConfigPath = path.join(isolatedRoot, 'chromium.json');
+  const isolatedConfig = {
+    ...sourceConfig,
+    browser: { ...sourceConfig.browser, userDataDir: isolatedProfile },
+  };
+  jsonWrite(isolatedConfigPath, isolatedConfig);
+  const isolatedManifest = {
+    ...manifest,
+    profiles: {
+      ...manifest.profiles,
+      chromium: { ...chromiumProfile, configPath: isolatedConfigPath, userDataDir: isolatedProfile },
+    },
+    userscripts: [],
+  };
+  let context;
   try {
+    ({ context } = await loadChromium(root, isolatedManifest));
     const worker = await extensionWorker(context, 'Violentmonkey');
-    console.log(`chrome.userScripts apos relaunch: ${await worker.evaluate(() => typeof chrome.userScripts)}`);
-    if (manifest.userscripts?.length) {
-      const extensionId = new URL(worker.url()).hostname;
-      await sendToOptions(context, extensionId, { cmd: 'GetInjectorError' });
-      await waitForUserScriptRuntime(worker);
-    }
+    const extensionId = new URL(worker.url()).hostname;
+    await toggleUserScripts(context, extensionId);
+    const proofName = 'megabrain-e2e-proof.user.js';
+    const proofUrl = `https://megabrain.local/userscripts/${proofName}`;
+    const proofCode = [
+      '// ==UserScript==',
+      '// @name megabrain-e2e-proof',
+      '// @match https://example.com/*',
+      '// @run-at document_start',
+      '// @grant none',
+      '// ==/UserScript==',
+      'document.documentElement.setAttribute("data-megabrain-e2e-proof", "ran");',
+    ].join('\n');
+    const installed = await installUserScriptInContext(context, extensionId, {
+      code: proofCode,
+      url: proofUrl,
+      isNew: true,
+    });
+    const runtime = await waitForUserScriptRuntime(await extensionWorker(context, 'Violentmonkey'));
+    if (runtime.type !== 'object') throw new Error(`userscript runtime exposed unexpected type ${runtime.type}`);
+    console.log(`chrome.userScripts apos install: ${runtime.type}`);
+    console.log(`userscript runtime entries: ${runtime.scripts.length}`);
+    const data = await sendToOptions(context, extensionId, { cmd: 'GetData', data: { sizes: true } });
+    const stored = data?.scripts?.find(item => item.props?.id === installed.update.props.id);
+    if (!stored) throw new Error('Violentmonkey did not retain the installed proof script');
+    if (stored.config?.enabled === 0) throw new Error('Violentmonkey disabled the installed proof script');
     const page = await context.newPage();
     await page.goto('https://example.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForTimeout(2500);
+    await page.waitForFunction(
+      () => document.documentElement?.getAttribute('data-megabrain-e2e-proof') === 'ran',
+      null,
+      { timeout: 10000 },
+    );
+    const proofRan = await page.locator('html').getAttribute('data-megabrain-e2e-proof');
+    if (proofRan !== 'ran') throw new Error(`userscript proof marker was ${proofRan || 'missing'} on example.com`);
+    console.log('userscript ran example.com: true');
     console.log(`title example.com: ${await page.title()}`);
   } finally {
-    await context.close();
+    if (context) await context.close();
+    rmSync(isolatedRoot, { recursive: true, force: true });
   }
 }
 
