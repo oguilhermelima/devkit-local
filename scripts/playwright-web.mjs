@@ -118,6 +118,15 @@ export function compareManifest(actual, expected) {
   return mismatches;
 }
 
+function compareJson(actual, expected, prefix) {
+  if (actual === expected) return [];
+  if (!actual || !expected || typeof actual !== 'object' || typeof expected !== 'object') {
+    return [`${prefix}: installed ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`];
+  }
+  const keys = new Set([...Object.keys(actual), ...Object.keys(expected)]);
+  return [...keys].flatMap(key => compareJson(actual[key], expected[key], prefix ? `${prefix}.${key}` : key));
+}
+
 export function upsertUserScriptRecord(records, record) {
   const next = records.filter(item => item.name !== record.name);
   next.push(record);
@@ -259,6 +268,7 @@ async function install(root, browser) {
   for (const selected of browsers) {
     if (selected === 'chromium') {
       const installed = await installChromiumExtensions(root);
+      mkdirSync(installed.paths.profile, { recursive: true });
       const config = buildBrowserConfig(selected, installed.paths);
       validateBrowserConfig(config, selected);
       const configPath = path.join(root, MCP_CONFIG_NAMES[selected]);
@@ -267,6 +277,7 @@ async function install(root, browser) {
       manifest.profiles.chromium = { configPath, userDataDir: installed.paths.profile };
     } else {
       const installed = await installFirefoxExtensions(root);
+      mkdirSync(installed.paths.profile, { recursive: true });
       const config = buildBrowserConfig(selected, installed.paths);
       validateBrowserConfig(config, selected);
       const configPath = path.join(root, MCP_CONFIG_NAMES[selected]);
@@ -463,13 +474,21 @@ async function doctor(root) {
     const profile = manifest.profiles?.[browser];
     if (!profile) continue;
     const config = readJson(profile.configPath);
+    const expectedPaths = browser === 'chromium' ? chromiumPaths(root) : firefoxPaths(root);
+    const expectedConfig = buildBrowserConfig(browser, expectedPaths);
     try { validateBrowserConfig(config, browser); } catch (error) { mismatches.push(`${browser}: ${error.message}`); }
+    mismatches.push(...compareJson(config, expectedConfig, `${browser}.config`));
+    if (profile.configPath !== path.join(root, MCP_CONFIG_NAMES[browser])) {
+      mismatches.push(`${browser}.configPath: installed ${profile.configPath || 'missing'}, expected ${path.join(root, MCP_CONFIG_NAMES[browser])}`);
+    }
     if (!existsSync(profile.userDataDir)) mismatches.push(`${browser}: profile directory is missing`);
   }
   let aged = [];
   try {
     const current = await latestVersions();
-    aged = compareManifest(manifest.extensions || {}, current);
+    const expected = {};
+    for (const browser of Object.keys(manifest.profiles || {})) expected[browser] = current[browser];
+    aged = compareManifest(manifest.extensions || {}, expected);
   } catch (error) {
     aged = [`latest extension versions unavailable: ${error.message}`];
   }
