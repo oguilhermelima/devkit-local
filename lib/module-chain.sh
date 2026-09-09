@@ -13,8 +13,16 @@ MEGABRAIN_CHAIN_TEMP_HUP_TRAP=""
 MEGABRAIN_CHAIN_TEMP_INT_TRAP=""
 MEGABRAIN_CHAIN_TEMP_TERM_TRAP=""
 
+megabrain_chain_temp_swap_cleanup() {
+  local temp="$1" directory basename
+  directory="$(dirname "$temp")"
+  basename="$(basename "$temp")"
+  rm -f "$directory/.$basename.swp"
+}
+
 megabrain_chain_temp_cleanup() {
   if [ -n "$MEGABRAIN_CHAIN_TEMP_FILE" ]; then
+    megabrain_chain_temp_swap_cleanup "$MEGABRAIN_CHAIN_TEMP_FILE"
     rm -f "$MEGABRAIN_CHAIN_TEMP_FILE"
     MEGABRAIN_CHAIN_TEMP_FILE=""
   fi
