@@ -138,7 +138,8 @@ megabrain_parent_notify_tmux() {
   local meta="$1" pointer="$2" pane
   pane="$(printf '%s' "$meta" | jq -r '.parentTmuxPane // empty')"
   [ -n "$pane" ] || return 1
-  megabrain_tmux_send_text "$pane" "$pointer"
+  megabrain_tmux_send_text "$pane" "$pointer" || return 1
+  [ "${MEGABRAIN_TMUX_SEND_STATUS:-queued}" = replied ]
 }
 
 # WHY: .runtime says how the CHILD was launched. Reaching the PARENT is a property of

@@ -229,8 +229,9 @@ megabrain_tmux_split_pane() {
 megabrain_tmux_send_agent() {
   local pane="$1" command_text="$2" mode="${3:-command}" attempt=0 current started now elapsed
   if [ "$mode" = prompt ]; then
-    megabrain_tmux_send_text "$pane" "$command_text"
-    return $?
+    megabrain_tmux_send_text "$pane" "$command_text" || return 1
+    [ "${MEGABRAIN_TMUX_SEND_STATUS:-queued}" = replied ] || return 1
+    return 0
   fi
   # WHY: the child shell can still hold startup noise or a stray keystroke, and typing
   # onto a non-empty line produced "mocd <path>" once, which died as command not found.
@@ -283,11 +284,10 @@ megabrain_tmux_agent_output_clean() {
 
 # WHY: a single Enter is lost often enough to matter. The agent launch path already
 # learned this and retries; this path, which carries every reply to a child and every
-# pointer to a parent, did not, so a reply could sit in the child's composer as an
-# unsent draft forever while the coordinator believed it had been delivered.
-# The check is deliberately coarse: a submit always redraws the composer region, so an
-# unchanged region means the key never landed. A busy agent redraws on its own, which
-# can end the loop early, but that only costs the retry, never the message.
+# pointer to a parent, must report delivery only after reading a changed pane. A draft
+# that survives all attempts is cancelled before returning, so it cannot be glued to the
+# next operator message. Codex's Tab fallback was measured on 2026-09-09; claude and agy
+# stay on the conservative Enter-and-clear path because their Tab behavior is unmeasured.
 megabrain_tmux_kill_process_tree() {
   local pid="$1" child
   for child in $(pgrep -P "$pid" 2>/dev/null || true); do
@@ -328,17 +328,35 @@ megabrain_tmux_send_literal() {
 }
 
 megabrain_tmux_send_text() {
-  local pane="$1" text="$2" attempt=0 before after
+  local pane="$1" text="$2" agent="${3:-}" attempt=0 before after
+  MEGABRAIN_TMUX_SEND_STATUS=queued
   megabrain_tmux_send_literal "$pane" "$text" || return 1
   before="$(tmux capture-pane -p -J -t "$pane" -S -4 2>/dev/null || true)"
   while :; do
     tmux send-keys -t "$pane" Enter || return 1
     attempt=$((attempt + 1))
-    [ "$attempt" -ge "$MEGABRAIN_TMUX_ENTER_RETRIES" ] && return 0
+    [ "$attempt" -ge "$MEGABRAIN_TMUX_ENTER_RETRIES" ] || sleep "$MEGABRAIN_TMUX_ENTER_WAIT"
+    after="$(tmux capture-pane -p -J -t "$pane" -S -4 2>/dev/null || true)"
+    if [ "$after" != "$before" ]; then
+      MEGABRAIN_TMUX_SEND_STATUS=replied
+      return 0
+    fi
+    [ "$attempt" -ge "$MEGABRAIN_TMUX_ENTER_RETRIES" ] && break
+  done
+  if [ "$agent" = codex ]; then
+    tmux send-keys -t "$pane" Tab || return 1
     sleep "$MEGABRAIN_TMUX_ENTER_WAIT"
     after="$(tmux capture-pane -p -J -t "$pane" -S -4 2>/dev/null || true)"
-    [ "$after" = "$before" ] || return 0
-  done
+    if [ "$after" != "$before" ]; then
+      MEGABRAIN_TMUX_SEND_STATUS=replied
+      return 0
+    fi
+  fi
+  # A failed nudge is normal because the durable queue already has the message. Clear
+  # the unsubmitted draft so a later human or automated command cannot inherit it.
+  tmux send-keys -t "$pane" C-c || return 1
+  tmux capture-pane -p -J -t "$pane" -S -4 >/dev/null 2>&1 || true
+  return 0
 }
 
 megabrain_tmux_apply_config() {

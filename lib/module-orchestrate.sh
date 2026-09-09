@@ -940,7 +940,7 @@ megabrain_dispatch_find_child() {
 }
 
 megabrain_dispatch_native_send() {
-  local meta="$1" text="$2" host workspace_id terminal_id runtime tmux_session tmux_pane
+  local meta="$1" text="$2" host workspace_id terminal_id runtime tmux_session tmux_pane agent
   host="$(printf '%s' "$meta" | jq -r '.childHost')"
   workspace_id="$(printf '%s' "$meta" | jq -r '.workspaceId // empty')"
   terminal_id="$(printf '%s' "$meta" | jq -r '.terminalId')"
@@ -948,9 +948,11 @@ megabrain_dispatch_native_send() {
   if [ "$runtime" = tmux ]; then
     tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
     tmux_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
+    agent="$(printf '%s' "$meta" | jq -r '.agent // empty')"
     [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] || { megabrain_error "tmux dispatch metadata has no session or pane"; return 1; }
     megabrain_tmux_session_exists "$tmux_session" || { megabrain_error "tmux session is no longer available: $tmux_session"; return 1; }
-    megabrain_tmux_send_text "$tmux_pane" "$text"
+    megabrain_tmux_send_text "$tmux_pane" "$text" "$agent" || return 1
+    [ "${MEGABRAIN_TMUX_SEND_STATUS:-queued}" = replied ]
     return $?
   fi
   case "$host" in
