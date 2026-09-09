@@ -23,6 +23,7 @@ docker build -t "$image" -f "$root/tests/container/Dockerfile" "$root/tests/cont
 # what stops a test writing to the host tree; the copy is what lets the tests work at all.
 exec docker run --rm \
   -e "MEGABRAIN_TEST_JOBS=$test_jobs" \
+  -e MEGABRAIN_IN_CONTAINER=true \
   -e MEGABRAIN_TEST_OUTPUT_DIR=/results \
   -v "$root:/src:ro" \
   -v "$output_dir:/results" \

@@ -193,18 +193,22 @@ assert_contains "$browser_output" 'firefox' 'browser install did not explain the
 printf 'scenario 10: browser profile roles are explicit\n'
 
 # Scenario 11: a failing container test leaves named output outside the stdout pipe.
-container_fixture="$root/tests/.container-failure-fixture.sh"
-container_output_dir="$state_dir/container-results"
-printf '#!/usr/bin/env bash\nprintf "deliberate fixture failure\\n"\nexit 1\n' >"$container_fixture"
-chmod +x "$container_fixture"
-container_run_output="$(MEGABRAIN_TEST_OUTPUT_DIR="$container_output_dir" \
-  "$root/tests/container/run.sh" tests/.container-failure-fixture.sh 2>&1 | tail -3 || true)"
-failure_report="$(find "$container_output_dir" -name failures.log -print -quit 2>/dev/null || true)"
-[ -n "$failure_report" ] || fail 'container failure report was lost outside the stdout pipe'
-assert_contains "$(cat "$failure_report")" '.container-failure-fixture.sh' \
-  'container failure report did not name the failing test'
-assert_contains "$(cat "$failure_report")" 'deliberate fixture failure' \
-  'container failure report did not preserve the failing output'
-printf 'scenario 11: container failure output survives stdout piping (%s)\n' "$container_run_output"
+if [ "${MEGABRAIN_IN_CONTAINER:-false}" = true ]; then
+  printf 'scenario 11: skipped inside the container runner (Docker is host-owned)\n'
+else
+  container_fixture="$root/tests/.container-failure-fixture.sh"
+  container_output_dir="$state_dir/container-results"
+  printf '#!/usr/bin/env bash\nprintf "deliberate fixture failure\\n"\nexit 1\n' >"$container_fixture"
+  chmod +x "$container_fixture"
+  container_run_output="$(MEGABRAIN_TEST_OUTPUT_DIR="$container_output_dir" \
+    "$root/tests/container/run.sh" tests/.container-failure-fixture.sh 2>&1 | tail -3 || true)"
+  failure_report="$(find "$container_output_dir" -name failures.log -print -quit 2>/dev/null || true)"
+  [ -n "$failure_report" ] || fail 'container failure report was lost outside the stdout pipe'
+  assert_contains "$(cat "$failure_report")" '.container-failure-fixture.sh' \
+    'container failure report did not name the failing test'
+  assert_contains "$(cat "$failure_report")" 'deliberate fixture failure' \
+    'container failure report did not preserve the failing output'
+  printf 'scenario 11: container failure output survives stdout piping (%s)\n' "$container_run_output"
+fi
 
 printf 'ok: real-use defect scenarios\n'
