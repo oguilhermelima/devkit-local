@@ -151,7 +151,7 @@ time.
 From inside a child, the same queue from the other side:
 
 ```sh
-megabrain received              # optionally record that the prompt was seen
+megabrain received              # confirm that the prompt was received
 megabrain ask "question"        # ask, then poll for the answer
 megabrain check --timeout 120
 megabrain done "what I verified"
@@ -365,7 +365,7 @@ The queue is the product. Panes and tabs are launch and notification surfaces ar
 ```text
 Parent --spawn--> tmux split or IDE tab --starts--> Child
   |                                                   |
-  | parent messages                                   | optional received + child messages
+  | parent messages                                   | received + child messages
   v                                                   v
   +------------------------> DURABLE QUEUE <----------+
                                   |              |
@@ -376,11 +376,10 @@ Parent --spawn--> tmux split or IDE tab --starts--> Child
 terminal keystroke ---------------------> nudge only
 ```
 
-Prompt delivery is confirmed mechanically by the transport: tmux observes the prompt leaving the
-composer, and native terminal transports report a successful send. The child may optionally write
-a received message to the durable queue as a status record, but launch does not depend on that
-command. A keystroke typed into a terminal is only a nudge that may wake a participant; the
-message it points at is already durable.
+Prompt delivery is confirmed by the child writing a received message to the durable queue. The
+parent sends the prompt as a best-effort transport action, waits for that receipt, and retries a
+bounded number of times when it does not arrive. A keystroke typed into a terminal is only a nudge
+that may wake a participant; the message it points at is already durable.
 
 ## Testing
 

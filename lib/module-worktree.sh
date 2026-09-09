@@ -588,6 +588,29 @@ megabrain_spawn_mark_prompt_failed() {
   megabrain_dispatch_meta_update_fields "$dispatch_id" __keep__ __keep__ __keep__ prompt-delivery "$reason" __keep__ __keep__ __keep__ >/dev/null 2>&1 || true
 }
 
+megabrain_dispatch_send_prompt_with_receipt() {
+  local dispatch_id="$1" text="$2" attempt meta attempts runtime tmux_pane
+  attempts="${MEGABRAIN_PROMPT_RECEIPT_ATTEMPTS:-3}"
+  [[ "$attempts" =~ ^[1-9][0-9]*$ ]] || {
+    megabrain_error "prompt receipt attempts is invalid: $attempts"
+    return 1
+  }
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    meta="$(megabrain_dispatch_meta_read "$dispatch_id")" || return 1
+    runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+    if [ "$runtime" = tmux ]; then
+      tmux_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
+      [ -n "$tmux_pane" ] || { megabrain_error "tmux dispatch metadata has no pane: $dispatch_id"; return 1; }
+      megabrain_tmux_send_agent "$tmux_pane" "$text" prompt || return 1
+    else
+      megabrain_dispatch_native_send "$meta" "$text" || return 1
+    fi
+    megabrain_dispatch_wait_for_prompt_receipt "$dispatch_id" && return 0
+  done
+  megabrain_error "prompt delivery failed: no receipt after $attempts attempts"
+  return 1
+}
+
 megabrain_spawn_mark_running_if_spawning() {
   local dispatch_id="$1" state
   state="$(megabrain_dispatch_meta_read "$dispatch_id" | jq -r '.state // empty')" || return 1
@@ -732,11 +755,6 @@ ${prompt}"
       megabrain_spawn_mark_prompt_failed "$dispatch_id" command-not-submitted
       return 1
     fi
-    if ! megabrain_tmux_settle_pane "$tmux_pane" "$agent_used"; then
-      megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
-      megabrain_spawn_mark_prompt_failed "$dispatch_id" readiness-timeout
-      return 1
-    fi
     substitution_report="$(megabrain_tmux_model_substitution_report "$tmux_pane" 2>/dev/null || true)"
     if [ -n "$substitution_report" ]; then
       megabrain_dispatch_meta_update_model_substitution "$dispatch_id" "$substitution_report" || {
@@ -752,14 +770,12 @@ ${prompt}"
       megabrain_dispatch_failure_error "$dispatch_id" "agent output contains terminal-identification escape leakage in pane $tmux_pane"
       return 1
     fi
-    if ! megabrain_tmux_send_agent "$tmux_pane" "$final_prompt" prompt; then
+    if ! megabrain_dispatch_send_prompt_with_receipt "$dispatch_id" "$final_prompt"; then
       megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
-      megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-send-not-observed
+      megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-receipt-timeout
+      megabrain_dispatch_failure_error "$dispatch_id" "prompt delivery failed: no receipt"
       return 1
     fi
-    # WHY: megabrain_tmux_send_agent prompt succeeds only after the composer no
-    # longer contains the prompt. That transport observation is the delivery fact;
-    # waiting for the child to type received made delivery depend on cooperation.
     if ! megabrain_spawn_mark_prompt_delivered "$dispatch_id"; then
       megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
       megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-confirmation-failed
@@ -854,15 +870,12 @@ ${prompt}"
     return 1
   fi
   meta="$(megabrain_dispatch_meta_read "$dispatch_id")" || return 1
-  if ! megabrain_dispatch_native_send "$meta" "$final_prompt"; then
+  if ! megabrain_dispatch_send_prompt_with_receipt "$dispatch_id" "$final_prompt"; then
     megabrain_host_cleanup_launch "$context" "$workspace_id" "$session_id"
-    megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-send-not-observed
-    megabrain_dispatch_failure_error "$dispatch_id" "could not send prompt to $child_host terminal $session_id"
+    megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-receipt-timeout
+    megabrain_dispatch_failure_error "$dispatch_id" "prompt delivery failed: no receipt"
     return 1
   fi
-  # The native host transport returned success, which is the delivery observation.
-  # The optional received command only records a durable child message; launch does
-  # not depend on it.
   if ! megabrain_spawn_mark_prompt_delivered "$dispatch_id"; then
     megabrain_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-confirmation-failed

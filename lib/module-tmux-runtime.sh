@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
 
-# WHY: settle now waits for a rendered composer, not merely a running process, and an
-# agent takes seconds to boot its TUI. Measured on this machine 2026-09-09: a Codex pane
-# exposed its composer about 3 seconds after launch, so 20 checks at 0.1s (2 seconds)
-# refused every real launch. 600 checks is 60 seconds of headroom for a loaded machine.
-MEGABRAIN_TMUX_SETTLE_ATTEMPTS="${MEGABRAIN_TMUX_SETTLE_ATTEMPTS:-600}"
-MEGABRAIN_TMUX_SETTLE_SECONDS="${MEGABRAIN_TMUX_SETTLE_SECONDS:-0.1}"
+MEGABRAIN_TMUX_SESSION_ATTEMPTS="${MEGABRAIN_TMUX_SESSION_ATTEMPTS:-600}"
+MEGABRAIN_TMUX_SESSION_WAIT="${MEGABRAIN_TMUX_SESSION_WAIT:-0.1}"
 MEGABRAIN_TMUX_ENTER_RETRIES="${MEGABRAIN_TMUX_ENTER_RETRIES:-3}"
 MEGABRAIN_TMUX_ENTER_WAIT="${MEGABRAIN_TMUX_ENTER_WAIT:-0.5}"
 MEGABRAIN_TMUX_ENTER_TIMEOUT_SECONDS="${MEGABRAIN_TMUX_ENTER_TIMEOUT_SECONDS:-30}"
@@ -59,9 +55,9 @@ megabrain_tmux_set_state_dir() {
 
 megabrain_tmux_wait_for_session() {
   local session="$1" attempt
-  for ((attempt = 1; attempt <= MEGABRAIN_TMUX_SETTLE_ATTEMPTS; attempt++)); do
+  for ((attempt = 1; attempt <= MEGABRAIN_TMUX_SESSION_ATTEMPTS; attempt++)); do
     megabrain_tmux_session_exists "$session" && return 0
-    sleep "$MEGABRAIN_TMUX_SETTLE_SECONDS"
+    sleep "$MEGABRAIN_TMUX_SESSION_WAIT"
   done
   return 1
 }
@@ -69,57 +65,6 @@ megabrain_tmux_wait_for_session() {
 megabrain_tmux_first_pane() {
   local session="$1"
   tmux list-panes -t "$session" -F '#{pane_id}' 2>/dev/null | head -n 1
-}
-
-megabrain_tmux_settle_pane() {
-  local pane="$1" agent="${2:-}" attempt current
-  for ((attempt = 1; attempt <= MEGABRAIN_TMUX_SETTLE_ATTEMPTS; attempt++)); do
-    current="$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null || true)"
-    case "$current" in
-      bash|zsh|sh|dash|fish|ksh|tcsh|login|-zsh|-bash|"") ;;
-      *)
-        if [ -z "$agent" ] || ! megabrain_tmux_agent_has_composer_signal "$agent"; then
-          return 0
-        fi
-        megabrain_tmux_composer_ready "$pane" "$agent" && return 0
-        ;;
-    esac
-    sleep "$MEGABRAIN_TMUX_SETTLE_SECONDS"
-  done
-  if [ -n "$agent" ] && megabrain_tmux_agent_has_composer_signal "$agent"; then
-    megabrain_error "tmux pane $pane did not expose a ready $agent composer within ${MEGABRAIN_TMUX_SETTLE_ATTEMPTS} checks"
-  else
-    megabrain_error "tmux pane $pane did not start an agent within ${MEGABRAIN_TMUX_SETTLE_ATTEMPTS} checks"
-  fi
-  return 1
-}
-
-megabrain_tmux_agent_has_composer_signal() {
-  case "$1" in
-    codex|claude|agy) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-megabrain_tmux_composer_ready() {
-  local pane="$1" agent="$2" composer
-  composer="$(megabrain_tmux_capture_composer "$pane")"
-  case "$agent" in
-    codex)
-      # WHY: measured on two real panes 2026-09-09. A ready Codex composer renders the
-      # marker alone once the session has content, and only a freshly opened pane carries
-      # the placeholder. Text after the marker means the composer holds a draft, which is
-      # not ready, so both accepted forms end the line.
-      printf '%s\n' "$composer" | grep -Eq '^[[:space:]]*›([[:space:]]+Ask Codex to do anything)?[[:space:]]*$'
-      ;;
-    claude)
-      printf '%s\n' "$composer" | grep -Eq '^[[:space:]]*❯[[:space:]]*$'
-      ;;
-    agy)
-      printf '%s\n' "$composer" | grep -Eq '^[[:space:]]*>[[:space:]]*$'
-      ;;
-    *) return 1 ;;
-  esac
 }
 
 megabrain_tmux_session_registry_prune() {
@@ -181,6 +126,32 @@ megabrain_tmux_registry_session_for_worktree() {
   return 1
 }
 
+megabrain_tmux_caller_session_for_worktree() {
+  local worktree_path="$1" target caller_session record_path record session directory pane role
+  [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] || return 1
+  caller_session="$(megabrain_dispatch_tmux_caller_session 2>/dev/null || true)"
+  [ -n "$caller_session" ] || return 1
+  megabrain_tmux_session_exists "$caller_session" || return 1
+  target="$(cd "$worktree_path" 2>/dev/null && pwd -P || printf '%s' "$worktree_path")"
+  megabrain_tmux_session_registry_prune
+  for record_path in "$MEGABRAIN_TMUX_SESSION_DIR"/*.json; do
+    [ -f "$record_path" ] || continue
+    record="$(cat "$record_path" 2>/dev/null || true)"
+    session="$(printf '%s' "$record" | jq -r '.tmuxSession // empty' 2>/dev/null || true)"
+    directory="$(printf '%s' "$record" | jq -r '.workingDirectory // empty' 2>/dev/null || true)"
+    pane="$(printf '%s' "$record" | jq -r '.tmuxPane // empty' 2>/dev/null || true)"
+    role="$(printf '%s' "$record" | jq -r '.role // empty' 2>/dev/null || true)"
+    [ "$session" = "$caller_session" ] && [ "$pane" = "$TMUX_PANE" ] && [ "$role" = main ] || continue
+    [ -n "$directory" ] || continue
+    directory="$(cd "$directory" 2>/dev/null && pwd -P || printf '%s' "$directory")"
+    if [ "$directory" = "$target" ]; then
+      printf '%s\n' "$caller_session"
+      return 0
+    fi
+  done
+  return 1
+}
+
 megabrain_tmux_registry_main_pane_for_session() {
   local session="$1" record_path record pane role
   megabrain_tmux_session_exists "$session" || return 1
@@ -203,6 +174,11 @@ megabrain_tmux_registry_main_pane_for_session() {
 megabrain_tmux_existing_session_for_worktree() {
   local worktree_path="$1" meta_path meta session state
   MEGABRAIN_TMUX_EXISTING_SESSION=""
+  session="$(megabrain_tmux_caller_session_for_worktree "$worktree_path" 2>/dev/null || true)"
+  if [ -n "$session" ]; then
+    MEGABRAIN_TMUX_EXISTING_SESSION="$session"
+    return 0
+  fi
   for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
     [ -f "$meta_path" ] || continue
     meta="$(cat "$meta_path")"
@@ -296,9 +272,8 @@ megabrain_tmux_split_pane() {
 megabrain_tmux_send_agent() {
   local pane="$1" command_text="$2" mode="${3:-command}" attempt=0 current started now elapsed
   if [ "$mode" = prompt ]; then
-    megabrain_tmux_send_text "$pane" "$command_text" || return 1
-    [ "${MEGABRAIN_TMUX_SEND_STATUS:-queued}" = replied ] || return 1
-    return 0
+    megabrain_tmux_send_text "$pane" "$command_text"
+    return $?
   fi
   # WHY: the child shell can still hold startup noise or a stray keystroke, and typing
   # onto a non-empty line produced "mocd <path>" once, which died as command not found.
@@ -349,13 +324,8 @@ megabrain_tmux_agent_output_clean() {
   esac
 }
 
-# WHY: a single Enter is lost often enough to matter. The agent launch path already
-# learned this and retries; this path, which carries every reply to a child and every
-# pointer to a parent, must report delivery only when its leading text is absent from
-# the composer. A draft that survives all attempts is cancelled before returning, so
-# it cannot be glued to the next operator message. Codex's Tab fallback was measured on
-# 2026-09-09; claude and agy stay on the conservative Enter-and-clear path because their
-# Tab behavior is unmeasured.
+# tmux is only the best-effort transport. Prompt delivery is confirmed by the child via
+# the durable received message in its dispatch queue.
 megabrain_tmux_kill_process_tree() {
   local pid="$1" child
   for child in $(pgrep -P "$pid" 2>/dev/null || true); do
@@ -395,25 +365,6 @@ megabrain_tmux_send_literal() {
   [ "$write_status" -eq 0 ] || return "$write_status"
 }
 
-megabrain_tmux_capture_composer() {
-  local pane="$1"
-  # WHY: an agent TUI does not anchor its composer to the last row. Measured on a real
-  # Codex pane 2026-09-09: content ended on row 25 of a 37-row pane and rows 26 to 37
-  # were blank, so a fixed window over the final rows captured nothing and readiness
-  # could never be observed. Trailing blank rows are dropped first, then the region is
-  # bounded to the last few rendered rows so submitted transcript text stays out.
-  tmux capture-pane -p -J -t "$pane" 2>/dev/null | awk '
-    { line[NR] = $0 }
-    END {
-      last = 0
-      for (i = 1; i <= NR; i++) if (line[i] ~ /[^[:space:]]/) last = i
-      start = last - 3
-      if (start < 1) start = 1
-      for (i = start; i <= last; i++) print line[i]
-    }
-  '
-}
-
 megabrain_tmux_nudge_text_for_pane() {
   local pane="$1" text="$2" pane_width text_length
   pane_width="$(tmux display-message -p -t "$pane" '#{pane_width}' 2>/dev/null || true)"
@@ -445,43 +396,12 @@ megabrain_tmux_send_nudge() {
 }
 
 megabrain_tmux_send_text() {
-  local pane="$1" text="$2" agent="${3:-}" attempt=0 after text_length
-  text_length="${#text}"
+  local pane="$1" text="$2"
   MEGABRAIN_TMUX_SEND_STATUS=queued
   megabrain_tmux_send_literal "$pane" "$text" || return 1
-  while :; do
-    tmux send-keys -t "$pane" Enter || return 1
-    attempt=$((attempt + 1))
-    [ "$attempt" -ge "$MEGABRAIN_TMUX_ENTER_RETRIES" ] || sleep "$MEGABRAIN_TMUX_ENTER_WAIT"
-    after="$(megabrain_tmux_capture_composer "$pane")"
-    case "$after" in
-      *"$text"*) ;;
-      *)
-      MEGABRAIN_TMUX_SEND_STATUS=replied
-      return 0
-      ;;
-    esac
-    [ "$attempt" -ge "$MEGABRAIN_TMUX_ENTER_RETRIES" ] && break
-  done
-  if [ "$agent" = codex ]; then
-    tmux send-keys -t "$pane" Tab || return 1
-    sleep "$MEGABRAIN_TMUX_ENTER_WAIT"
-    after="$(megabrain_tmux_capture_composer "$pane")"
-    case "$after" in
-      *"$text"*) ;;
-      *)
-      MEGABRAIN_TMUX_SEND_STATUS=replied
-      return 0
-      ;;
-    esac
-  fi
-  # A failed nudge is normal because the durable queue already has the message. Move
-  # to the end and erase exactly the typed characters; unlike C-c this cannot interrupt
-  # a running process, and unlike C-u it also works in agent composers.
-  tmux send-keys -t "$pane" C-e || return 1
-  [ "$text_length" -eq 0 ] || tmux send-keys -N "$text_length" -t "$pane" BSpace || return 1
-  megabrain_tmux_capture_composer "$pane" >/dev/null
-  return 0
+  # tmux only reports that the keystrokes were accepted by the transport. Delivery is
+  # confirmed by the child through the durable received message in its dispatch queue.
+  tmux send-keys -t "$pane" Enter || return 1
 }
 
 megabrain_tmux_apply_config() {

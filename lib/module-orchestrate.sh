@@ -5,6 +5,9 @@ MEGABRAIN_SUPERSET_PROTOCOL=""
 MEGABRAIN_LAST_DISPATCH=""
 MEGABRAIN_DISPATCH_CLOSE_LAST_PANE=false
 MEGABRAIN_DISPATCH_DELIVERY_BATCH_CAP="${MEGABRAIN_DISPATCH_DELIVERY_BATCH_CAP:-50}"
+MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS="${MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS:-30}"
+MEGABRAIN_PROMPT_RECEIPT_ATTEMPTS="${MEGABRAIN_PROMPT_RECEIPT_ATTEMPTS:-3}"
+MEGABRAIN_PROMPT_RECEIPT_POLL_INTERVAL="${MEGABRAIN_PROMPT_RECEIPT_POLL_INTERVAL:-0.1}"
 MEGABRAIN_PROMPT_BUDGET_ARGV_BYTES=262144
 MEGABRAIN_PROMPT_BUDGET_TMUX_BYTES=12000
 MEGABRAIN_DISPATCH_CLOSE_OUTCOME=unknown
@@ -396,6 +399,32 @@ megabrain_dispatch_has_child_identity_proof() {
     jq -e '.from == "child" and (.type == "received" or .type == "ask" or .type == "done")' "$path" >/dev/null 2>&1 && return 0
   done
   return 1
+}
+
+megabrain_dispatch_has_prompt_receipt() {
+  local dispatch_id="$1" messages_dir path
+  messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
+  for path in "$messages_dir"/*.json; do
+    [ -f "$path" ] || continue
+    jq -e '.from == "child" and .type == "received"' "$path" >/dev/null 2>&1 && return 0
+  done
+  return 1
+}
+
+megabrain_dispatch_wait_for_prompt_receipt() {
+  local dispatch_id="$1" timeout="${MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS:-30}" started now
+  [[ "$timeout" =~ ^[0-9]+$ ]] || { megabrain_error "prompt receipt timeout is invalid: $timeout"; return 1; }
+  [[ "$MEGABRAIN_PROMPT_RECEIPT_POLL_INTERVAL" =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+    megabrain_error "prompt receipt poll interval is invalid: $MEGABRAIN_PROMPT_RECEIPT_POLL_INTERVAL"
+    return 1
+  }
+  started="$(date +%s)"
+  while :; do
+    megabrain_dispatch_has_prompt_receipt "$dispatch_id" && return 0
+    now="$(date +%s)"
+    [ $((now - started)) -ge "$timeout" ] && return 1
+    sleep "$MEGABRAIN_PROMPT_RECEIPT_POLL_INTERVAL"
+  done
 }
 
 megabrain_dispatch_reconcile_one() {
@@ -1026,7 +1055,7 @@ megabrain_dispatch_find_child() {
 }
 
 megabrain_dispatch_native_send() {
-  local meta="$1" text="$2" host workspace_id terminal_id runtime tmux_session tmux_pane agent
+  local meta="$1" text="$2" host workspace_id terminal_id runtime tmux_session tmux_pane
   host="$(printf '%s' "$meta" | jq -r '.childHost')"
   workspace_id="$(printf '%s' "$meta" | jq -r '.workspaceId // empty')"
   terminal_id="$(printf '%s' "$meta" | jq -r '.terminalId')"
@@ -1034,11 +1063,9 @@ megabrain_dispatch_native_send() {
   if [ "$runtime" = tmux ]; then
     tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
     tmux_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
-    agent="$(printf '%s' "$meta" | jq -r '.agent // empty')"
     [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] || { megabrain_error "tmux dispatch metadata has no session or pane"; return 1; }
     megabrain_tmux_session_exists "$tmux_session" || { megabrain_error "tmux session is no longer available: $tmux_session"; return 1; }
-    megabrain_tmux_send_nudge "$tmux_pane" "$text" "$agent" || return 1
-    [ "${MEGABRAIN_TMUX_SEND_STATUS:-queued}" = replied ]
+    megabrain_tmux_send_nudge "$tmux_pane" "$text"
     return $?
   fi
   case "$host" in
@@ -1445,9 +1472,7 @@ megabrain_dispatch_reply() {
   status=queued
   if [ "$state" != done ]; then
     pointer="$(megabrain_dispatch_reply_pointer "$dispatch_id")"
-    if megabrain_dispatch_native_send "$meta" "$pointer"; then
-      status=replied
-    fi
+    megabrain_dispatch_native_send "$meta" "$pointer" || true
     megabrain_dispatch_meta_update_state "$dispatch_id" running || return 1
   fi
   if [ "$json" = true ]; then
@@ -1538,8 +1563,8 @@ megabrain_dispatch_child_message() {
     starting|start-unproven) megabrain_dispatch_meta_update_process_state "$dispatch_id" running || return 1 ;;
   esac
   if [ "$type" = received ]; then
-    # WHY: received is an optional durable status message. Delivery is already known
-    # from the transport observation, so it does not wake the coordinator.
+    # WHY: received is the authoritative prompt-delivery fact. The parent waits for it
+    # directly in the durable queue, so it does not need a terminal observation.
     printf '%s sent: %s\n' "$type" "$dispatch_id"
     return 0
   elif [ "$type" = ask ]; then
