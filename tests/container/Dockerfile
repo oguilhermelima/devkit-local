@@ -13,11 +13,11 @@ RUN apt-get update \
 # A non-root user, because running the suite as root hides permission mistakes that a real
 # operator would hit, and because the tests create files the host may later inspect.
 RUN useradd --create-home --shell /bin/bash runner
+# Keep temporary Git repositories consistent with the project's macOS fixtures. Debian's
+# default is still master, while the worktree scenarios intentionally use main.
+RUN git config --system init.defaultBranch main
 USER runner
 WORKDIR /work
 
 ENV HOME=/home/runner
-# Keep temporary Git repositories consistent with the project's macOS fixtures. Debian's
-# default is still master, while the worktree scenarios intentionally use main.
-RUN git config --global init.defaultBranch main
 ENTRYPOINT ["/bin/bash"]
