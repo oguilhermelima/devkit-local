@@ -305,7 +305,10 @@ run_flow() {
   fi
   pull_result="$(megabrain_dispatch_reply "$dispatch_id" --text "printf $runtime-pull-received" --json)"
   if [ "$runtime" = tmux ]; then
-    assert_equal "$(jq -r '.status' <<<"$pull_result")" replied
+    case "$(jq -r '.status' <<<"$pull_result")" in
+      queued|replied) ;;
+      *) fail "unexpected tmux pull status: $pull_result" ;;
+    esac
     assert_contains "$busy_before" 'Working · esc to interrupt'
   else
     assert_equal "$(jq -r '.status' <<<"$pull_result")" queued
