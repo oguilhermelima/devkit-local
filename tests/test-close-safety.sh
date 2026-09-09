@@ -3,7 +3,10 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-close-safety.XXXXXX")"
+state_dir="$(mktemp -d /tmp/mbclose.XXXXXX)"
+state_dir="$(cd -P "$state_dir" && pwd -P)"
+unset TMUX TMUX_PANE
+export TMUX_TMPDIR="$state_dir"
 socket_name="megabrainclose-$$"
 session_name="megabrain-close-parent-$$"
 dedicated_session_name="megabrain-close-dedicated-$$"
@@ -20,6 +23,7 @@ cleanup() {
 trap cleanup EXIT
 
 export MEGABRAIN_STATE_DIR="$state_dir"
+outside_tmux_before="$(find /private/tmp/tmux-501 -mindepth 1 -maxdepth 1 -type s -print 2>/dev/null | sort)"
 
 source "$root/lib/common.sh"
 source "$root/lib/module-tmux-runtime.sh"
@@ -123,5 +127,11 @@ assert_session_alive "$session_name"
 assert_contains "$(cat "$close_log")" 'close:dedicated-child-terminal'
 assert_equal "$(jq -r '.state' "$state_dir/dispatches/dedicated-child/meta.json")" closed
 printf 'dedicated-session child close still closes its host terminal\n'
+
+trap - EXIT
+cleanup
+outside_tmux_after="$(find /private/tmp/tmux-501 -mindepth 1 -maxdepth 1 -type s -print 2>/dev/null | sort)"
+assert_equal "$outside_tmux_after" "$outside_tmux_before"
+printf 'tmux socket isolation: no socket escaped the temporary directory\n'
 
 printf 'ok: close self-protection and shared-session safety\n'

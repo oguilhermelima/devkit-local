@@ -16,6 +16,7 @@ trap cleanup EXIT
 export MEGABRAIN_STATE_DIR="$state_dir/state"
 export MEGABRAIN_FACTS_FILE="$facts_file"
 source "$root/lib/common.sh"
+source "$root/lib/module-facts.sh"
 source "$root/lib/module-orchestrate.sh"
 
 fail() {
@@ -57,7 +58,7 @@ printf 'empty store initializes as a facts array\n'
 
 assert_failure_contains provenance.who "$root/megabrain" fact add missing-provenance --measurement measured
 "$root/megabrain" fact add bash-version --measurement 'Bash 3.2.57 is installed on macOS' --who tester --when 2026-09-07T19:27:29Z --command 'bash --version' --json >/dev/null
-repo_id="$(git -C "$root" config --get remote.origin.url)"
+repo_id="$(megabrain_fact_repository_id "$root")"
 "$root/megabrain" fact add repo-fact --measurement 'repository measurement' --who tester --when 2026-09-07T19:27:29Z --command 'git remote -v' --scope repository --json >/dev/null
 "$root/megabrain" fact add other-repo --measurement 'must stay out of this prompt' --who tester --when 2026-09-07T19:27:29Z --command 'printf other' --repository other-repository --json >/dev/null
 list_output="$("$root/megabrain" fact list --json)"

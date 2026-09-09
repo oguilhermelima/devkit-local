@@ -3,6 +3,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+unset TMUX TMUX_PANE
 state_dir=""
 socket_name=megabrainloop
 session_name=""
@@ -45,7 +46,8 @@ tmux_cmd() {
 }
 
 set_state_dir() {
-  state_dir="$1"
+  state_dir="$(cd -P "$1" && pwd -P)"
+  export TMUX_TMPDIR="$state_dir"
   MEGABRAIN_STATE_DIR="$state_dir"
   MEGABRAIN_STATE_FILE="$state_dir/state.json"
   MEGABRAIN_CHAIN_FILE="$state_dir/chains.json"
@@ -192,7 +194,7 @@ run_flow() {
   MEGABRAIN_TEST_RUNTIME="$runtime"
   fake_send_mode=ok
   fake_close=false
-  set_state_dir "$(mktemp -d "${TMPDIR:-/tmp}/megabrain-loop-$runtime.XXXXXX")"
+  set_state_dir "$(mktemp -d "/tmp/mblp-$runtime.XXXXXX")"
   export MEGABRAIN_TEST_CONTEXT
   if [ "$runtime" = tmux ]; then
     MEGABRAIN_TEST_CONTEXT=orca

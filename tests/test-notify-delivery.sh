@@ -3,7 +3,10 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-notify-delivery.XXXXXX")"
+state_dir="$(mktemp -d /tmp/mbnotify.XXXXXX)"
+state_dir="$(cd -P "$state_dir" && pwd -P)"
+unset TMUX TMUX_PANE
+export TMUX_TMPDIR="$state_dir"
 socket_name="megabrainnotify-$$"
 parent_session="megabrain-notify-parent-$$"
 unknown_session="megabrain-notify-unknown-$$"
