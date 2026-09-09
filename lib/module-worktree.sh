@@ -715,14 +715,12 @@ ${prompt}"
     fi
     if ! megabrain_tmux_send_agent "$tmux_pane" "$final_prompt" prompt; then
       megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
-      megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-send-failed
+      megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-send-not-observed
       return 1
     fi
-    if ! megabrain_dispatch_wait_for_prompt_receipt "$dispatch_id"; then
-      megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
-      megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-receipt-timeout
-      return 1
-    fi
+    # WHY: megabrain_tmux_send_agent prompt succeeds only after the composer no
+    # longer contains the prompt. That transport observation is the delivery fact;
+    # waiting for the child to type received made delivery depend on cooperation.
     if ! megabrain_spawn_mark_prompt_delivered "$dispatch_id"; then
       megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
       megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-confirmation-failed
@@ -819,16 +817,13 @@ ${prompt}"
   meta="$(megabrain_dispatch_meta_read "$dispatch_id")" || return 1
   if ! megabrain_dispatch_native_send "$meta" "$final_prompt"; then
     megabrain_host_cleanup_launch "$context" "$workspace_id" "$session_id"
-    megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-send-failed
+    megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-send-not-observed
     megabrain_dispatch_failure_error "$dispatch_id" "could not send prompt to $child_host terminal $session_id"
     return 1
   fi
-  if ! megabrain_dispatch_wait_for_prompt_receipt "$dispatch_id"; then
-    megabrain_host_cleanup_launch "$context" "$workspace_id" "$session_id"
-    megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-receipt-timeout
-    megabrain_dispatch_failure_error "$dispatch_id" "dispatch $dispatch_id did not receive a prompt receipt within ${MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS}s"
-    return 1
-  fi
+  # The native host transport returned success, which is its delivery observation.
+  # The optional received command remains a durable queue fast path for callers that
+  # still use the explicit protocol, but launch does not depend on it.
   if ! megabrain_spawn_mark_prompt_delivered "$dispatch_id"; then
     megabrain_host_cleanup_launch "$context" "$workspace_id" "$session_id"
     megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-confirmation-failed

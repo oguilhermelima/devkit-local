@@ -7,6 +7,15 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 image=megabrain-suite
 test_jobs="${MEGABRAIN_TEST_JOBS:-8}"
+output_root="${MEGABRAIN_TEST_OUTPUT_DIR:-${TMPDIR:-/tmp}/megabrain-suite-results}"
+
+mkdir -p "$output_root"
+output_dir="$(mktemp -d "$output_root/run.XXXXXX")"
+# The container runs as its unprivileged runner user, so its bind mount needs to
+# be writable by that user. The directory is unique and contains only this run's
+# captured test output.
+chmod 0777 "$output_dir"
+printf 'test output: %s\n' "$output_dir" >&2
 
 docker build -t "$image" -f "$root/tests/container/Dockerfile" "$root/tests/container" >/dev/null
 
@@ -14,7 +23,9 @@ docker build -t "$image" -f "$root/tests/container/Dockerfile" "$root/tests/cont
 # what stops a test writing to the host tree; the copy is what lets the tests work at all.
 exec docker run --rm \
   -e "MEGABRAIN_TEST_JOBS=$test_jobs" \
+  -e MEGABRAIN_TEST_OUTPUT_DIR=/results \
   -v "$root:/src:ro" \
+  -v "$output_dir:/results" \
   "$image" -c '
     set -uo pipefail
     [ "${1:-}" = -- ] && shift
@@ -72,7 +83,10 @@ exec docker run --rm \
       exit 2
     }
 
-    result_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-suite.XXXXXX")"
+    result_dir="${MEGABRAIN_TEST_OUTPUT_DIR:-${TMPDIR:-/tmp}}"
+    mkdir -p "$result_dir"
+    failure_report="$result_dir/failures.log"
+    : >"$failure_report"
     run_test() {
       local t="$1" name out meta started test_status elapsed
       name="$(basename "$t" .sh)"
@@ -113,11 +127,18 @@ exec docker run --rm \
       else
         printf "%-46s FAIL (%ss)\n" "$t" "$elapsed"
         tail -6 "$out" | sed "s/^/    /"
+        {
+          printf "FAIL %s\n" "$t"
+          cat "$out"
+          printf "\n"
+        } >>"$failure_report"
         failed=$((failed + 1))
       fi
     done
     printf "\n%s passed, %s failed\n" "$passed" "$failed"
     printf "slowest: %s (%ss); timeout ceiling: 60s; workers: %s\n" "$slowest_test" "$slowest_seconds" "$test_jobs"
-    rm -rf "$result_dir"
+    if [ "$failed" -eq 0 ]; then
+      printf "No failing tests.\n" >"$failure_report"
+    fi
     [ "$failed" -eq 0 ]
   ' -- "$@"
