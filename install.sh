@@ -841,8 +841,11 @@ installer_install_plugin_command() {
     return "$rc"
   fi
   if [ "$rc" -ne 0 ]; then
-    installer_summary "$agent plugin already-current"
-    return 0
+    if printf '%s' "$output" | grep -Eiq 'already[[:space:]]+installed|already[[:space:]]+enabled' && installer_verify_plugin "$agent"; then
+      installer_summary "$agent plugin already-current"
+      return 0
+    fi
+    return "$rc"
   fi
   installer_verify_plugin "$agent" || return 1
   installer_summary "$agent plugin installed"
@@ -924,10 +927,26 @@ installer_pointer_paragraph() {
 }
 
 installer_append_pointer() {
-  local file="$1" paragraph="$2"
+  local file="$1" paragraph="$2" temp
   mkdir -p "$(dirname "$file")" || return 1
   if [ -f "$file" ] && grep -Fqx "$paragraph" "$file"; then
     installer_summary "AGENTS.md pointer already-current in $file"
+    return 0
+  fi
+  if [ -f "$file" ] && grep -Eq '^# megabrain recipes([[:space:]]|$)' "$file"; then
+    temp="$(mktemp "${file}.XXXXXX")" || return 1
+    awk -v replacement="$paragraph" '
+      BEGIN { replaced = 0 }
+      /^# megabrain recipes([[:space:]]|$)/ {
+        if (!replaced) print replacement
+        replaced = 1
+        next
+      }
+      { print }
+      END { if (!replaced) print replacement }
+    ' "$file" >"$temp" || { rm -f "$temp"; return 1; }
+    mv -f "$temp" "$file" || { rm -f "$temp"; return 1; }
+    installer_summary "AGENTS.md pointer updated in $file"
     return 0
   fi
   if [ -s "$file" ] && [ "$(tail -c 1 "$file" | wc -l | tr -d ' ')" -eq 0 ]; then
