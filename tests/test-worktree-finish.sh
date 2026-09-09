@@ -149,7 +149,7 @@ scenario_missing_parent_falls_back_loudly() {
   git -C "$work_dir/shared/child" commit -qm child
   git -C "$work_dir/shared/parent" merge -q --no-ff stack/child -m 'merge child'
   git -C "$work_dir/repo" merge -q --no-ff stack/base -m 'merge parent'
-  git -C "$work_dir/repo" worktree remove -q "$work_dir/shared/parent"
+  git -C "$work_dir/repo" worktree remove "$work_dir/shared/parent"
   git -C "$work_dir/repo" branch -d stack/base >/dev/null
   output="$(megabrain_worktree_finish "$work_dir/shared/child" --delete-branch --json 2>&1)" ||
     fail "a child whose parent was merged and removed was refused: $output"
