@@ -93,6 +93,32 @@ megabrain_tmux_session_registry_prune() {
   done
 }
 
+megabrain_tmux_session_registry_record_current() {
+  local record_path="$1"
+  jq -e '
+    type == "object"
+    and (.tmuxSession | type == "string" and length > 0)
+    and (.agent | type == "string" and length > 0)
+    and (.workingDirectory | type == "string" and length > 0)
+    and (.tmuxPane | type == "string" and length > 0)
+    and .role == "main"
+    and (.host | type == "string" and length > 0)
+    and (.createdAt | type == "string" and length > 0)
+  ' "$record_path" >/dev/null 2>&1
+}
+
+megabrain_tmux_session_registry_installed_current() {
+  megabrain_tmux_session_registry_record_current "$@"
+}
+
+megabrain_tmux_session_registry_drift() {
+  local record_path
+  for record_path in "$MEGABRAIN_TMUX_SESSION_DIR"/*.json; do
+    [ -f "$record_path" ] || continue
+    megabrain_tmux_session_registry_record_current "$record_path" || printf '%s\n' "${record_path##*/}"
+  done
+}
+
 megabrain_tmux_registry_session_for_worktree() {
   local worktree_path="$1" target record_path record session directory role
   target="$(cd "$worktree_path" 2>/dev/null && pwd -P || printf '%s' "$worktree_path")"
@@ -1071,7 +1097,7 @@ command_tmux() {
 }
 
 module_tmux_runtime_doctor() {
-  local version enabled detail tuning_block=false tuning_file=false wrapper_block=false wrapper_file=false server_running=false server_rgb=false
+  local version enabled detail tuning_block=false tuning_file=false wrapper_block=false wrapper_file=false server_running=false server_rgb=false registry_drift=""
   if ! megabrain_tmux_available; then
     megabrain_set_status missing "tmux is not on PATH"
     return 1
@@ -1086,6 +1112,7 @@ module_tmux_runtime_doctor() {
   megabrain_tmux_tuning_installed_current && tuning_file=true
   megabrain_tmux_wrapper_block_present "$(megabrain_tmux_wrapper_config_path)" && wrapper_block=true
   megabrain_tmux_wrapper_installed_current && wrapper_file=true
+  registry_drift="$(megabrain_tmux_session_registry_drift)"
   if megabrain_tmux_tuning_server_running; then
     server_running=true
     megabrain_tmux_tuning_server_has_rgb && server_rgb=true
@@ -1096,6 +1123,11 @@ module_tmux_runtime_doctor() {
   else
     detail="$detail; running server none"
   fi
+  if [ -n "$registry_drift" ]; then
+    detail="$detail; session registry drift: $(printf '%s' "$registry_drift" | paste -sd ', ' -)"
+  else
+    detail="$detail; session registry current"
+  fi
   if megabrain_tmux_config_applied; then
     detail="$detail; megabrain session config applied"
   else
@@ -1103,7 +1135,7 @@ module_tmux_runtime_doctor() {
   fi
   if [ "$enabled" = enabled ] &&
     [ "$tuning_block" = true ] && [ "$tuning_file" = true ] &&
-    [ "$wrapper_block" = true ] && [ "$wrapper_file" = true ]; then
+    [ "$wrapper_block" = true ] && [ "$wrapper_file" = true ] && [ -z "$registry_drift" ]; then
     megabrain_set_status ok "$detail"
     return 0
   fi
