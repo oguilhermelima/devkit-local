@@ -76,14 +76,12 @@ megabrain_parent_notify_context_matches() {
 megabrain_parent_notify_pointer() {
   local dispatch_id="$1"
   # The pointer keeps message content in the durable queue and delivery path.
-  printf '[megabrain] mail available for dispatch %s; run megabrain orchestrate watch %s\n' "$dispatch_id" "$dispatch_id"
+  printf 'mail: megabrain orchestrate watch %s\n' "$dispatch_id"
 }
 
 megabrain_parent_notify_pointer_many() {
-  local count="$1" dispatch_ids="$2" noun
-  noun=dispatches
-  [ "$count" -eq 1 ] && noun=dispatch
-  printf '[megabrain] mail available for %s %s: %s; run megabrain orchestrate watch <id> for each\n' "$count" "$noun" "$dispatch_ids"
+  local count="$1"
+  printf '%s mails: run megabrain orchestrate list\n' "$count"
 }
 
 megabrain_parent_notify_wake_path() {
@@ -140,7 +138,7 @@ megabrain_parent_notify_tmux() {
   [ -n "$pane" ] || return 1
   # Parent notification records that the pointer was typed and any unsubmitted
   # draft was cleared; the durable queue remains authoritative for the child.
-  megabrain_tmux_send_text "$pane" "$pointer"
+  megabrain_tmux_send_nudge "$pane" "$pointer"
 }
 
 # WHY: .runtime says how the CHILD was launched. Reaching the PARENT is a property of

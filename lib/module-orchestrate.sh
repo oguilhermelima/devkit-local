@@ -951,7 +951,7 @@ megabrain_dispatch_native_send() {
     agent="$(printf '%s' "$meta" | jq -r '.agent // empty')"
     [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] || { megabrain_error "tmux dispatch metadata has no session or pane"; return 1; }
     megabrain_tmux_session_exists "$tmux_session" || { megabrain_error "tmux session is no longer available: $tmux_session"; return 1; }
-    megabrain_tmux_send_text "$tmux_pane" "$text" "$agent" || return 1
+    megabrain_tmux_send_nudge "$tmux_pane" "$text" "$agent" || return 1
     [ "${MEGABRAIN_TMUX_SEND_STATUS:-queued}" = replied ]
     return $?
   fi
@@ -974,7 +974,7 @@ megabrain_dispatch_native_send() {
 
 megabrain_dispatch_reply_pointer() {
   local dispatch_id="$1"
-  printf '[megabrain] reply available for dispatch %s; run megabrain check\n' "$dispatch_id"
+  printf '[megabrain] reply available; run megabrain check\n'
 }
 
 megabrain_dispatch_close_refuse_caller() {

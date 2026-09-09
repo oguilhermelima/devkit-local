@@ -345,14 +345,39 @@ megabrain_tmux_capture_composer() {
   esac
 }
 
-megabrain_tmux_normalize_text() {
-  printf '%s' "$1" | tr -d '[:space:]'
+megabrain_tmux_nudge_text_for_pane() {
+  local pane="$1" text="$2" pane_width text_length
+  pane_width="$(tmux display-message -p -t "$pane" '#{pane_width}' 2>/dev/null || true)"
+  text="$(printf '%s' "$text" | tr '\r\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')"
+  case "$pane_width" in
+    ''|*[!0-9]*|0)
+      printf '%s\n' "$text"
+      return 0
+      ;;
+  esac
+  text_length="$(printf '%s' "$text" | wc -m | tr -d ' ')"
+  if [ "$text_length" -le "$pane_width" ]; then
+    printf '%s\n' "$text"
+  elif [ "$pane_width" -eq 1 ]; then
+    printf '…\n'
+  else
+    printf '%s…\n' "$(printf '%s' "$text" | cut -c 1-$((pane_width - 1)))"
+  fi
+}
+
+megabrain_tmux_send_nudge() {
+  local pane="$1" text="$2" agent
+  agent=
+  if [ "$#" -ge 3 ]; then
+    agent="$3"
+  fi
+  text="$(megabrain_tmux_nudge_text_for_pane "$pane" "$text")"
+  megabrain_tmux_send_text "$pane" "$text" "$agent"
 }
 
 megabrain_tmux_send_text() {
-  local pane="$1" text="$2" agent="${3:-}" attempt=0 after after_normalized text_length text_slice
+  local pane="$1" text="$2" agent="${3:-}" attempt=0 after text_length
   text_length="${#text}"
-  text_slice="$(megabrain_tmux_normalize_text "$text" | cut -c 1-32)"
   MEGABRAIN_TMUX_SEND_STATUS=queued
   megabrain_tmux_send_literal "$pane" "$text" || return 1
   while :; do
@@ -360,9 +385,8 @@ megabrain_tmux_send_text() {
     attempt=$((attempt + 1))
     [ "$attempt" -ge "$MEGABRAIN_TMUX_ENTER_RETRIES" ] || sleep "$MEGABRAIN_TMUX_ENTER_WAIT"
     after="$(megabrain_tmux_capture_composer "$pane")"
-    after_normalized="$(megabrain_tmux_normalize_text "$after")"
-    case "$after_normalized" in
-      *"$text_slice"*) ;;
+    case "$after" in
+      *"$text"*) ;;
       *)
       MEGABRAIN_TMUX_SEND_STATUS=replied
       return 0
@@ -374,9 +398,8 @@ megabrain_tmux_send_text() {
     tmux send-keys -t "$pane" Tab || return 1
     sleep "$MEGABRAIN_TMUX_ENTER_WAIT"
     after="$(megabrain_tmux_capture_composer "$pane")"
-    after_normalized="$(megabrain_tmux_normalize_text "$after")"
-    case "$after_normalized" in
-      *"$text_slice"*) ;;
+    case "$after" in
+      *"$text"*) ;;
       *)
       MEGABRAIN_TMUX_SEND_STATUS=replied
       return 0
