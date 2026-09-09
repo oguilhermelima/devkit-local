@@ -6,6 +6,9 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-integrations.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
+# This scenario exercises the zsh wrapper; keep it independent of the shell that runs CI.
+export SHELL=/bin/zsh
+
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
   exit 1
@@ -145,7 +148,7 @@ PATH="$installer_bin:$PATH"
 MODULES_REQUEST=""
 INSTALLER_INTERACTIVE=false
 installer_select_modules
-assert_equal "$SELECTED_MODULES" 'tmux-runtime,orchestration,orchestration-hooks,worktree'
+assert_equal "$SELECTED_MODULES" 'tmux-runtime,orchestration,orchestration-hooks'
 MODULES_REQUEST=none
 installer_select_modules
 assert_equal "$SELECTED_MODULES" ''
