@@ -188,7 +188,7 @@ parent_ack() {
 run_flow() {
   local runtime="$1" chain_output dispatch_meta dispatch_id delivery replay delivery_id reply_result push_check push_ack
   local question_delivery question_delivery_id pull_result pull_delivery_id done_delivery done_delivery_id
-  local busy_pane busy_before receipt_before receipt_after ask_capture
+  local busy_pane busy_before receipt_before receipt_after ask_capture reply_capture reply_send_log
   MEGABRAIN_TEST_RUNTIME="$runtime"
   fake_send_mode=ok
   fake_close=false
@@ -255,9 +255,13 @@ run_flow() {
   reply_result="$(megabrain_dispatch_reply "$dispatch_id" --text "printf $runtime-push-received" --json)"
   assert_equal "$(jq -r '.status' <<<"$reply_result")" replied
   if [ "$runtime" = tmux ]; then
-    assert_contains "$(tmux_cmd capture-pane -p -t "$child_pane" -S -30)" "agent-response:printf $runtime-push-received"
+    reply_capture="$(tmux_cmd capture-pane -p -t "$child_pane" -S -30)"
+    assert_contains "$reply_capture" "megabrain check"
+    assert_not_contains "$reply_capture" "printf $runtime-push-received"
   else
-    assert_contains "$(cat "$state_dir/fake-sends.log")" "$runtime-push-received"
+    reply_send_log="$(cat "$state_dir/fake-sends.log")"
+    assert_contains "$reply_send_log" 'megabrain check'
+    assert_not_contains "$reply_send_log" "printf $runtime-push-received"
   fi
   push_check="$(child_check)"
   assert_contains "$(jq -r '.text' <<<"$push_check")" "$runtime-push-received"
