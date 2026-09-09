@@ -32,6 +32,10 @@ assert_equal() {
   [ "$1" = "$2" ] || fail "expected '$2', got '$1'"
 }
 
+assert_percent() {
+  assert_equal "$(printf '%.1f' "$1")" "$2"
+}
+
 assert_contains() {
   case "$1" in
     *"$2"*) ;;
@@ -86,8 +90,10 @@ future_reset="$(($(date +%s) + 3600))"
 cp "$root/tests/fixtures/codex-rollout-rate-limits.jsonl" "$rollouts_dir/rollout-real-shaped.jsonl"
 megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
-assert_equal "$MEGABRAIN_CHAIN_LIMIT_USED" 73.0
+assert_percent "$MEGABRAIN_CHAIN_LIMIT_USED" 73.0
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_RESETS" 4102444800
+assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" '73.0 percent'
+assert_equal "$(printf '%s' "$MEGABRAIN_CHAIN_LIMIT_RESULT" | jq -r '.windows[0].usedPercent | type')" number
 printf 'limit real-shaped sample guard: current at 73 percent\n'
 
 write_rollout "$rollouts_dir/rollout-current.jsonl" 97.0 "$future_reset"
@@ -96,14 +102,15 @@ touch -t 202609070101 "$rollouts_dir/rollout-real-shaped.jsonl"
 touch -t 202609070102 "$rollouts_dir/rollout-current.jsonl"
 megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
-assert_equal "$MEGABRAIN_CHAIN_LIMIT_USED" 97.0
+assert_percent "$MEGABRAIN_CHAIN_LIMIT_USED" 97.0
+assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" '97.0 percent'
 printf 'limit trailing non-snapshot line: last usable snapshot\n'
 
 printf '%s\n' '{"timestamp":"2026-09-07T08:15:23.790Z","ordinal":17,"type":"event_msg","payload":{"type":"token_count","info":{"model_context_window":258400}}}' >"$rollouts_dir/rollout-empty.jsonl"
 touch -t 202609070103 "$rollouts_dir/rollout-empty.jsonl"
 megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
-assert_equal "$MEGABRAIN_CHAIN_LIMIT_USED" 97.0
+assert_percent "$MEGABRAIN_CHAIN_LIMIT_USED" 97.0
 printf 'limit newest file without snapshot: older usable snapshot\n'
 
 seeded="$(MEGABRAIN_STATE_DIR="$MEGABRAIN_STATE_DIR" "$root/megabrain" chain list --json)"
@@ -140,7 +147,7 @@ printf '%s\n' '{"timestamp":"2026-09-07T08:15:24.790Z","ordinal":18,"type":"even
 touch -t 202609070104 "$rollouts_dir/rollout-under.jsonl"
 megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
-assert_equal "$MEGABRAIN_CHAIN_LIMIT_USED" 40.0
+assert_percent "$MEGABRAIN_CHAIN_LIMIT_USED" 40.0
 printf 'limit under threshold: current at 40 percent\n'
 past_reset="$(($(date +%s) - 60))"
 write_rollout "$rollouts_dir/rollout-stale.jsonl" 99.0 "$past_reset"
@@ -221,7 +228,7 @@ fake_curl_call_file="$state_dir/curl-calls"
 : >"$fake_curl_call_file"
 megabrain_chain_limit_read claude 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
-assert_equal "$MEGABRAIN_CHAIN_LIMIT_USED" 11.0
+assert_percent "$MEGABRAIN_CHAIN_LIMIT_USED" 11.0
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_SOURCE" live
 assert_equal "$(printf '%s' "$MEGABRAIN_CHAIN_LIMIT_RESULT" | jq -r '.windows | length')" 2
 assert_equal "$(wc -l <"$fake_curl_call_file" | tr -d ' ')" 1
@@ -233,7 +240,7 @@ printf 'claude dispatch and cache: normalized response, one request\n'
 fake_curl_mode=agy
 megabrain_chain_limit_read agy 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
-assert_equal "$MEGABRAIN_CHAIN_LIMIT_USED" 20
+assert_percent "$MEGABRAIN_CHAIN_LIMIT_USED" 20.0
 assert_equal "$(printf '%s' "$MEGABRAIN_CHAIN_LIMIT_RESULT" | jq -r '.windows | length')" 4
 printf 'agy dispatch: named quota buckets normalized\n'
 

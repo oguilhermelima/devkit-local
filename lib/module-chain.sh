@@ -766,7 +766,11 @@ megabrain_chain_limit_apply() {
   MEGABRAIN_CHAIN_LIMIT_USED="$(printf '%s' "$entry" | jq -r '.usedPercent')"
   MEGABRAIN_CHAIN_LIMIT_RESETS="$(printf '%s' "$entry" | jq -r '.resetsAt')"
   MEGABRAIN_CHAIN_LIMIT_STATUS=current
-  MEGABRAIN_CHAIN_LIMIT_REASON="$agent $window window at $MEGABRAIN_CHAIN_LIMIT_USED percent"
+  MEGABRAIN_CHAIN_LIMIT_REASON="$agent $window window at $(megabrain_chain_percent_text "$MEGABRAIN_CHAIN_LIMIT_USED") percent"
+}
+
+megabrain_chain_percent_text() {
+  printf '%.1f\n' "$1"
 }
 
 megabrain_chain_limit_result_codex() {
@@ -1040,7 +1044,7 @@ megabrain_chain_limit_read() {
   MEGABRAIN_CHAIN_LIMIT_FETCHED_AT="$fetched_at"
   MEGABRAIN_CHAIN_LIMIT_STATUS=current
   MEGABRAIN_CHAIN_LIMIT_SOURCE=disk
-  MEGABRAIN_CHAIN_LIMIT_REASON="codex $window window at $MEGABRAIN_CHAIN_LIMIT_USED percent"
+  MEGABRAIN_CHAIN_LIMIT_REASON="codex $window window at $(megabrain_chain_percent_text "$MEGABRAIN_CHAIN_LIMIT_USED") percent"
 }
 
 MEGABRAIN_CHAIN_SELECTED_NAME=""
