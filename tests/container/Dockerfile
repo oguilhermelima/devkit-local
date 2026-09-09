@@ -7,7 +7,7 @@ FROM debian:bookworm-slim
 # cheap enough to rebuild whenever a dependency question comes up.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-     bash jq git tmux procps ca-certificates curl tar \
+     bash jq git tmux procps ca-certificates curl tar nodejs \
   && rm -rf /var/lib/apt/lists/*
 
 # A non-root user, because running the suite as root hides permission mistakes that a real
