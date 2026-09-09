@@ -135,7 +135,8 @@ megabrain_workspace_id_for_target() {
 }
 
 megabrain_agent_command() {
-  printf '%s\n' "awk 'BEGIN { print \"READY\"; print \"CHILD$\"; fflush() } { print \"agent-response:\" \$0; print \"CHILD$\"; fflush() }'"
+  # Keep the fake's visible bottom line faithful to the measured Codex idle composer.
+  printf '%s\n' "awk 'BEGIN { fflush() } { for (i = 1; i <= 20; i++) print \"\"; print \"agent-response:\" \$0; print \"CHILD$\"; print \"› Ask Codex to do anything\"; fflush() }'"
 }
 
 megabrain_superset_available() {
