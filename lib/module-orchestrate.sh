@@ -211,8 +211,9 @@ megabrain_dispatch_meta_write() {
     *) chain_total_json="$chain_total" ;;
   esac
   dispatch_dir="$(megabrain_dispatch_dir "$dispatch_id")" || return 1
-  mkdir -p "$dispatch_dir/messages" "$dispatch_dir/deliveries" || return 1
-  megabrain_dispatch_cursor_write "$dispatch_id" 0 || return 1
+  # Publish metadata before the queue directories. If a later filesystem operation
+  # fails, inventory and doctor can still name the durable dispatch directory.
+  mkdir -p "$dispatch_dir" || return 1
   tmp="$(mktemp "$dispatch_dir/.meta.XXXXXX")" || return 1
   if ! jq -n \
     --arg dispatchId "$dispatch_id" --arg parentSessionId "$parent_session" \
@@ -234,7 +235,12 @@ megabrain_dispatch_meta_write() {
     rm -f "$tmp"
     return 1
   fi
-  mv -f "$tmp" "$(megabrain_dispatch_meta_path "$dispatch_id")"
+  if ! mv -f "$tmp" "$(megabrain_dispatch_meta_path "$dispatch_id")"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mkdir -p "$dispatch_dir/messages" "$dispatch_dir/deliveries" || return 1
+  megabrain_dispatch_cursor_write "$dispatch_id" 0 || return 1
   printf '%s\n' "$dispatch_id"
 }
 
@@ -508,10 +514,25 @@ megabrain_dispatch_reconcile() {
 }
 
 megabrain_dispatch_health_counts() {
-  local meta_path meta records='[]'
+  local meta_path meta records='[]' dispatch_path dispatch_name state timestamp timestamp_epoch cutoff
   MODULE_UNCERTAIN_DISPATCHES=0
   MODULE_RETAINED_TERMINALS=0
   MODULE_PRUNABLE_DISPATCHES=0
+  MODULE_UNTRACKED_DISPATCHES=""
+  for dispatch_path in "$MEGABRAIN_DISPATCH_DIR"/*; do
+    [ -d "$dispatch_path" ] || continue
+    dispatch_name="${dispatch_path##*/}"
+    [ "$dispatch_name" = archive ] && continue
+    [ -f "$dispatch_path/meta.json" ] && continue
+    if [ -n "$MODULE_UNTRACKED_DISPATCHES" ]; then
+      MODULE_UNTRACKED_DISPATCHES="$MODULE_UNTRACKED_DISPATCHES, $dispatch_name"
+    else
+      MODULE_UNTRACKED_DISPATCHES="$dispatch_name"
+    fi
+  done
+  if [ -n "$MODULE_UNTRACKED_DISPATCHES" ]; then
+    megabrain_notice "dispatch directories without metadata: $MODULE_UNTRACKED_DISPATCHES"
+  fi
   for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
     [ -f "$meta_path" ] || continue
     meta="$(cat "$meta_path" 2>/dev/null || true)"
