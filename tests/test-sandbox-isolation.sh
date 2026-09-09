@@ -57,7 +57,7 @@ digest_outside() {
       # still an escape, and a digest alone cannot see an idempotent write.
       printf '%s file %s %s\n' "$path" \
         "$(shasum "$path" 2>/dev/null | awk '{print $1}')" \
-        "$(stat -f %m "$path" 2>/dev/null || stat -c %Y "$path" 2>/dev/null || printf '?')"
+        "$(stat -c %Y "$path" 2>/dev/null || stat -f %m "$path" 2>/dev/null || printf '?')"
     else
       printf '%s absent\n' "$path"
     fi

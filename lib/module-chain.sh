@@ -1039,7 +1039,7 @@ megabrain_chain_limit_read() {
     megabrain_chain_limit_unknown codex "$window" "snapshot stale; reset $MEGABRAIN_CHAIN_LIMIT_RESETS"
     return 0
   fi
-  fetched_at="$(stat -f '%m' "$rollout" 2>/dev/null || stat -c '%Y' "$rollout" 2>/dev/null || printf '%s' "$now")"
+  fetched_at="$(megabrain_path_mtime "$rollout" 2>/dev/null || printf '%s' "$now")"
   case "$fetched_at" in
     ''|*[!0-9]*) fetched_at="$now" ;;
   esac

@@ -347,7 +347,7 @@ megabrain_dispatch_has_recent_child_activity() {
   for path in "$messages_dir"/*.json; do
     [ -f "$path" ] || continue
     jq -e '.from == "child" and (.type == "received" or .type == "ask" or .type == "done")' "$path" >/dev/null 2>&1 || continue
-    modified="$(stat -f '%m' "$path" 2>/dev/null || stat -c '%Y' "$path" 2>/dev/null || true)"
+    modified="$(megabrain_path_mtime "$path" 2>/dev/null || true)"
     [[ "$modified" =~ ^[0-9]+$ ]] || continue
     [ "$modified" -gt "$latest" ] && latest="$modified"
   done

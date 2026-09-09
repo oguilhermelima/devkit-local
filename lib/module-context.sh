@@ -254,6 +254,7 @@ megabrain_dispatch_terminal_status() {
     return 0
   fi
   records="$(megabrain_dispatch_host_terminal_records "$meta" 2>/dev/null || true)"
+  [ -n "$records" ] || return 0
   printf '%s' "$records" | jq -e . >/dev/null 2>&1 || return 0
   if ! megabrain_dispatch_terminal_id_exists "$records" "$terminal_id"; then
     MEGABRAIN_TERMINAL_STATUS=missing
