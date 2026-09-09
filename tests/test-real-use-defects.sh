@@ -64,8 +64,7 @@ if module_tmux_runtime_doctor >/dev/null 2>&1; then
 fi
 printf 'scenario 2: tmux drift is non-ok\n'
 
-# Scenario 3: agent CLIs must receive the argument separator, and a failed CLI
-# must not leak a success line into the module output.
+# Scenario 3: agent CLIs must receive the argument separator.
 command_file="$state_dir/claude-args"
 megabrain_agent_mcp_registered() { return 1; }
 megabrain_remove_playwright() { return 0; }
@@ -86,17 +85,50 @@ if ! megabrain_register_playwright claude "$state_dir/chromium.json" >/dev/null 
   fail 'Claude MCP registration did not accept the command separator'
 fi
 grep -Fx -- '--' "$command_file" >/dev/null || fail 'Claude registration command omitted --'
-
-claude() {
-  printf "Added global MCP server 'playwright'.\nerror: registration failed\n" >&2
-  return 1
-}
-failed_registration_output="$(megabrain_register_playwright claude "$state_dir/chromium.json" 2>&1 || true)"
-assert_not_contains "$failed_registration_output" 'Added global MCP server' \
-  'a failed Claude registration leaked its success line'
 printf 'scenario 3: Claude registration is guarded\n'
 
-# Scenario 4: the uncertain dispatch set reported by doctor must be selectable.
+# Scenario 4: output from each agent must remain attributable, including the
+# failing CLI's diagnostic text.
+claude() {
+  printf "error: unknown option '-y'\n" >&2
+  return 1
+}
+codex() {
+  printf 'codex CLI output\n'
+  return 0
+}
+combined_registration_output="$(
+  megabrain_register_playwright claude "$state_dir/chromium.json" || true
+  megabrain_register_playwright codex "$state_dir/chromium.json"
+)"
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  case "$line" in
+    *claude*|*codex*) ;;
+    *) fail "unattributed MCP registration output: $line" ;;
+  esac
+done <<< "$combined_registration_output"
+assert_contains "$combined_registration_output" "claude: error: unknown option '-y'" \
+  'the failing Claude CLI diagnostic was changed or omitted'
+assert_contains "$combined_registration_output" 'codex: codex CLI output' \
+  'the Codex CLI output was not attributed'
+printf 'scenario 4: MCP registration output is attributable\n'
+
+# Scenario 5: the loop must summarize registered and failed agents.
+megabrain_present_agents() { printf 'claude\ncodex\n'; }
+megabrain_web_local_ready() { return 0; }
+megabrain_playwright_ready() { return 0; }
+megabrain_playwright_active_browser() { printf 'chromium\n'; }
+megabrain_playwright_config_path() { printf '%s/chromium.json\n' "$state_dir"; }
+module_simulator_web_doctor() { return 0; }
+node() { return 0; }
+summary_output="$(module_simulator_web_install false chromium 2>&1 || true)"
+assert_contains "$summary_output" \
+  'Playwright MCP registration summary: registered codex; failed claude' \
+  'MCP registration summary did not identify registered and failed agents'
+printf 'scenario 5: MCP registration summary identifies outcomes\n'
+
+# Scenario 6: the uncertain dispatch set reported by doctor must be selectable.
 dispatch_state="$state_dir/dispatch-state"
 export MEGABRAIN_STATE_DIR="$dispatch_state"
 export MEGABRAIN_DISPATCH_DIR="$dispatch_state/dispatches"
@@ -106,23 +138,23 @@ printf '%s\n' '{"dispatchId":"healthy","parentSessionId":"","parentHost":"unknow
 uncertain_list="$(command_orchestrate_list --uncertain --json)"
 assert_contains "$uncertain_list" 'uncertain' 'orchestrate list --uncertain omitted the doctor-counted dispatch'
 assert_not_contains "$uncertain_list" 'healthy' 'orchestrate list --uncertain included a healthy dispatch'
-printf 'scenario 4: uncertain dispatches are selectable\n'
+printf 'scenario 6: uncertain dispatches are selectable\n'
 
-# Scenario 5: the version command must be discoverable from top-level help.
+# Scenario 7: the version command must be discoverable from top-level help.
 help_output="$("$root/megabrain" --help)"
 assert_contains "$help_output" '--version' 'top-level help omitted the version flag'
-printf 'scenario 5: help documents the version flag\n'
+printf 'scenario 7: help documents the version flag\n'
 
-# The install record must identify itself as historical rather than live status.
+# Scenario 8: the install record must identify itself as historical rather than live status.
 record_state="$state_dir/record-state"
 export MEGABRAIN_STATE_DIR="$record_state"
 export MEGABRAIN_STATE_FILE="$record_state/state.json"
 megabrain_state_set simulator-web true 'installed' || fail 'could not write installation record'
 jq -e '._meta.kind == "installation-record" and ._meta.recordedAt != null and ._meta.liveStatusCommand == "megabrain doctor"' "$MEGABRAIN_STATE_FILE" >/dev/null ||
   fail 'state.json did not identify its timestamp and live-status command'
-printf 'scenario 6: install record identifies its timestamp\n'
+printf 'scenario 8: install record identifies its timestamp\n'
 
-# An editor-created swap file beside the chain temp file must be removed.
+# Scenario 9: an editor-created swap file beside the chain temp file must be removed.
 chain_state="$state_dir/chain-state"
 export MEGABRAIN_STATE_DIR="$chain_state"
 export MEGABRAIN_CHAIN_FILE="$chain_state/chains.json"
@@ -142,9 +174,9 @@ command_chain_edit demo >/dev/null || fail 'chain edit fixture did not complete'
 if find "$chain_state" -maxdepth 1 -name '.chains-edit.*.swp' -print -quit | grep -q .; then
   fail 'chain edit left an editor swap file behind'
 fi
-printf 'scenario 7: chain editor swap file is cleaned\n'
+printf 'scenario 9: chain editor swap file is cleaned\n'
 
-# Both browser profiles need an explicit active/inactive explanation.
+# Scenario 10: both browser profiles need an explicit active/inactive explanation.
 export MEGABRAIN_STATE_DIR="$state_dir/browser-state"
 MEGABRAIN_PLAYWRIGHT_ROOT="$state_dir/browser-root"
 megabrain_web_local_ready() { return 0; }
@@ -157,6 +189,6 @@ node() { return 0; }
 browser_output="$(module_simulator_web_install false both)"
 assert_contains "$browser_output" 'chromium' 'browser install did not identify the active Chromium profile'
 assert_contains "$browser_output" 'firefox' 'browser install did not explain the Firefox profile'
-printf 'scenario 8: browser profile roles are explicit\n'
+printf 'scenario 10: browser profile roles are explicit\n'
 
 printf 'ok: real-use defect scenarios\n'
