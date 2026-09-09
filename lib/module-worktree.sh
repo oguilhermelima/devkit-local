@@ -241,7 +241,7 @@ megabrain_superset_tag_from_branch() {
 }
 
 megabrain_worktree_parent_resolve() {
-  local selector="$1" repo_path="$2" kind value path branch line current_path
+  local selector="$1" repo_path="$2" kind="" value="" path="" branch="" line="" current_path=""
   case "$selector" in
     branch:)
       megabrain_error "parent worktree could not be resolved: $selector"
