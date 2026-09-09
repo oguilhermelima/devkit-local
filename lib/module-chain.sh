@@ -8,6 +8,61 @@ fi
 MEGABRAIN_CHAIN_AGENTS='codex claude agy'
 MEGABRAIN_CHAIN_WINDOWS='5h weekly'
 
+MEGABRAIN_CHAIN_TEMP_FILE=""
+MEGABRAIN_CHAIN_TEMP_HUP_TRAP=""
+MEGABRAIN_CHAIN_TEMP_INT_TRAP=""
+MEGABRAIN_CHAIN_TEMP_TERM_TRAP=""
+
+megabrain_chain_temp_cleanup() {
+  if [ -n "$MEGABRAIN_CHAIN_TEMP_FILE" ]; then
+    rm -f "$MEGABRAIN_CHAIN_TEMP_FILE"
+    MEGABRAIN_CHAIN_TEMP_FILE=""
+  fi
+}
+
+megabrain_chain_temp_interrupt() {
+  local signal="$1"
+  megabrain_chain_temp_cleanup
+  trap - "$signal"
+  case "$signal" in
+    HUP) exit 129 ;;
+    INT) exit 130 ;;
+    TERM) exit 143 ;;
+  esac
+}
+
+megabrain_chain_temp_begin() {
+  MEGABRAIN_CHAIN_TEMP_FILE="$1"
+  MEGABRAIN_CHAIN_TEMP_HUP_TRAP="$(trap -p HUP)"
+  MEGABRAIN_CHAIN_TEMP_INT_TRAP="$(trap -p INT)"
+  MEGABRAIN_CHAIN_TEMP_TERM_TRAP="$(trap -p TERM)"
+  trap 'megabrain_chain_temp_interrupt HUP' HUP
+  trap 'megabrain_chain_temp_interrupt INT' INT
+  trap 'megabrain_chain_temp_interrupt TERM' TERM
+}
+
+megabrain_chain_temp_end() {
+  megabrain_chain_temp_cleanup
+  if [ -n "$MEGABRAIN_CHAIN_TEMP_HUP_TRAP" ]; then
+    eval "$MEGABRAIN_CHAIN_TEMP_HUP_TRAP"
+  else
+    trap - HUP
+  fi
+  if [ -n "$MEGABRAIN_CHAIN_TEMP_INT_TRAP" ]; then
+    eval "$MEGABRAIN_CHAIN_TEMP_INT_TRAP"
+  else
+    trap - INT
+  fi
+  if [ -n "$MEGABRAIN_CHAIN_TEMP_TERM_TRAP" ]; then
+    eval "$MEGABRAIN_CHAIN_TEMP_TERM_TRAP"
+  else
+    trap - TERM
+  fi
+  MEGABRAIN_CHAIN_TEMP_HUP_TRAP=""
+  MEGABRAIN_CHAIN_TEMP_INT_TRAP=""
+  MEGABRAIN_CHAIN_TEMP_TERM_TRAP=""
+}
+
 megabrain_chain_seed() {
   jq -n '{
     chains: {},
@@ -314,15 +369,19 @@ command_chain_edit() {
     return 1
   fi
   tmp="$(mktemp "$MEGABRAIN_STATE_DIR/chains-edit.XXXXXX")" || return 1
-  cp "$MEGABRAIN_CHAIN_FILE" "$tmp" || { rm -f "$tmp"; return 1; }
+  megabrain_chain_temp_begin "$tmp"
+  if ! cp "$MEGABRAIN_CHAIN_FILE" "$tmp"; then
+    megabrain_chain_temp_end
+    return 1
+  fi
   editor="${EDITOR:-vi}"
   if ! "$editor" "$tmp"; then
-    rm -f "$tmp"
+    megabrain_chain_temp_end
     megabrain_error "editor failed while editing chain $name"
     return 1
   fi
   if cmp -s "$MEGABRAIN_CHAIN_FILE" "$tmp"; then
-    rm -f "$tmp"
+    megabrain_chain_temp_end
     if [ "$json" = true ]; then
       jq -n --arg name "$name" '{changed: false, name: $name}'
     else
@@ -331,7 +390,7 @@ command_chain_edit() {
     return 0
   fi
   edited="$(cat "$tmp")"
-  rm -f "$tmp"
+  megabrain_chain_temp_end
   if [ "$allow_unknown" = true ]; then
     registry="$(megabrain_model_read)" || return 1
     edited="$(printf '%s' "$edited" | jq --arg name "$name" --argjson models "$(printf '%s' "$registry" | jq '.models')" ' .chains[$name].steps |= map(. as $step | if any($models[]; .agent == $step.agent and .model == $step.model) then . else . + {unvalidated: true} end)')"
@@ -1128,6 +1187,7 @@ megabrain_chain_walk() {
     return 1
   fi
   error_file="$(mktemp "$MEGABRAIN_STATE_DIR/chain-run.XXXXXX")" || return 1
+  megabrain_chain_temp_begin "$error_file"
   index=0
   while IFS= read -r step; do
     index=$((index + 1))
@@ -1138,12 +1198,12 @@ megabrain_chain_walk() {
     [ "$effort_explicit" = true ] && effort="$effort_override"
     if [ "$model_explicit" = true ] || [ "$effort_explicit" = true ]; then
       if ! megabrain_model_known "$agent" "$model"; then
-        rm -f "$error_file"
+        megabrain_chain_temp_end
         megabrain_error "--model '$model' is not valid for chain-selected agent '$agent'; list models with megabrain model list"
         return "$MEGABRAIN_USAGE_ERROR"
       fi
       if ! megabrain_model_validate_reasoning "$agent" "$model" "$effort"; then
-        rm -f "$error_file"
+        megabrain_chain_temp_end
         return "$MEGABRAIN_USAGE_ERROR"
       fi
     fi
@@ -1205,7 +1265,7 @@ megabrain_chain_walk() {
       MEGABRAIN_CHAIN_WALK_STEP="$index"
       MEGABRAIN_CHAIN_WALK_REASON="$final_reason"
       MEGABRAIN_CHAIN_WALK_DISPATCH_ID="$dispatch_id"
-      rm -f "$error_file"
+      megabrain_chain_temp_end
       return 0
     fi
     spawn_error="$(cat "$error_file")"
@@ -1214,7 +1274,7 @@ megabrain_chain_walk() {
     [ -n "$limit_reason" ] && [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = unknown ] && failure_reason="$failure_reason; $limit_reason"
     MEGABRAIN_CHAIN_WALK_SKIPPED="$(printf '%s' "$MEGABRAIN_CHAIN_WALK_SKIPPED" | jq --argjson step "$index" --arg agent "$agent" --arg reason "$failure_reason" '. + [{step: $step, agent: $agent, kind: "failure", reason: $reason}]')"
   done < <(printf '%s' "$MEGABRAIN_CHAIN_SELECTED_STEPS" | jq -c '.[]')
-  rm -f "$error_file"
+  megabrain_chain_temp_end
   MEGABRAIN_CHAIN_WALK_REASON="$(printf '%s' "$MEGABRAIN_CHAIN_WALK_SKIPPED" | jq -r '[.[].reason] | join("; ")')"
   [ -n "$MEGABRAIN_CHAIN_WALK_REASON" ] || MEGABRAIN_CHAIN_WALK_REASON='chain has no usable steps; add a chain with megabrain chain add'
   return 1
