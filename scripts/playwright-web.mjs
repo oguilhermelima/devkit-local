@@ -208,22 +208,21 @@ async function installChromiumExtensions(root) {
 
 async function installFirefoxExtensions(root) {
   const paths = firefoxPaths(root);
+  if (path.basename(paths.extensions.ublockXpi) !== `${EXTENSION_IDS.ublock}.xpi` ||
+      path.basename(paths.extensions.violentmonkeyXpi) !== `${EXTENSION_IDS.violentmonkey}.xpi`) {
+    throw new Error('Firefox extension files must be named by their add-on ids');
+  }
   mkdirSync(path.dirname(paths.extensions.ublockXpi), { recursive: true });
   const ublock = await githubRelease(REPOSITORIES.ublock);
-  const vm = await githubRelease(REPOSITORIES.violentmonkey);
   const ublockAsset = githubAsset(ublock, name => name.endsWith('.firefox.signed.xpi'));
-  const ublockArchive = path.join(root, 'downloads', ublockAsset.name);
   await download(ublockAsset.browser_download_url, paths.extensions.ublockXpi);
   await download('https://addons.mozilla.org/firefox/downloads/latest/violentmonkey/latest.xpi', paths.extensions.violentmonkeyXpi);
-  const vmManifestArchive = path.join(root, 'downloads', 'violentmonkey-firefox.xpi');
-  await download('https://addons.mozilla.org/firefox/downloads/latest/violentmonkey/latest.xpi', vmManifestArchive);
-  const vmVersion = execFileSync('unzip', ['-p', vmManifestArchive, 'manifest.json'], { encoding: 'utf8' });
-  rmSync(vmManifestArchive, { force: true });
+  const vmManifest = JSON.parse(execFileSync('unzip', ['-p', paths.extensions.violentmonkeyXpi, 'manifest.json'], { encoding: 'utf8' }));
   return {
     paths,
     versions: {
       ublock: ublock.tag_name.replace(/^v/, ''),
-      violentmonkey: JSON.parse(vmVersion).version || vm.tag_name.replace(/^v/, ''),
+      violentmonkey: vmManifest.version,
     },
   };
 }
