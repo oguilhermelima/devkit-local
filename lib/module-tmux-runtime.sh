@@ -506,6 +506,21 @@ megabrain_tmux_send_text() {
   return "$rc"
 }
 
+# A prompt retry only needs another chance to submit the text already accepted by the
+# composer. Retyping would append a second copy when the first Enter was ignored.
+megabrain_tmux_retry_prompt() {
+  local pane="$1" rc=0
+  MEGABRAIN_TMUX_SEND_STATUS=not-typed
+  megabrain_tmux_send_lock_acquire "$pane" || return 0
+  if tmux send-keys -t "$pane" Enter; then
+    MEGABRAIN_TMUX_SEND_STATUS=queued
+  else
+    rc=1
+  fi
+  megabrain_tmux_send_lock_release
+  return "$rc"
+}
+
 megabrain_tmux_apply_config() {
   local session="$1"
   megabrain_tmux_session_exists "$session" || return 1

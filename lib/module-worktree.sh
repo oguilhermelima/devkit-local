@@ -601,7 +601,11 @@ megabrain_dispatch_send_prompt_with_receipt() {
     if [ "$runtime" = tmux ]; then
       tmux_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
       [ -n "$tmux_pane" ] || { megabrain_error "tmux dispatch metadata has no pane: $dispatch_id"; return 1; }
-      megabrain_tmux_send_agent "$tmux_pane" "$text" prompt || return 1
+      if [ "$attempt" -gt 1 ]; then
+        megabrain_tmux_retry_prompt "$tmux_pane" || return 1
+      else
+        megabrain_tmux_send_agent "$tmux_pane" "$text" prompt || return 1
+      fi
     else
       megabrain_dispatch_native_send "$meta" "$text" || return 1
     fi
