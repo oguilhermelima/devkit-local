@@ -91,8 +91,9 @@ tmux_cmd() {
 }
 
 create_meta() {
-  local dispatch_id="$1" pane="$2" runtime="${3:-tmux}" host="${4:-superset}" parent_target="${5:-$parent_pane}" parent_session="${6:-$session_name}"
-  megabrain_dispatch_meta_write "$dispatch_id" "$parent_id" "$host" "$host" "$workspace_id" "$dispatch_id-child" "$root" main codex label running gpt-5 true codex "$session_name" "$pane" "$runtime" "$runtime" "$parent_session" "$parent_target" "$workspace_id" >/dev/null
+  local dispatch_id="$1" pane="$2" child_pane="$2" runtime="${3:-tmux}" host="${4:-superset}" parent_target="${5:-$parent_pane}" parent_session="${6:-$session_name}"
+  [ "$child_pane" = "$parent_pane" ] && child_pane="%child-$dispatch_id"
+  megabrain_dispatch_meta_write "$dispatch_id" "$parent_id" "$host" "$host" "$workspace_id" "$dispatch_id-child" "$root" main codex label running gpt-5 true codex "$session_name" "$child_pane" "$runtime" "$runtime" "$parent_session" "$parent_target" "$workspace_id" >/dev/null
 }
 
 append_message() {
@@ -117,9 +118,9 @@ tmux_cmd send-keys -t "$parent_pane" -l "PS1='IDLE$ '; export PS1; printf 'paren
 tmux_cmd send-keys -t "$parent_pane" Enter
 wait_for_pane_text "$parent_pane" parent-ready
 
-# A human coordinator has no dispatch metadata, so its pane has no measured agent
-# affordance. The notification path must run, prove that it skipped typing, and leave
-# the pane unchanged while the durable queue remains authoritative.
+# A pane with no dispatch or session record has no measured agent affordance. The
+# notification path must run, prove that it skipped typing, and leave the pane unchanged
+# while the durable queue remains authoritative.
 megabrain_dispatch_meta_write unresolved-parent-pane "$parent_id" tmux tmux "" unresolved-child "$root" main codex label running gpt-5 true codex fake-child-session %fake-child tmux tmux "$session_name" "$parent_pane" "$workspace_id" >/dev/null
 unresolved_meta="$(megabrain_dispatch_meta_read unresolved-parent-pane)"
 unresolved_before="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
@@ -127,19 +128,30 @@ megabrain_parent_notify_dispatch "$unresolved_meta"
 unresolved_after="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 assert_equal "$MEGABRAIN_TMUX_SEND_STATUS" not-typed
 assert_equal "$unresolved_before" "$unresolved_after"
-printf 'unresolved human parent: notification ran without typing\n'
+printf 'unknown parent pane: notification ran without typing\n'
 
 # A worker pane is owned by its dispatch metadata even when it is not the tmux session
 # registry's main pane. Resolve the recorded Codex agent and keep the no-affordance proof.
-create_meta parent-codex-owner "$parent_pane"
-create_meta child-codex-pane '%fake-child' tmux tmux "$parent_pane" "$session_name"
+worker_pane="$(tmux_cmd split-window -d -t "$parent_pane" -P -F '#{pane_id}' bash)"
+create_meta parent-codex-owner "$worker_pane"
+create_meta child-codex-pane '%fake-child' tmux tmux "$worker_pane" "$session_name"
 codex_parent_meta="$(megabrain_dispatch_meta_read child-codex-pane)"
-codex_parent_before="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
+assert_equal "$(megabrain_tmux_agent_for_pane "$worker_pane")" codex
+codex_parent_before="$(tmux_cmd capture-pane -J -p -t "$worker_pane" -S -20)"
 megabrain_parent_notify_dispatch "$codex_parent_meta"
-codex_parent_after="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
+codex_parent_after="$(tmux_cmd capture-pane -J -p -t "$worker_pane" -S -20)"
 assert_equal "$MEGABRAIN_TMUX_SEND_STATUS" not-typed
 assert_equal "$codex_parent_before" "$codex_parent_after"
-printf 'recorded Codex parent: pane ownership resolves without typing\n'
+printf 'recorded Codex worker parent: pane ownership resolves without typing\n'
+
+# A top-level coordinator is represented by the session registry rather than a dispatch.
+# Its recorded Claude affordance remains usable without any default or guess.
+mkdir -p "$MEGABRAIN_TMUX_SESSION_DIR"
+jq -n --arg session "$session_name" --arg pane "$parent_pane" --arg path "$root" \
+  '{tmuxSession: $session, agent: "claude", workingDirectory: $path, tmuxPane: $pane, role: "main", host: "tmux", createdAt: "2026-09-09T00:00:00Z"}' \
+  >"$MEGABRAIN_TMUX_SESSION_DIR/top-coordinator.json"
+assert_equal "$(megabrain_tmux_agent_for_pane "$parent_pane")" claude
+printf 'recorded Claude coordinator: session ownership resolves affordance\n'
 
 create_meta tmux-idle "$parent_pane"
 idle_meta="$(megabrain_dispatch_meta_read tmux-idle)"
