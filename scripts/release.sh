@@ -62,7 +62,7 @@ output_dir="$(dirname "$output")"
 formula_dir="$(dirname "$formula_output")"
 mkdir -p "$output_dir" || fail "could not create output directory: $output_dir"
 temp="$(mktemp "$output.XXXXXX")" || fail "could not create temporary archive: $output"
-if ! git -C "$root" archive --format=tar --prefix="megabrain-$version/" HEAD -- . ':(exclude)Formula' | gzip -n >"$temp"; then
+if ! git -C "$root" archive --format=tar --mtime=0 --prefix="megabrain-$version/" HEAD -- . ':(exclude)Formula' | gzip -n >"$temp"; then
   rm -f "$temp"
   fail 'could not create release archive from HEAD'
 fi
