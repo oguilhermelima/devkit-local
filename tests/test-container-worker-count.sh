@@ -24,7 +24,7 @@ assert_equal() {
 }
 
 write_nproc() {
-  printf '#!/usr/bin/env bash\nprintf \"%%s\\n\" \"%s\"\n' "$1" >"$fake_bin/nproc"
+  printf '#!/bin/bash\nprintf \"%%s\\n\" \"%s\"\n' "$1" >"$fake_bin/nproc"
   chmod +x "$fake_bin/nproc"
 }
 
