@@ -3,6 +3,10 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+release_source_root="$root"
+if [ "${MEGABRAIN_IN_CONTAINER:-false}" = true ] && [ -x /src/scripts/release.sh ]; then
+  release_source_root=/src
+fi
 work="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-clean-install.XXXXXX")"
 cleanup() {
   local rc=$?
@@ -17,13 +21,13 @@ fail() {
   exit 1
 }
 
-version="$(jq -r '.version' "$root/.claude-plugin/plugin.json")"
+version="$(jq -r '.version' "$release_source_root/.claude-plugin/plugin.json")"
 archive="$work/release.tar.gz"
 install_root="$work/install"
 home="$work/home"
 mkdir -p "$install_root" "$home"
 
-"$root/scripts/release.sh" "v$version" --output "$archive" >/dev/null ||
+"$release_source_root/scripts/release.sh" "v$version" --output "$archive" >/dev/null ||
   fail 'could not create release tarball for clean-install proof'
 tar -xzf "$archive" -C "$install_root"
 release_root="$install_root/megabrain-$version"
