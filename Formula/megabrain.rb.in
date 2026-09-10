@@ -15,14 +15,14 @@ class Megabrain < Formula
     bin.install_symlink libexec/"mb"
   end
 
-  test do
-    assert_match(/^megabrain [0-9]+\.[0-9]+\.[0-9]+$/, shell_output("#{bin}/megabrain version"))
-  end
-
   def caveats
     <<~EOS
       Homebrew installs the megabrain CLI. Run `megabrain install` for machine setup.
       The megabrain skill is kept in sync by megabrain itself.
     EOS
+  end
+
+  test do
+    assert_match(/^megabrain [0-9]+\.[0-9]+\.[0-9]+$/, shell_output("#{bin}/megabrain version"))
   end
 end
