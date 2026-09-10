@@ -242,6 +242,10 @@ prepare_tmux_parent() {
   parent_pane="$(tmux_cmd display-message -p -t "$session_name" '#{pane_id}')"
   parent_tmux="$(tmux_cmd display-message -p -t "$parent_pane" '#{socket_path},#{pid},#{session_id}')"
   tmux_cmd set-environment -t "$session_name" MEGABRAIN_STATE_DIR "$state_dir"
+  mkdir -p "$MEGABRAIN_TMUX_SESSION_DIR"
+  jq -n --arg session "$session_name" --arg pane "$parent_pane" --arg path "/tmp" \
+    '{tmuxSession: $session, agent: "claude", workingDirectory: $path, tmuxPane: $pane, role: "main", host: "tmux", createdAt: "2026-09-09T00:00:00Z"}' \
+    >"$MEGABRAIN_TMUX_SESSION_DIR/top-coordinator.json"
   export TMUX="$parent_tmux" TMUX_PANE="$parent_pane"
   tmux_cmd send-keys -t "$parent_pane" -l "PS1='PARENT$ '; export PS1; printf 'parent-ready\\n'"
   tmux_cmd send-keys -t "$parent_pane" Enter
@@ -292,7 +296,7 @@ parent_ack() {
 run_flow() {
   local runtime="$1" chain_output dispatch_meta dispatch_id delivery replay delivery_id reply_result push_check push_ack push_receipt push_receipt_id
   local question_delivery question_delivery_id pull_result pull_delivery_id pull_receipt pull_receipt_id done_delivery done_delivery_id
-  local busy_pane busy_before receipt_before receipt_after ask_capture reply_capture reply_send_log
+  local busy_pane busy_before receipt_before receipt_after ask_capture ask_pointer reply_capture reply_send_log
   MEGABRAIN_TEST_RUNTIME="$runtime"
   timing_begin
   fake_send_mode=ok
@@ -346,7 +350,8 @@ run_flow() {
   child_command ask "$runtime-question" >/dev/null
   if [ "$runtime" = tmux ]; then
     ask_capture="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -30)"
-    assert_contains "$ask_capture" "mail: megabrain orchestrate watch $dispatch_id"
+    ask_pointer="$(megabrain_tmux_nudge_text_for_pane "$parent_pane" "mail: megabrain orchestrate watch $dispatch_id")"
+    assert_contains "$ask_capture" "$ask_pointer"
   fi
   delivery="$(parent_watch)"
   replay="$(parent_watch)"

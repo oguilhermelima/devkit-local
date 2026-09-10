@@ -64,11 +64,12 @@ tmux_cmd() {
 }
 
 create_meta() {
-  local dispatch_id="$1" session="$2" pane="$3" parent_session_arg parent_pane_arg
+  local dispatch_id="$1" session="$2" pane="$3" child_pane="$3" parent_session_arg parent_pane_arg
   parent_session_arg="${4:-$session}"
   parent_pane_arg="${5:-$pane}"
+  [ "$child_pane" = "$parent_pane" ] && child_pane="%child-$dispatch_id"
   megabrain_dispatch_meta_write "$dispatch_id" parent-terminal orca orca "" "$dispatch_id-terminal" \
-    "$root" main codex label running gpt-5 true codex "$session" "$pane" tmux tmux \
+    "$root" main codex label running gpt-5 true codex "$session" "$child_pane" tmux tmux \
     "$parent_session_arg" "$parent_pane_arg" "" >/dev/null
 }
 
@@ -103,11 +104,11 @@ unknown_before="$(tmux_cmd capture-pane -J -p -t "$unknown_pane" -S -20)"
 megabrain_parent_notify_dispatch "$unknown_meta"
 unknown_after="$(tmux_cmd capture-pane -J -p -t "$unknown_pane" -S -20)"
 assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
-assert_contains "$unknown_after" 'mail: megabrain orchestrate watch unrecognised-parent'
-assert_not_equal "$unknown_before" "$unknown_after"
+assert_equal "$MEGABRAIN_TMUX_SEND_STATUS" not-typed
+assert_equal "$unknown_before" "$unknown_after"
 assert_contains "$(cat "$state_dir/dispatches/unrecognised-parent/nudge.log")" 'outcome=delivered reason=parent-notified'
 assert_equal "$(wc -l <"$state_dir/dispatches/unrecognised-parent/nudge.log" | tr -d ' ')" 1
-printf 'unrecognised busy parent receives a notice\n'
+printf 'unrecognised busy parent keeps notice in the durable queue\n'
 
 tmux_cmd new-session -d -s "$failed_session" "printf '%s' 'Working · esc to interrupt'; sleep 5"
 failed_pane="$(tmux_cmd display-message -p -t "$failed_session" '#{pane_id}')"
