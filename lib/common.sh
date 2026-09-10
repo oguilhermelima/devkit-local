@@ -231,9 +231,10 @@ megabrain_usage_line() {
     worktree-finish) printf 'worktree finish <branch|path|slug> [--delete-branch] [--base <ref>] [--force] [--json]' ;;
     worktree-list) printf 'worktree list [--repo <name|path>] [--tree|--flat] [--json]' ;;
     worktree-adopt) printf 'worktree adopt <path|branch> [--json]' ;;
-    terminal-create) printf 'terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]' ;;
+    terminal-create) printf 'terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--port <port>] [--json]' ;;
     terminal-list) printf 'terminal list [--worktree <path>] [--json]' ;;
     terminal-restart) printf 'terminal restart <selector> [--command <cmd>] [--wait-port <port>] [--timeout <seconds>] [--json]' ;;
+    terminal-close) printf 'terminal close <selector> [--json]' ;;
     orchestrate-spawn) printf 'orchestrate spawn --repo <name|path> --branch <branch> [--agent <id>] [--chain <name>] [--model <id>] [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
     orchestrate-list) printf 'orchestrate list [--all|--orphans|--uncertain] [--json]' ;;
     orchestrate-prune) printf 'orchestrate prune [--older-than <days>] [--state <list>] [--archive|--delete] [--dry-run] [--json]' ;;

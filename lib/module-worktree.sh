@@ -922,6 +922,56 @@ megabrain_terminal_id_from_response() {
   ' 2>/dev/null
 }
 
+megabrain_terminal_shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+megabrain_terminal_identity_token() {
+  local token
+  token="$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d '[:space:]')"
+  [ -n "$token" ] || token="$(date -u '+%s')-$$"
+  printf '%s\n' "$token"
+}
+
+megabrain_terminal_identity_wrap_command() {
+  local command_text="$1" token="$2" quoted_command
+  quoted_command="$(megabrain_terminal_shell_quote "$command_text")"
+  printf "printf 'MEGABRAIN_TERMINAL_PID_%s=%%s\\n' \"\$\$\"; exec sh -c %s\n" "$token" "$quoted_command"
+}
+
+megabrain_terminal_pid_from_marker() {
+  local response="$1" marker="$2" pid
+  pid="$(printf '%s' "$response" | jq -r '.. | strings' 2>/dev/null | sed -n "s/.*${marker}=\([0-9][0-9]*\).*/\1/p" | head -n 1)"
+  case "$pid" in
+    ''|0|*[!0-9]*) return 1 ;;
+    *) printf '%s\n' "$pid" ;;
+  esac
+}
+
+megabrain_terminal_identity_from_host() {
+  local host="$1" workspace_id="$2" terminal_id="$3" marker="$4"
+  local timeout_ms="${MEGABRAIN_TERMINAL_IDENTITY_TIMEOUT_MS:-10000}" attempts attempt response pid
+  case "$timeout_ms" in
+    ''|*[!0-9]*) timeout_ms=10000 ;;
+  esac
+  attempts=$(( (timeout_ms + 99) / 100 ))
+  [ "$attempts" -gt 0 ] || attempts=1
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    case "$host" in
+      superset) response="$(megabrain_superset terminals read --workspace "$workspace_id" --terminal "$terminal_id" --json 2>/dev/null || true)" ;;
+      orca) response="$(orca terminal read --terminal "$terminal_id" --json 2>/dev/null || true)" ;;
+      *) response='' ;;
+    esac
+    pid="$(megabrain_terminal_pid_from_marker "$response" "$marker" 2>/dev/null || true)"
+    if [ -n "$pid" ]; then
+      printf '%s\n' "$pid"
+      return 0
+    fi
+    [ "$attempt" -lt "$attempts" ] && sleep 0.1
+  done
+  return 1
+}
+
 megabrain_terminal_record_write() {
   local terminal_id="$1" host="$2" workspace_id="$3" worktree_path="$4" title="$5"
   local command_text="$6" created_at="$7" pid_json="$8" port_json="$9" root_pid_json="${10:-$8}"
@@ -943,14 +993,15 @@ megabrain_terminal_record_write() {
 }
 
 megabrain_terminal_create() {
-  local worktree_selector="" command_text="" title="" json=false arg worktree_path host workspace_id response
-  local terminal_id pid_json port_json root_pid_json
+  local worktree_selector="" command_text="" title="" port="" json=false arg worktree_path host workspace_id response
+  local terminal_id pid_json port_json root_pid_json identity_token marker launch_command
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --worktree) worktree_selector="${2:-}"; shift 2 ;;
       --command) command_text="${2:-}"; shift 2 ;;
       --title) title="${2:-}"; shift 2 ;;
+      --port) port="${2:-}"; shift 2 ;;
       --json) json=true; shift ;;
       -h|--help)
         megabrain_usage_show terminal-create
@@ -961,6 +1012,15 @@ megabrain_terminal_create() {
       *) megabrain_error "unknown terminal create option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
     esac
   done
+  if [ -n "$port" ]; then
+    case "$port" in
+      ''|*[!0-9]*) megabrain_error 'terminal create port must be numeric'; return "$MEGABRAIN_USAGE_ERROR" ;;
+    esac
+    [ "$port" -gt 0 ] && [ "$port" -le 65535 ] || {
+      megabrain_error 'terminal create port must be between 1 and 65535'
+      return "$MEGABRAIN_USAGE_ERROR"
+    }
+  fi
   if [ -n "$worktree_selector" ]; then
     if [ -d "$worktree_selector" ]; then
       worktree_path="$(git -C "$worktree_selector" rev-parse --show-toplevel 2>/dev/null || true)"
@@ -980,14 +1040,17 @@ megabrain_terminal_create() {
     }
   fi
   command_text="$(megabrain_terminal_command_with_agent_permissions "$command_text")"
+  identity_token="$(megabrain_terminal_identity_token)"
+  marker="MEGABRAIN_TERMINAL_PID_${identity_token}"
+  launch_command="$(megabrain_terminal_identity_wrap_command "$command_text" "$identity_token")"
   host="$(megabrain_context_detect)"
   case "$host" in
     orca)
       megabrain_require_command orca || { megabrain_error "orca CLI is not available"; return 1; }
       if [ -n "$title" ]; then
-        response="$(orca terminal create --worktree "path:$worktree_path" --title "$title" --command "$command_text" --json)" || return 1
+        response="$(orca terminal create --worktree "path:$worktree_path" --title "$title" --command "$launch_command" --json)" || return 1
       else
-        response="$(orca terminal create --worktree "path:$worktree_path" --command "$command_text" --json)" || return 1
+        response="$(orca terminal create --worktree "path:$worktree_path" --command "$launch_command" --json)" || return 1
       fi
       ;;
     superset)
@@ -997,7 +1060,7 @@ megabrain_terminal_create() {
         megabrain_error "no Superset workspace is registered for $worktree_path; run megabrain worktree adopt $worktree_path first"
         return 1
       fi
-      response="$(megabrain_superset terminals create --workspace "$workspace_id" --command "$command_text" --json)" || return 1
+      response="$(megabrain_superset terminals create --workspace "$workspace_id" --command "$launch_command" --json)" || return 1
       ;;
     *)
       megabrain_error "cannot create terminal from unknown orchestration host"
@@ -1007,18 +1070,30 @@ megabrain_terminal_create() {
   terminal_id="$(megabrain_terminal_id_from_response "$response")"
   [ -n "$terminal_id" ] || { megabrain_error "$host terminal create returned no terminal identity"; return 1; }
   pid_json="$(megabrain_terminal_json_number "$response" '.pid // .processId // .terminal.pid // .result.terminal.pid // .result.pid // .process.pid')"
+  [ "$pid_json" = 0 ] && pid_json=null
   port_json="$(megabrain_terminal_json_number "$response" '.port // .terminal.port // .result.terminal.port // .result.port')"
+  [ -n "$port" ] && port_json="$port"
   root_pid_json="$(megabrain_terminal_json_number "$response" '.rootPid // .processRootPid // .terminal.rootPid // .result.terminal.rootPid // .result.rootPid')"
+  [ "$root_pid_json" = 0 ] && root_pid_json=null
+  if [ "$pid_json" = null ]; then
+    pid_json="$(megabrain_terminal_identity_from_host "$host" "$workspace_id" "$terminal_id" "$marker" 2>/dev/null || true)"
+    if [ -z "$pid_json" ]; then
+      megabrain_terminal_host_close "$host" "$workspace_id" "$terminal_id" >/dev/null 2>&1 || true
+      megabrain_error "$host terminal create did not publish a process identity"
+      return 1
+    fi
+  fi
   [ "$root_pid_json" = null ] && root_pid_json="$pid_json"
   megabrain_terminal_record_write "$terminal_id" "$host" "$workspace_id" "$worktree_path" "$title" \
     "$command_text" "$(megabrain_iso_now)" "$pid_json" "$port_json" "$root_pid_json" || {
+    megabrain_terminal_host_close "$host" "$workspace_id" "$terminal_id" >/dev/null 2>&1 || true
     megabrain_error "could not persist terminal identity: $terminal_id"
     return 1
   }
   if [ "$json" = true ]; then
     jq -n --arg host "$host" --arg worktree "$worktree_path" --arg title "$title" \
-      --arg terminalId "$terminal_id" --argjson pid "$pid_json" --argjson port "$port_json" \
-      '{host: $host, worktree: $worktree, title: (if $title|length > 0 then $title else null end), terminalId: $terminalId, pid: $pid, port: $port}'
+      --arg terminalId "$terminal_id" --argjson pid "$pid_json" --argjson rootPid "$root_pid_json" --argjson port "$port_json" \
+      '{host: $host, worktree: $worktree, title: (if $title|length > 0 then $title else null end), terminalId: $terminalId, pid: $pid, rootPid: $rootPid, port: $port}'
   else
     printf '%s\n' "$response"
   fi
@@ -1046,6 +1121,71 @@ megabrain_terminal_host_has_id() {
     def records: if type == "array" then . else (.result.terminals // .terminals // .sessions // .result.sessions // []) end;
     any(records[]?; (.terminalId // .handle // .terminalHandle // .sessionId // .id // "") == $id)
   ' >/dev/null 2>&1
+}
+
+megabrain_terminal_host_entry() {
+  local records="$1" terminal_id="$2"
+  printf '%s' "$records" | jq -c --arg id "$terminal_id" '
+    def records: if type == "array" then . else (.result.terminals // .terminals // .sessions // .result.sessions // []) end;
+    first(records[]? | select((.terminalId // .handle // .terminalHandle // .sessionId // .id // "") == $id)) // empty
+  ' 2>/dev/null
+}
+
+megabrain_terminal_host_process_status() {
+  local records="$1" terminal_id="$2" record="$3" entry exited host_pid port listener_pid
+  entry="$(megabrain_terminal_host_entry "$records" "$terminal_id")"
+  [ -n "$entry" ] || { printf 'unknown\n'; return 0; }
+  exited="$(printf '%s' "$entry" | jq -r 'if has("exited") then .exited else empty end' 2>/dev/null || true)"
+  case "$exited" in
+    true) printf 'dead\n'; return 0 ;;
+    false) printf 'alive\n'; return 0 ;;
+  esac
+  case "$(printf '%s' "$entry" | jq -r '.status // .state // empty' 2>/dev/null || true)" in
+    exited|dead|stopped|terminated) printf 'dead\n'; return 0 ;;
+    active|alive|running) printf 'alive\n'; return 0 ;;
+  esac
+  host_pid="$(printf '%s' "$record" | jq -r '.rootPid // .pid // empty' 2>/dev/null || true)"
+  case "$host_pid" in
+    ''|0|*[!0-9]*) host_pid='' ;;
+  esac
+  if [ -n "$host_pid" ]; then
+    if kill -0 "$host_pid" >/dev/null 2>&1; then
+      printf 'alive\n'
+    else
+      printf 'dead\n'
+    fi
+    return 0
+  fi
+  port="$(printf '%s' "$record" | jq -r '.port // empty' 2>/dev/null || true)"
+  case "$port" in
+    ''|*[!0-9]*) port='' ;;
+  esac
+  if [ -n "$port" ]; then
+    listener_pid="$(megabrain_terminal_listener_pid "$port")"
+    if [ -n "$listener_pid" ]; then
+      printf 'alive\n'
+    else
+      printf 'dead\n'
+    fi
+    return 0
+  fi
+  printf 'unknown\n'
+}
+
+megabrain_terminal_host_close() {
+  local host="$1" workspace_id="$2" terminal_id="$3"
+  case "$host" in
+    superset)
+      megabrain_superset terminals close --workspace "$workspace_id" --terminal "$terminal_id" --json
+      ;;
+    orca)
+      orca terminal close --terminal "$terminal_id" --json
+      ;;
+    *)
+      megabrain_error "unsupported host terminal context: $host"
+      return 1
+      ;;
+  esac
 }
 
 megabrain_terminal_list() {
@@ -1080,7 +1220,7 @@ megabrain_terminal_list() {
     records="$(megabrain_terminal_host_records "$host" "$workspace_id" 2>/dev/null || true)"
     if printf '%s' "$records" | jq -e . >/dev/null 2>&1; then
       if megabrain_terminal_host_has_id "$records" "$(printf '%s' "$record" | jq -r '.terminalId')"; then
-        status=active
+        status="$(megabrain_terminal_host_process_status "$records" "$(printf '%s' "$record" | jq -r '.terminalId')" "$record")"
       else
         status=stale
       fi
@@ -1196,9 +1336,67 @@ megabrain_terminal_resolve_selector() {
   return 1
 }
 
+megabrain_terminal_close() {
+  local selector="" json=false arg record old_path terminal_id host workspace_id records identity terminal_status
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=true; shift ;;
+      -h|--help) megabrain_usage_show terminal-close; return 0 ;;
+      -*) megabrain_error "unknown terminal close option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
+      '') megabrain_error 'terminal close selector cannot be empty'; return "$MEGABRAIN_USAGE_ERROR" ;;
+      *) [ -z "$selector" ] || { megabrain_error "unexpected terminal close argument: $arg"; return "$MEGABRAIN_USAGE_ERROR"; }; selector="$arg"; shift ;;
+    esac
+  done
+  [ -n "$selector" ] || { megabrain_error 'terminal close requires a selector'; return "$MEGABRAIN_USAGE_ERROR"; }
+  megabrain_terminal_resolve_selector "$selector" || {
+    megabrain_error 'terminal selector could not be resolved'
+    return 1
+  }
+  record="$MEGABRAIN_TERMINAL_RESOLVED_RECORD"
+  old_path="$MEGABRAIN_TERMINAL_RESOLVED_PATH"
+  terminal_id="$(printf '%s' "$record" | jq -r '.terminalId // empty')"
+  host="$(printf '%s' "$record" | jq -r '.host // empty')"
+  workspace_id="$(printf '%s' "$record" | jq -r '.workspaceId // empty')"
+  records="$(megabrain_terminal_host_records "$host" "$workspace_id" 2>/dev/null || true)"
+  if ! printf '%s' "$records" | jq -e . >/dev/null 2>&1; then
+    megabrain_error "could not verify host terminal $terminal_id before close"
+    return 1
+  fi
+  if ! megabrain_terminal_host_has_id "$records" "$terminal_id"; then
+    rm -f "$old_path"
+    if [ "$json" = true ]; then
+      jq -n --arg selector "$selector" --arg terminalId "$terminal_id" \
+        '{selector: $selector, terminalId: $terminalId, status: "stale", recordRemoved: true, message: "host no longer knows this terminal"}'
+    else
+      printf 'selector: %s\nterminal: %s\nstatus: stale\nrecord removed: true\nhost no longer knows this terminal\n' "$selector" "$terminal_id"
+    fi
+    return 1
+  fi
+  if ! megabrain_terminal_host_close "$host" "$workspace_id" "$terminal_id" >/dev/null 2>&1; then
+    megabrain_error "could not close host terminal $terminal_id; record retained"
+    return 1
+  fi
+  identity=unavailable
+  if printf '%s' "$record" | jq -e '(.rootPid // .pid) | numbers | select(. > 0)' >/dev/null 2>&1; then
+    identity=recorded
+  fi
+  if ! rm -f "$old_path"; then
+    megabrain_error "host terminal $terminal_id closed but its record could not be removed"
+    return 1
+  fi
+  terminal_status=closed
+  if [ "$json" = true ]; then
+    jq -n --arg selector "$selector" --arg terminalId "$terminal_id" --arg status "$terminal_status" --arg identity "$identity" \
+      '{selector: $selector, terminalId: $terminalId, status: $status, identity: $identity, recordRemoved: true}'
+  else
+    printf 'selector: %s\nterminal: %s\nstatus: %s\nidentity: %s\nrecord removed: true\n' "$selector" "$terminal_id" "$terminal_status" "$identity"
+  fi
+}
+
 megabrain_terminal_recreate() {
   local record="$1" command_override="$2" response host workspace_id worktree_path title command_text
-  local terminal_id pid_json port_json root_pid_json created_at
+  local terminal_id pid_json port_json root_pid_json created_at identity_token marker launch_command
   host="$(printf '%s' "$record" | jq -r '.host // empty')"
   workspace_id="$(printf '%s' "$record" | jq -r '.workspaceId // empty')"
   worktree_path="$(printf '%s' "$record" | jq -r '.worktree // empty')"
@@ -1206,27 +1404,42 @@ megabrain_terminal_recreate() {
   command_text="$command_override"
   [ -n "$command_text" ] || command_text="$(printf '%s' "$record" | jq -r '.command // empty')"
   command_text="$(megabrain_terminal_command_with_agent_permissions "$command_text")"
+  identity_token="$(megabrain_terminal_identity_token)"
+  marker="MEGABRAIN_TERMINAL_PID_${identity_token}"
+  launch_command="$(megabrain_terminal_identity_wrap_command "$command_text" "$identity_token")"
   case "$host" in
     orca)
       megabrain_require_command orca || { megabrain_error 'orca CLI is not available'; return 1; }
       if [ -n "$title" ]; then
-        response="$(orca terminal create --worktree "path:$worktree_path" --title "$title" --command "$command_text" --json)" || return 1
+        response="$(orca terminal create --worktree "path:$worktree_path" --title "$title" --command "$launch_command" --json)" || return 1
       else
-        response="$(orca terminal create --worktree "path:$worktree_path" --command "$command_text" --json)" || return 1
+        response="$(orca terminal create --worktree "path:$worktree_path" --command "$launch_command" --json)" || return 1
       fi
       ;;
     superset)
       [ -n "$workspace_id" ] || { megabrain_error "terminal record has no workspace identity: $worktree_path"; return 1; }
       megabrain_superset_available || { megabrain_error 'superset CLI is not available'; return 1; }
-      response="$(megabrain_superset terminals create --workspace "$workspace_id" --command "$command_text" --json)" || return 1
+      response="$(megabrain_superset terminals create --workspace "$workspace_id" --command "$launch_command" --json)" || return 1
       ;;
     *) megabrain_error "cannot recreate terminal from unknown host: $host"; return 1 ;;
   esac
   terminal_id="$(megabrain_terminal_id_from_response "$response")"
   [ -n "$terminal_id" ] || { megabrain_error "$host terminal recreate returned no terminal identity"; return 1; }
   pid_json="$(megabrain_terminal_json_number "$response" '.pid // .processId // .terminal.pid // .result.terminal.pid // .result.pid // .process.pid')"
+  [ "$pid_json" = 0 ] && pid_json=null
   port_json="$(megabrain_terminal_json_number "$response" '.port // .terminal.port // .result.terminal.port // .result.port')"
+  [ "$port_json" = null ] && port_json="$(printf '%s' "$record" | jq -r '.port // empty')"
+  [ -n "$port_json" ] || port_json=null
   root_pid_json="$(megabrain_terminal_json_number "$response" '.rootPid // .processRootPid // .terminal.rootPid // .result.terminal.rootPid // .result.rootPid')"
+  [ "$root_pid_json" = 0 ] && root_pid_json=null
+  if [ "$pid_json" = null ]; then
+    pid_json="$(megabrain_terminal_identity_from_host "$host" "$workspace_id" "$terminal_id" "$marker" 2>/dev/null || true)"
+    if [ -z "$pid_json" ]; then
+      megabrain_terminal_host_close "$host" "$workspace_id" "$terminal_id" >/dev/null 2>&1 || true
+      megabrain_error "$host terminal recreate did not publish a process identity"
+      return 1
+    fi
+  fi
   [ "$root_pid_json" = null ] && root_pid_json="$pid_json"
   created_at="$(megabrain_iso_now)"
   megabrain_terminal_record_write "$terminal_id" "$host" "$workspace_id" "$worktree_path" "$title" \
@@ -1277,7 +1490,7 @@ megabrain_terminal_restart() {
   kind="$MEGABRAIN_TERMINAL_RESOLVED_KIND"
   value="$MEGABRAIN_TERMINAL_RESOLVED_VALUE"
   root_pid="$(printf '%s' "$record" | jq -r '.rootPid // .pid // empty')"
-  case "$root_pid" in ''|*[!0-9]*) megabrain_error "terminal $value has no recorded process identity; refusing to kill an unowned process"; return 1 ;; esac
+  case "$root_pid" in ''|0|*[!0-9]*) megabrain_error "terminal $value has no recorded process identity; refusing to kill an unowned process"; return 1 ;; esac
   target_port="$(printf '%s' "$record" | jq -r '.port // empty')"
   if [ "$kind" = port ]; then
     target_pid="$(megabrain_terminal_listener_pid "$value")"
@@ -2104,6 +2317,7 @@ command_terminal() {
     create) megabrain_terminal_create "$@" ;;
     list) megabrain_terminal_list "$@" ;;
     restart) megabrain_terminal_restart "$@" ;;
+    close) megabrain_terminal_close "$@" ;;
     -h|--help|"")
       megabrain_usage_show terminal-create
       printf 'Superset tabs are not titled; only Orca tabs are.\n'

@@ -132,21 +132,27 @@ megabrain orchestrate close <id>                # take the pane back
 ### Managed terminals
 
 Terminal creation returns the host identity in JSON and records it with the worktree, command,
-title, creation time, pid and port when available:
+title, creation time, process identity and optional caller-supplied port:
 
 ```sh
 megabrain terminal create --worktree ~/code/api --title 'DEV api' \
-  --command 'pnpm dev' --json
+  --command 'pnpm dev' --port 3000 --json
 megabrain terminal list --json
 megabrain terminal restart port:3000 --wait-port 3000 --timeout 30 --json
+megabrain terminal close id:<terminal-id> --json
 ```
 
 The registry lives under `$MEGABRAIN_STATE_DIR/terminals/`. Listing keeps a terminal whose host
-identity disappeared and marks it `stale`, preserving evidence of commands that never started.
+identity disappeared and marks it `stale`, while a host-known process is reported as `alive` or
+`dead`. The create wrapper asks the process to publish its own PID before replacing the command
+with `exec`, so identity is not inferred from a port scan. If the marker is not published, the
+terminal is closed and no record is created. The optional `--port` value is recorded as caller
+knowledge and is never discovered automatically.
 Restart selectors are `id:`, `title:`, `port:` and `worktree:`. Restart signals the recorded
 process-tree root only after proving that a port listener descends from that root, waits for the
 old port to be free before creating the replacement, and reports the new identity and port wait
-time.
+time. Close removes the host terminal and local record; it explicitly reports when the host has
+already forgotten the terminal or when process identity was unavailable.
 
 From inside a child, the same queue from the other side:
 

@@ -9,9 +9,10 @@
 - Run megabrain worktree finish <branch|path|slug> [--delete-branch] [--base <ref>] [--force] [--json].
 - Run megabrain worktree list [--repo <name|path>] [--tree|--flat] [--json].
 - Run megabrain worktree adopt <path|branch> [--json].
-- Run megabrain terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json].
+- Run megabrain terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--port <port>] [--json].
 - Run megabrain terminal list [--worktree <path>] [--json].
 - Run megabrain terminal restart <selector> [--command <cmd>] [--wait-port <port>] [--timeout <seconds>] [--json].
+- Run megabrain terminal close <selector> [--json].
 - Run megabrain orchestrate spawn --repo <name|path> --branch <branch> [--agent <id>] [--chain <name>] [--model <id>] [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json].
 - Run megabrain orchestrate list [--all|--orphans|--uncertain] [--json].
 - Run megabrain orchestrate prune [--older-than <days>] [--state <list>] [--archive|--delete] [--dry-run] [--json].
