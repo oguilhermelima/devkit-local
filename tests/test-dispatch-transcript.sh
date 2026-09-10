@@ -176,6 +176,57 @@ module_orchestration_doctor >/dev/null 2>&1 || fail 'doctor rejected a healthy t
 assert_equal "$MODULE_LEAKED_DISPATCH_SESSIONS" 0
 printf 'doctor reports zero terminal dispatch session leaks when released\n'
 
+printf '%s\n' 'shared-session' >"$live_sessions"
+regression_failures=0
+assert_regression_equal() {
+  if [ "$1" != "$2" ]; then
+    printf 'REGRESSION FAIL: expected %s, got %s\n' "$2" "$1" >&2
+    regression_failures=$((regression_failures + 1))
+  fi
+}
+
+megabrain_dispatch_meta_write shared-session parent-terminal superset superset workspace-test child-terminal \
+  "$root" main codex label done gpt-5 true codex shared-session %98 tmux tmux shared-session %0 workspace-test >/dev/null
+set_old_timestamp shared-session
+module_orchestration_doctor >/dev/null 2>&1 || fail 'doctor rejected a shared tmux setup'
+assert_regression_equal "$MODULE_LEAKED_DISPATCH_SESSIONS" 0
+shared_result="$(command_orchestrate prune --json)"
+assert_regression_equal "$(printf '%s' "$shared_result" | jq -r '.archived')" 1
+assert_file "$MEGABRAIN_DISPATCH_DIR/archive/$(date -u '+%Y-%m')/shared-session/meta.json"
+if ! grep -Fx 'shared-session' "$live_sessions" >/dev/null 2>&1; then
+  printf 'REGRESSION FAIL: prune released the parent-owned tmux session\n' >&2
+  regression_failures=$((regression_failures + 1))
+fi
+if grep -Fx 'shared-session' "$release_log" >/dev/null 2>&1; then
+  printf 'REGRESSION FAIL: prune invoked release for the parent-owned tmux session\n' >&2
+  regression_failures=$((regression_failures + 1))
+fi
+printf 'shared parent tmux sessions are not counted or released\n'
+
+printf '%s\n' 'caller-session' >"$live_sessions"
+megabrain_dispatch_tmux_caller_session() {
+  printf '%s\n' 'caller-session'
+}
+export TMUX=caller-server TMUX_PANE=%0
+megabrain_dispatch_meta_write caller-session-record parent-terminal superset superset workspace-test child-terminal \
+  "$root" main codex label done gpt-5 true codex caller-session %99 tmux tmux other-session %1 workspace-test >/dev/null
+set_old_timestamp caller-session-record
+module_orchestration_doctor >/dev/null 2>&1 || fail 'doctor rejected a caller session setup'
+assert_regression_equal "$MODULE_LEAKED_DISPATCH_SESSIONS" 0
+caller_result="$(command_orchestrate prune --json)"
+assert_regression_equal "$(printf '%s' "$caller_result" | jq -r '.archived')" 1
+assert_file "$MEGABRAIN_DISPATCH_DIR/archive/$(date -u '+%Y-%m')/caller-session-record/meta.json"
+if ! grep -Fx 'caller-session' "$live_sessions" >/dev/null 2>&1; then
+  printf 'REGRESSION FAIL: prune released the caller tmux session\n' >&2
+  regression_failures=$((regression_failures + 1))
+fi
+if grep -Fx 'caller-session' "$release_log" >/dev/null 2>&1; then
+  printf 'REGRESSION FAIL: prune invoked release for the caller tmux session\n' >&2
+  regression_failures=$((regression_failures + 1))
+fi
+printf 'caller tmux sessions are never counted or released\n'
+[ "$regression_failures" -eq 0 ] || fail 'session ownership regressions detected'
+
 capture_output='prune transcript'
 printf '%s\n' 'prune-session' >"$live_sessions"
 write_dispatch prune-session done prune-session
