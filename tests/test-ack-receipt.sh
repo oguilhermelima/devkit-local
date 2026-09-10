@@ -45,6 +45,8 @@ child_delivery_id="$(printf '%s' "$child_delivery" | jq -r '.deliveryId')"
 child_ack="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" \
   SUPERSET_TERMINAL_ID=child-terminal "$root/megabrain" ack "$child_delivery_id" --json)"
 assert_equal "$(printf '%s' "$child_ack" | jq -r '.duplicate')" false
+[ ! -e "$state_dir/dispatches/$dispatch_id/nudge.log" ] ||
+  fail 'child ack woke the coordinator instead of staying protocol-only'
 
 parent_delivery="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" \
   SUPERSET_TERMINAL_ID=parent-terminal "$root/megabrain" orchestrate watch "$dispatch_id" \
@@ -58,4 +60,3 @@ env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" SUPERSET_TERMINAL_ID=p
 
 assert_equal "$(find "$state_dir/dispatches/$dispatch_id/messages" -name '*-child-ack.json' | wc -l | tr -d ' ')" 1
 printf 'child reply acknowledgement reaches the coordinator queue without an ack loop\n'
-
