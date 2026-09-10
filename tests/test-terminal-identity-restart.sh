@@ -9,6 +9,9 @@ fake_port_recreated_file="$state_dir/fake-port-recreated"
 fake_port_wait_observed_file="$state_dir/fake-port-wait-observed"
 fake_tree_state="$state_dir/fake-tree-state"
 fake_host_live=true
+fake_process_alive=true
+fake_create_returns_identity=true
+fake_identity_read=true
 fake_port_stuck=false
 fake_port_recreate_listens=true
 
@@ -16,6 +19,11 @@ printf 'listening\n' >"$fake_port_state"
 printf 'no\n' >"$fake_port_recreated_file"
 printf 'no\n' >"$fake_port_wait_observed_file"
 printf 'alive\n' >"$fake_tree_state"
+fake_create_command_file="$state_dir/fake-create-command"
+fake_status_probe_file="$state_dir/fake-status-probe"
+fake_close_called_file="$state_dir/fake-close-called"
+printf 'no\n' >"$fake_status_probe_file"
+printf 'no\n' >"$fake_close_called_file"
 
 fake_port_set_listening() {
   printf '%s\n' "$1" >"$fake_port_state"
@@ -69,24 +77,47 @@ source "$root/lib/module-worktree.sh"
 
 megabrain_superset_available() { return 0; }
 megabrain_workspace_id_for_target() { printf 'workspace-test\n'; }
+megabrain_terminal_identity_token() { printf 'test-token\n'; }
 
 megabrain_superset() {
   case "${1:-}:${2:-}" in
     terminals:create)
+      printf '%s' "${6:-}" >"$fake_create_command_file"
       # Recreate the listener synchronously; restart must observe a bound port,
       # not race a process that may bind later.
       if [ "$(cat "$fake_port_state")" = free ] && [ "$fake_port_stuck" = false ] && [ "$fake_port_recreate_listens" = true ]; then
         fake_port_bind
         printf 'yes\n' >"$fake_port_recreated_file"
       fi
-      printf '{"terminalId":"%s","pid":%s,"port":%s}\n' "$fake_id" "$fake_pid" "$fake_port"
+      if [ "$fake_create_returns_identity" = true ]; then
+        printf '{"terminalId":"%s","pid":%s,"port":%s}\n' "$fake_id" "$fake_pid" "$fake_port"
+      else
+        printf '{"terminalId":"%s"}\n' "$fake_id"
+      fi
+      ;;
+    terminals:read)
+      if [ "$fake_identity_read" = true ]; then
+        printf '{"output":"MEGABRAIN_TERMINAL_PID_test-token=%s"}\n' "$fake_pid"
+      else
+        printf '{"output":"terminal started"}\n'
+      fi
       ;;
     terminals:list)
+      printf 'yes\n' >"$fake_status_probe_file"
       if [ "$fake_host_live" = true ]; then
-        printf '{"terminals":[{"terminalId":"%s","pid":%s,"port":%s}]}\n' "$fake_id" "$fake_pid" "$fake_port"
+        if [ "$fake_process_alive" = true ]; then
+          printf '{"terminals":[{"terminalId":"%s","pid":%s,"port":%s,"exited":false}]}\n' "$fake_id" "$fake_pid" "$fake_port"
+        else
+          printf '{"terminals":[{"terminalId":"%s","pid":%s,"port":%s,"exited":true}]}\n' "$fake_id" "$fake_pid" "$fake_port"
+        fi
       else
         printf '{"terminals":[]}\n'
       fi
+      ;;
+    terminals:close)
+      printf 'yes\n' >"$fake_close_called_file"
+      fake_host_live=false
+      printf '{"terminalId":"%s","status":"disposed"}\n' "$fake_id"
       ;;
     *) return 1 ;;
   esac
@@ -262,17 +293,114 @@ scenario_restart_safety_and_wait() {
   printf 'restart kills the recorded root, waits for free ports, and distinguishes timeout\n'
 }
 
+scenario_create_marker_identity() {
+  local output record
+  fake_id=terminal-marker
+  fake_pid=333
+  fake_port=8086
+  fake_host_live=true
+  fake_create_returns_identity=false
+  fake_identity_read=true
+  output="$(command_terminal create --worktree "$root" --command 'run marker' --title 'DEV marker' --port 8086 --json)"
+  assert_json_true "$output" '.terminalId == "terminal-marker" and .pid == 333 and .rootPid == 333 and .port == 8086'
+  record="$MEGABRAIN_TERMINAL_DIR/terminal-marker.json"
+  assert_equal "$(jq -r '.command' "$record")" 'run marker'
+  assert_contains "$(cat "$fake_create_command_file")" 'MEGABRAIN_TERMINAL_PID_test-token='
+  printf 'create wraps the command and persists its self-reported root identity\n'
+}
+
+scenario_list_process_states() {
+  local output
+  fake_create_returns_identity=true
+  fake_id=terminal-status
+  fake_pid=334
+  fake_port=8087
+  fake_process_alive=true
+  fake_host_live=true
+  command_terminal create --worktree "$root" --command 'run status' --port 8087 --json >/dev/null
+  output="$(command_terminal list --json)"
+  assert_json_true "$output" 'any(.[]; .terminalId == "terminal-status" and .status == "alive")'
+  [ "$(cat "$fake_status_probe_file")" = yes ] || fail 'status was not obtained from the host process check'
+  fake_process_alive=false
+  output="$(command_terminal list --json)"
+  assert_json_true "$output" 'any(.[]; .terminalId == "terminal-status" and .status == "dead")'
+  fake_host_live=false
+  output="$(command_terminal list --json)"
+  assert_json_true "$output" 'any(.[]; .terminalId == "terminal-status" and .status == "stale")'
+  printf 'list distinguishes alive, dead and forgotten host terminals\n'
+}
+
+scenario_restart_marker_identity() {
+  local output
+  fake_id=terminal-marker-restart
+  fake_pid=335
+  fake_port=8088
+  fake_host_live=true
+  fake_process_alive=true
+  fake_create_returns_identity=false
+  fake_identity_read=true
+  fake_port_set_listening listening
+  output="$(command_terminal create --worktree "$root" --command 'run restart' --port 8088 --json)"
+  fake_port_set_listening listening
+  output="$(command_terminal restart id:terminal-marker-restart --timeout 0 --json)"
+  assert_json_true "$output" '.killedPid == 335 and .recreated == true'
+  printf 'restart reaches an identity obtained from the create marker\n'
+}
+
+scenario_close_lifecycle() {
+  local output record failure_output
+  fake_id=terminal-close
+  fake_pid=336
+  fake_port=8089
+  fake_host_live=true
+  fake_create_returns_identity=true
+  printf 'no\n' >"$fake_close_called_file"
+  command_terminal create --worktree "$root" --command 'run close' --port 8089 --json >/dev/null
+  record="$MEGABRAIN_TERMINAL_DIR/terminal-close.json"
+  output="$(command_terminal close id:terminal-close --json)"
+  assert_json_true "$output" '.status == "closed" and .recordRemoved == true and .identity == "recorded"'
+  [ "$(cat "$fake_close_called_file")" = yes ] || fail 'close did not call the host'
+  [ ! -f "$record" ] || fail 'close did not remove the terminal record'
+
+  fake_id=terminal-no-identity
+  fake_host_live=true
+  printf 'no\n' >"$fake_close_called_file"
+  megabrain_terminal_record_write terminal-no-identity superset workspace-test "$root" 'DEV no identity' 'run no identity' now null null null
+  output="$(command_terminal close id:terminal-no-identity --json)"
+  assert_json_true "$output" '.status == "closed" and .recordRemoved == true and .identity == "unavailable"'
+  [ "$(cat "$fake_close_called_file")" = yes ] || fail 'close skipped a host terminal without process identity'
+
+  fake_id=terminal-forgotten
+  fake_host_live=false
+  printf 'no\n' >"$fake_close_called_file"
+  megabrain_terminal_record_write terminal-forgotten superset workspace-test "$root" 'DEV forgotten' 'run forgotten' now 337 8090 337
+  if failure_output="$(command_terminal close id:terminal-forgotten --json 2>/dev/null)"; then
+    fail 'close claimed success for a terminal forgotten by the host'
+  fi
+  assert_json_true "$failure_output" '.status == "stale" and .recordRemoved == true'
+  [ "$(cat "$fake_close_called_file")" = no ] || fail 'close attempted to close a terminal the host forgot'
+  printf 'close reports identity and host-missing outcomes while removing records\n'
+}
+
 case "${SCENARIO:-all}" in
   1) scenario_create_json_preserves_identity ;;
   2) scenario_list_keeps_stale ;;
   3) scenario_restart_selectors ;;
   4) scenario_restart_safety_and_wait ;;
+  5) scenario_create_marker_identity ;;
+  6) scenario_list_process_states ;;
+  7) scenario_restart_marker_identity ;;
+  8) scenario_close_lifecycle ;;
   all)
     scenario_create_json_preserves_identity
     scenario_list_keeps_stale
     scenario_restart_selectors
     scenario_restart_safety_and_wait
-    printf 'ok: terminal identity, listing, selector resolution, safe tree restart, and port waits\n'
+    scenario_create_marker_identity
+    scenario_list_process_states
+    scenario_restart_marker_identity
+    scenario_close_lifecycle
+    printf 'ok: terminal identity, listing, selector resolution, safe tree restart, waits and close\n'
     ;;
   *) fail "unknown scenario: $SCENARIO" ;;
 esac
