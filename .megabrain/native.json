@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "surfaces": {
+    "phone": {
+      "urlTemplate": "exp://127.0.0.1:{metro_port}/--/{route}",
+      "metroPort": "8082"
+    },
+    "tv": {
+      "urlTemplate": "canto:///{route}",
+      "metroPort": "none"
+    }
+  }
+}

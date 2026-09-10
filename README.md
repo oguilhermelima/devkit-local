@@ -307,10 +307,21 @@ megabrain install simulator-web --browser chromium
 
 ```sh
 megabrain native appium start|status|stop   # one shared Appium server, not one per project
+megabrain native sim ensure phone --device <udid>  # boot and wait for an iOS simulator
+megabrain native app reload phone --route <route> --bundle-id <id>  # terminate and open a deep link
 megabrain tv connect 192.168.1.50           # pair an Android TV
 megabrain tv disconnect
 megabrain doctor simulator-native           # what is missing and how to get it
 ```
+
+`native sim ensure` waits until `simctl` reports the selected device as `Booted`, bounded by
+`--timeout`; a boot failure and a wait timeout are reported separately. The optional
+`.megabrain/native.json` file in each worktree supplies `phone` and `tv` surface defaults. URL
+templates use `{route}`, `{metro_port}`, `{bundle_id}`, and `{device}` placeholders, so the
+same command supports structurally different links such as `exp://127.0.0.1:8082/--/{route}`
+and `canto:///{route}`. `native app reload` checks Metro when a port is configured, terminates
+the app (a stopped app is harmless), and opens the URL; it reports no claim about the app's
+rendered screen.
 
 The two simulator modules need the Xcode Simulator, Appium and the XCUITest driver, so they exist
 only on macOS; asked for elsewhere they report `unsupported: macOS only` rather than half

@@ -202,6 +202,8 @@ reports a child whose turn ended without `ask` or `done`.
 
 ```
 megabrain native appium start|stop|status
+megabrain native sim ensure <phone|tv> [--device <udid>] [--timeout <seconds>] [--json]
+megabrain native app reload <phone|tv> [--route <r>] [--bundle-id <id>] [--url-template <tpl>] [--device <udid>] [--metro-port <p>] [--timeout <s>] [--json]
 megabrain tv connect <ip> [--port <port>]
 megabrain tv disconnect [<ip>]
 megabrain doctor simulator-native      iOS and tvOS simulators, macOS only
