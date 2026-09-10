@@ -379,14 +379,18 @@ wait "$interrupt_pid" 2>/dev/null || true
 assert_equal "$(find "$interrupt_state" -name 'chain-run.*' -type f -print 2>/dev/null | wc -l | tr -d ' ')" 0
 printf 'interrupted chain walk: scratch file removed\n'
 
-# The refusal reader must report the marker from the shared tmux pane and ignore other output.
+# The refusal reader requires both independent lines from the shared tmux pane.
 megabrain_dispatch_meta_write refusal-reading parent-terminal superset tmux workspace-test child-terminal \
   "$root" main codex label running gpt-5 true codex refusal-session refusal-pane tmux tmux >/dev/null
-fake_pane_output="You've hit your usage limit for this account."
+fake_pane_output="You've hit your usage limit for this account. Switch to another model now,"
 megabrain_tmux_capture_pane() { printf '%s\n' "$fake_pane_output"; }
 megabrain_dispatch_limit_refusal_read refusal-reading
 assert_equal "$MEGABRAIN_DISPATCH_LIMIT_REFUSAL" true
 assert_contains "$MEGABRAIN_DISPATCH_LIMIT_REFUSAL_REASON" 'usage limit'
+fake_pane_output="typed-in brief quotes: You've hit your usage limit for this account."
+megabrain_dispatch_limit_refusal_read refusal-reading
+assert_equal "$MEGABRAIN_DISPATCH_LIMIT_REFUSAL" false
+printf 'limit refusal reader: typed-in marker without refusal context ignored\n'
 fake_pane_output='normal agent output'
 megabrain_dispatch_limit_refusal_read refusal-reading
 assert_equal "$MEGABRAIN_DISPATCH_LIMIT_REFUSAL" false
