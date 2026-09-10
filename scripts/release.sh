@@ -26,6 +26,16 @@ sha256_file() {
   printf '%s\n' "${output%% *}"
 }
 
+archive_release_tree() {
+  if git -C "$root" archive -h 2>&1 | grep -q -- '--mtime'; then
+    git -C "$root" archive --format=tar --mtime='1970-01-01 00:00:00' \
+      --prefix="megabrain-$version/" HEAD^{tree} -- . ':(exclude)Formula'
+  else
+    git -C "$root" archive --format=tar --prefix="megabrain-$version/" \
+      HEAD^{tree} -- . ':(exclude)Formula'
+  fi
+}
+
 [ -f "$manifest" ] || fail "manifest is missing: $manifest"
 [ -f "$template" ] || fail "formula template is missing: $template"
 version="$(jq -er '.version | strings | select(length > 0)' "$manifest")" ||
@@ -62,7 +72,7 @@ output_dir="$(dirname "$output")"
 formula_dir="$(dirname "$formula_output")"
 mkdir -p "$output_dir" || fail "could not create output directory: $output_dir"
 temp="$(mktemp "$output.XXXXXX")" || fail "could not create temporary archive: $output"
-if ! git -C "$root" archive --format=tar --mtime='1970-01-01 00:00:00' --prefix="megabrain-$version/" HEAD^{tree} -- . ':(exclude)Formula' | gzip -n >"$temp"; then
+if ! archive_release_tree | gzip -n >"$temp"; then
   rm -f "$temp"
   fail 'could not create release archive from HEAD'
 fi
