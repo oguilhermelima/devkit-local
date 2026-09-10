@@ -178,6 +178,20 @@ assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/$failed_dispatch/meta.js
 printf 'receipt after failure is recorded without reopening the dispatch\n'
 
 reset_fixture
+pipe_start_mode=failure
+if megabrain_launch_agent "$root" workspace-test codex gpt-5 medium no-transcript test-label >/dev/null 2>&1; then
+  launch_status=0
+else
+  launch_status=$?
+fi
+dispatch_dir="$(dispatch_path)"
+assert_equal "$launch_status" 1
+assert_false "$pane_exists"
+assert_equal "$(jq -r '.state' "$dispatch_dir/meta.json")" failed
+assert_equal "$(jq -r '.promptState' "$dispatch_dir/meta.json")" failed
+printf 'transcript pipe failure is loud and records a failed dispatch\n'
+
+reset_fixture
 send_mode=failure
 if megabrain_launch_agent "$root" workspace-test codex gpt-5 medium disappeared-pane test-label >/dev/null 2>&1; then
   launch_status=0
