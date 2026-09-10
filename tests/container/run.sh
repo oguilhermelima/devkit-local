@@ -6,7 +6,6 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 image=megabrain-suite
-test_jobs="${MEGABRAIN_TEST_JOBS:-8}"
 output_root="${MEGABRAIN_TEST_OUTPUT_DIR:-${TMPDIR:-/tmp}/megabrain-suite-results}"
 
 mkdir -p "$output_root"
@@ -69,7 +68,8 @@ exec docker run --rm \
         fi
       done
     fi
-    test_jobs="${MEGABRAIN_TEST_JOBS:-8}"
+    source tests/container/worker-count.sh
+    test_jobs="$(megabrain_test_jobs_resolve)"
     if [ -z "$test_jobs" ]; then
       printf "MEGABRAIN_TEST_JOBS must be a positive integer: %s\n" "$test_jobs" >&2
       exit 2

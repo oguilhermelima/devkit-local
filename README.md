@@ -413,7 +413,9 @@ bash tests/container/run.sh               # the safety net: nothing of yours to 
 The container mounts the checkout read-only and copies it in, so a test cannot reach the host
 tree, your tmux server or your agent configuration. It runs bash 5 on Linux, which catches
 portability bugs macOS hides, but it is not the target platform, so the local run stays the
-authority. Each run preserves per-test output in a unique directory under
+authority. By default, the container runner uses nproc's available CPU count for its workers;
+set MEGABRAIN_TEST_JOBS to override it. Each run preserves per-test output in a unique
+directory under
 ${MEGABRAIN_TEST_OUTPUT_DIR:-/tmp/megabrain-suite-results}; failures.log names every failing test
 and contains its complete output, so failure evidence survives piping the command's stdout.
 
