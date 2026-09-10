@@ -25,6 +25,7 @@ pane_exists=false
 cleanup_called=false
 send_mode=success
 prompt_transport_attempts=0
+pipe_start_mode=success
 
 fail_test() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -56,6 +57,7 @@ reset_fixture() {
   cleanup_called=false
   send_mode=success
   prompt_transport_attempts=0
+  pipe_start_mode=success
   export MEGABRAIN_PROMPT_RECEIPT_ATTEMPTS=1
   export MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS=0
   export MEGABRAIN_PROMPT_RECEIPT_POLL_INTERVAL=0.01
@@ -74,6 +76,8 @@ megabrain_tmux_split_pane() { printf 'test-pane\n'; }
 megabrain_tmux_apply_config() { return 0; }
 megabrain_tmux_wait_for_session() { return 0; }
 megabrain_tmux_set_state_dir() { return 0; }
+megabrain_tmux_pipe_pane_start() { [ "$pipe_start_mode" = success ]; }
+megabrain_tmux_pipe_pane_stop() { return 0; }
 megabrain_agent_command() { printf 'true\n'; }
 megabrain_tmux_model_substitution_report() { return 0; }
 megabrain_tmux_agent_output_clean() { return 0; }
