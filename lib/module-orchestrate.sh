@@ -1306,9 +1306,13 @@ megabrain_dispatch_native_close() {
 }
 
 megabrain_dispatch_release_tmux_session() {
-  local meta="$1" runtime
+  local meta="$1" runtime tmux_session
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   [ "$runtime" = tmux ] || return 0
+  tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
+  [ -n "$tmux_session" ] || return 0
+  declare -F megabrain_tmux_session_exists >/dev/null 2>&1 || return 0
+  megabrain_tmux_session_exists "$tmux_session" || return 0
   megabrain_dispatch_close_refuse_caller "$meta" || return 1
   megabrain_dispatch_native_close "$meta"
 }
