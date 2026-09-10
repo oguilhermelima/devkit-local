@@ -16,7 +16,7 @@ grep -F 'libexec.install' "$formula" >/dev/null || fail 'formula does not instal
 grep -F 'bin.install_symlink libexec/"megabrain"' "$formula" >/dev/null || fail 'formula does not link megabrain'
 grep -F 'bin.install_symlink libexec/"mb"' "$formula" >/dev/null || fail 'formula does not link mb'
 grep -F 'test do' "$formula" >/dev/null || fail 'formula has no test block'
-grep -F 'caveats do' "$formula" >/dev/null || fail 'formula has no caveats block'
+grep -F 'def caveats' "$formula" >/dev/null || fail 'formula has no caveats method'
 grep -F 'megabrain install' "$formula" >/dev/null || fail 'formula caveats omit machine setup'
 grep -F 'kept in sync by megabrain' "$formula" >/dev/null || fail 'formula caveats omit skill synchronization'
 
