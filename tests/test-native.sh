@@ -163,6 +163,7 @@ assert_contains "$config_output" 'exp://127.0.0.1:8082/--/configured'
 assert_contains "$(cat "$SIMCTL_LOG")" 'simctl terminate phone-1 com.config.phone'
 
 printf 'scenario: simulator selection and wait errors stay distinct\n'
+rm -f "$SIMCTL_BOOT_MARKER"
 SIMCTL_DEVICES_JSON="$work_dir/tv-only.json"
 if output="$(command_native sim ensure phone --timeout 1 2>&1)"; then fail 'zero matching devices unexpectedly succeeded'; fi
 assert_contains "$output" 'no iOS simulator matches'
