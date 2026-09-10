@@ -132,12 +132,13 @@ assert_contains "$capped_nudge" '…'
 printf 'nudge width: text is capped to pane columns with an ellipsis\n'
 unset -f tmux
 
-# Codex's composer has no proven blind nudge path. The durable answer is queued and no
-# pointer is typed, so no stale draft can survive in the pane.
+# Codex's Tab affordance queues the pointer, so no stale draft can survive in the pane.
 log_file="$state_root/tmux-send.log"
 pointer_composer_file="$state_root/pointer-composer"
+pointer_queue_file="$state_root/pointer-queue"
 : >"$log_file"
 : >"$pointer_composer_file"
+: >"$pointer_queue_file"
 tmux() {
   case "${1:-}" in
     display-message) printf '%s\n' "$session_name" ;;
@@ -146,6 +147,10 @@ tmux() {
       printf '%s\n' "$*" >>"$log_file"
       case "${4:-}" in
         -l) printf '%s\n' "${5:-}" >"$pointer_composer_file" ;;
+        Tab)
+          cat "$pointer_composer_file" >"$pointer_queue_file"
+          : >"$pointer_composer_file"
+          ;;
       esac
       case "$*" in
         *BSpace*) : >"$pointer_composer_file" ;;
@@ -163,16 +168,19 @@ pointer_answer='answer body must stay in the queue'
 pointer_output="$(megabrain_dispatch_reply "$dispatch_id" --text "$pointer_answer" --json)"
 assert_equal "$(jq -r '.status' <<<"$pointer_output")" queued
 typed="$(cat "$log_file")"
-assert_equal "$typed" ''
+assert_contains "$typed" ' Tab'
+assert_not_contains "$typed" ' Enter'
+assert_equal "$(cat "$pointer_composer_file")" ''
+assert_equal "$(cat "$pointer_queue_file")" '[megabrain] reply available; run megabrain check'
 pointer_message="$state_root/state/dispatches/$dispatch_id/messages"/*.json
 assert_equal "$(jq -r '.text' $pointer_message)" "$pointer_answer"
 assert_contains "$(jq -r '.sessionId' $pointer_message)" ':'
-pointer_transport_status="$(megabrain_tmux_send_nudge %fake 'codex pointer is not typed' codex; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
-assert_equal "$pointer_transport_status" not-typed
-printf 'reply transport: pointer excludes the answer and parent provenance is recorded\n'
+pointer_transport_status="$(megabrain_tmux_send_nudge %fake 'codex pointer is queued' codex; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
+assert_equal "$pointer_transport_status" queued
+printf 'reply transport: Tab queues the pointer and parent provenance is recorded\n'
 
-# Claude is the only agent measured to accept a busy-pane nudge. Codex and agy stay on the
-# durable queue path because their safe nudge affordances were not established here.
+# Claude and Codex have measured busy-pane affordances; agy stays on the durable queue path
+# because its safe nudge affordance is not established here.
 nudge_composer_file="$state_root/nudge-composer"
 nudge_queue_file="$state_root/nudge-queue"
 nudge_keys_file="$state_root/nudge-keys"
@@ -209,6 +217,13 @@ tmux() {
             : >"$nudge_composer_file"
           fi
           ;;
+        Tab)
+          if [ "$nudge_agent" = codex ] && [ "$nudge_mode" = accept ]; then
+            cat "$nudge_composer_file" >>"$nudge_queue_file"
+            printf '\n' >>"$nudge_queue_file"
+            : >"$nudge_composer_file"
+          fi
+          ;;
       esac
       ;;
     *) return 0 ;;
@@ -228,19 +243,18 @@ assert_contains "$(cat "$nudge_keys_file")" ' Enter'
 assert_not_contains "$(cat "$nudge_keys_file")" ' Tab'
 printf 'busy Claude: Enter queues the nudge\n'
 
-# No affordance has been established for Codex or agy. It is safer to leave the durable
-# queue as the only path than to put an unsubmitted pointer into an unknown composer.
+# Codex's measured Tab affordance is distinct from agy's unknown composer.
 nudge_agent=codex
 nudge_mode=accept
 : >"$nudge_composer_file"
 : >"$nudge_queue_file"
 : >"$nudge_keys_file"
-unknown_status="$(megabrain_tmux_send_nudge %busy 'codex pointer is not typed without a proven queue' codex; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
-assert_equal "$unknown_status" not-typed
+unknown_status="$(megabrain_tmux_send_nudge %busy 'codex pointer is queued with Tab' codex; printf '%s' "$MEGABRAIN_TMUX_SEND_STATUS")"
+assert_equal "$unknown_status" queued
 assert_equal "$(cat "$nudge_composer_file")" ''
-assert_equal "$(cat "$nudge_queue_file")" ''
-assert_equal "$(cat "$nudge_keys_file")" ''
-printf 'unknown Codex queue: nudge is not typed\n'
+assert_equal "$(cat "$nudge_queue_file")" 'codex pointer is queued with Tab'
+assert_contains "$(cat "$nudge_keys_file")" ' Tab'
+printf 'Codex queue: Tab queues the nudge\n'
 
 nudge_agent=agy
 nudge_mode=accept

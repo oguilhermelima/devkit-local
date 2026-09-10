@@ -64,12 +64,12 @@ tmux_cmd() {
 }
 
 create_meta() {
-  local dispatch_id="$1" session="$2" pane="$3" child_pane="$3" parent_session_arg parent_pane_arg
+  local dispatch_id="$1" session="$2" pane="$3" child_pane="$3" parent_session_arg parent_pane_arg agent="${6:-codex}"
   parent_session_arg="${4:-$session}"
   parent_pane_arg="${5:-$pane}"
   [ "$child_pane" = "$parent_pane" ] && child_pane="%child-$dispatch_id"
   megabrain_dispatch_meta_write "$dispatch_id" parent-terminal orca orca "" "$dispatch_id-terminal" \
-    "$root" main codex label running gpt-5 true codex "$session" "$child_pane" tmux tmux \
+    "$root" main "$agent" label running gpt-5 true "$agent" "$session" "$child_pane" tmux tmux \
     "$parent_session_arg" "$parent_pane_arg" "" >/dev/null
 }
 
@@ -98,7 +98,7 @@ printf 'busy parent receives a notice without liveness probing\n'
 
 tmux_cmd new-session -d -s "$unknown_session" "printf '%s' 'Working · esc to interrupt'; sleep 5"
 unknown_pane="$(tmux_cmd display-message -p -t "$unknown_session" '#{pane_id}')"
-create_meta unrecognised-parent "$unknown_session" "$unknown_pane"
+create_meta unrecognised-parent "$unknown_session" "$unknown_pane" "$unknown_session" "$unknown_pane" agy
 unknown_meta="$(megabrain_dispatch_meta_read unrecognised-parent)"
 unknown_before="$(tmux_cmd capture-pane -J -p -t "$unknown_pane" -S -20)"
 megabrain_parent_notify_dispatch "$unknown_meta"
