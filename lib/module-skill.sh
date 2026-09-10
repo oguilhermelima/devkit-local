@@ -217,7 +217,7 @@ megabrain_skill_target_reconcile() {
 megabrain_skill_scan() {
   local repair="$1" source='' source_mtime='' source_size='' source_metadata='' metadata_rest=''
   local source_metadata_line='' target='' target_metadata_line='' target_mtime='' target_size='' scan_rc=0
-  local -a targets=()
+  local target_count=0
   MEGABRAIN_SKILL_TARGET_COUNT=0
   MEGABRAIN_SKILL_DRIFT_COUNT=0
   MEGABRAIN_SKILL_FAILURE_COUNT=0
@@ -233,10 +233,15 @@ megabrain_skill_scan() {
   fi
   while IFS= read -r target; do
     [ -n "$target" ] || continue
-    targets[${#targets[@]}]="$target"
+    if [ "$target_count" -eq 0 ]; then
+      set -- "$target"
+    else
+      set -- "$@" "$target"
+    fi
+    target_count=$((target_count + 1))
   done < <(megabrain_skill_target_paths)
-  if [ "${#targets[@]}" -gt 0 ]; then
-    source_metadata="$(megabrain_skill_file_metadata "$source" "${targets[@]}" 2>/dev/null || true)"
+  if [ "$target_count" -gt 0 ]; then
+    source_metadata="$(megabrain_skill_file_metadata "$source" "$@" 2>/dev/null || true)"
   else
     source_metadata="$(megabrain_skill_file_metadata "$source" 2>/dev/null || true)"
   fi
@@ -251,20 +256,22 @@ megabrain_skill_scan() {
     MEGABRAIN_SKILL_FAILURE_COUNT=1
     return 1
   fi
-  for target in "${targets[@]}"; do
-    target_metadata_line="${metadata_rest%%$'\n'*}"
-    metadata_rest="${metadata_rest#*$'\n'}"
-    target_mtime="${target_metadata_line%% *}"
-    target_size="${target_metadata_line#* }"
-    MEGABRAIN_SKILL_TARGET_COUNT=$((MEGABRAIN_SKILL_TARGET_COUNT + 1))
-    megabrain_skill_target_reconcile "$source" "$source_mtime" "$source_size" "$target" \
-      "$target_mtime" "$target_size" "$repair" || scan_rc=1
-    case "$MEGABRAIN_SKILL_TARGET_RESULT" in
-      drift) MEGABRAIN_SKILL_DRIFT_COUNT=$((MEGABRAIN_SKILL_DRIFT_COUNT + 1)) ;;
-      repaired) MEGABRAIN_SKILL_REPAIRED_COUNT=$((MEGABRAIN_SKILL_REPAIRED_COUNT + 1)) ;;
-      error|unwritable) MEGABRAIN_SKILL_FAILURE_COUNT=$((MEGABRAIN_SKILL_FAILURE_COUNT + 1)) ;;
-    esac
-  done
+  if [ "$target_count" -gt 0 ]; then
+    for target in "$@"; do
+      target_metadata_line="${metadata_rest%%$'\n'*}"
+      metadata_rest="${metadata_rest#*$'\n'}"
+      target_mtime="${target_metadata_line%% *}"
+      target_size="${target_metadata_line#* }"
+      MEGABRAIN_SKILL_TARGET_COUNT=$((MEGABRAIN_SKILL_TARGET_COUNT + 1))
+      megabrain_skill_target_reconcile "$source" "$source_mtime" "$source_size" "$target" \
+        "$target_mtime" "$target_size" "$repair" || scan_rc=1
+      case "$MEGABRAIN_SKILL_TARGET_RESULT" in
+        drift) MEGABRAIN_SKILL_DRIFT_COUNT=$((MEGABRAIN_SKILL_DRIFT_COUNT + 1)) ;;
+        repaired) MEGABRAIN_SKILL_REPAIRED_COUNT=$((MEGABRAIN_SKILL_REPAIRED_COUNT + 1)) ;;
+        error|unwritable) MEGABRAIN_SKILL_FAILURE_COUNT=$((MEGABRAIN_SKILL_FAILURE_COUNT + 1)) ;;
+      esac
+    done
+  fi
   return "$scan_rc"
 }
 
