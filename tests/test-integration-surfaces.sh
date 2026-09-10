@@ -52,7 +52,7 @@ MEGABRAIN_STATE_DIR="$nested_state" bash -c 'source "$1/lib/common.sh"; source "
 nested_output="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$nested_state" SUPERSET_TERMINAL_ID=nested-child bash -c 'MEGABRAIN_STATE_DIR="$1" SUPERSET_TERMINAL_ID="$2" "$3" received' _ "$nested_state" nested-child "$root/megabrain")"
 assert_contains "$nested_output" 'received sent: nested-dispatch'
 assert_equal "$(find "$nested_state/dispatches/nested-dispatch/messages" -name '*-child-received.json' | wc -l | tr -d ' ')" 1
-assert_equal "$(jq -r '.state' "$nested_state/dispatches/nested-dispatch/meta.json")" spawning
+assert_equal "$(jq -r '.state' "$nested_state/dispatches/nested-dispatch/meta.json")" running
 printf 'state propagation: nested invocation inherits one state directory\n'
 
 integration_home="$work/integration-home"
