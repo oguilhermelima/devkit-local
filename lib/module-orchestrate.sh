@@ -1275,7 +1275,7 @@ megabrain_dispatch_native_close() {
 }
 
 megabrain_dispatch_read() {
-  local dispatch_id="${1:-}" lines=200 json=false arg meta runtime pane output
+  local dispatch_id="${1:-}" lines=200 json=false arg meta runtime pane output source transcript_path
   case "$dispatch_id" in
     -h|--help) megabrain_usage_show orchestrate-read; return 0 ;;
   esac
@@ -1295,11 +1295,22 @@ megabrain_dispatch_read() {
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   [ "$runtime" = tmux ] || { megabrain_error "dispatch $dispatch_id does not use tmux-runtime"; return 1; }
   pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
-  output="$(megabrain_tmux_capture_pane "$pane" "-$lines")" || { megabrain_error "could not read tmux pane $pane"; return 1; }
+  source=tmux
+  if ! output="$(megabrain_tmux_capture_pane "$pane" "-$lines" 2>/dev/null)"; then
+    transcript_path="$(megabrain_dispatch_transcript_path "$dispatch_id")"
+    if [ -f "$transcript_path" ]; then
+      output="$(tail -n "$lines" "$transcript_path")" || { megabrain_error "could not read dispatch transcript $transcript_path"; return 1; }
+      source=file
+    else
+      megabrain_error "could not read tmux pane $pane and no persisted transcript exists"
+      return 1
+    fi
+  fi
   if [ "$json" = true ]; then
-    jq -n --arg dispatchId "$dispatch_id" --arg pane "$pane" --arg output "$output" \
-      '{dispatchId: $dispatchId, pane: $pane, text: $output}'
+    jq -n --arg dispatchId "$dispatch_id" --arg pane "$pane" --arg source "$source" --arg output "$output" \
+      '{dispatchId: $dispatchId, pane: $pane, source: $source, text: $output}'
   else
+    printf 'source: %s\n' "$source"
     printf '%s\n' "$output"
   fi
 }
