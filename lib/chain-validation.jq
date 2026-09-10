@@ -127,13 +127,17 @@ def until_events($chainName; $stepIndex; $step):
   if ($step | has("until")) then
     ($step.until) as $until
     | if ($until | type) != "object"
-        or (($until | keys | sort) != ["usedPercent", "window"]) then
+        or ((($until | keys) - ["usedPercent", "window", "onUnknown"]) | length > 0)
+        or ((["usedPercent", "window"] - ($until | keys)) | length > 0) then
         [event("until_object"; $chainName; $stepIndex; ""; "")]
       elif (($until.usedPercent | valid_integer(0; 100))
             and (($until.usedPercent | type) == "number")) | not then
         [event("until_used_percent"; $chainName; $stepIndex; ""; "")]
       elif (($until.window | known_window) | not) then
         [event("until_window"; $chainName; $stepIndex; ""; $until.window)]
+      elif ($until.onUnknown // "take") as $onUnknown
+        | ($onUnknown == "take" or $onUnknown == "skip") | not then
+        [event("until_on_unknown"; $chainName; $stepIndex; ""; $until.onUnknown)]
       else []
       end
   else []

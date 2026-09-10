@@ -240,6 +240,10 @@ megabrain_chain_validate_config() {
         megabrain_error "invalid chain $chain step $index until.window: unsupported window $value"
         rc=1
         ;;
+      until_on_unknown)
+        megabrain_error "invalid chain $chain step $index until.onUnknown: expected take or skip"
+        rc=1
+        ;;
     esac
   done <<<"$validation_output"
   return "$rc"
@@ -1172,7 +1176,7 @@ MEGABRAIN_CHAIN_WALK_DISPATCH_ID=""
 megabrain_chain_walk() {
   local worktree="$1" repo="$2" branch="$3" base="$4" slug="$5" prompt="$6" label="$7" tmux_choice="$8"
   local model_override="$9" effort_override="${10}" model_explicit="${11}" effort_explicit="${12}"
-  local step_count index step agent model effort until_json threshold window limit_reason reason reset_text failure_reason final_reason report_chain
+  local step_count index step agent model effort until_json threshold window on_unknown limit_reason reason reset_text failure_reason final_reason report_chain
   local spawn_output spawn_json spawn_error error_file dispatch_id spawn_succeeded
   local -a agent_args=()
   shift 12
@@ -1221,8 +1225,17 @@ megabrain_chain_walk() {
     if [ -n "$until_json" ]; then
       threshold="$(printf '%s' "$until_json" | jq -r '.usedPercent')"
       window="$(printf '%s' "$until_json" | jq -r '.window')"
+      on_unknown="$(printf '%s' "$until_json" | jq -r '.onUnknown // "take"')"
       megabrain_chain_limit_read "$agent" "$window"
       limit_reason="$MEGABRAIN_CHAIN_LIMIT_REASON"
+      if [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = unknown ]; then
+        if [ "$on_unknown" = skip ]; then
+          reason="$limit_reason"
+          MEGABRAIN_CHAIN_WALK_SKIPPED="$(printf '%s' "$MEGABRAIN_CHAIN_WALK_SKIPPED" | jq --argjson step "$index" --arg agent "$agent" --arg reason "$reason" '. + [{step: $step, agent: $agent, kind: "limit", reason: $reason}]')"
+          continue
+        fi
+        printf 'chain step %s (%s) usage limit is unknown; taking step (onUnknown=take)\n' "$index" "$agent" >&2
+      fi
       if [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = current ] && awk -v used="$MEGABRAIN_CHAIN_LIMIT_USED" -v threshold="$threshold" 'BEGIN { exit !(used >= threshold) }'; then
         reset_text=""
         [ -n "$MEGABRAIN_CHAIN_LIMIT_RESETS" ] && reset_text="; resets at $(megabrain_chain_reset_display "$MEGABRAIN_CHAIN_LIMIT_RESETS")"
