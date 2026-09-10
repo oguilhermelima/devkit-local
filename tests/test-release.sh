@@ -15,9 +15,12 @@ release_script="$root/scripts/release.sh"
 version="$(jq -r '.version' "$root/.claude-plugin/plugin.json")"
 archive="$work/megabrain-$version.tar.gz"
 
-if mismatch_output="$release_script v0.2.0 --output "$archive" 2>&1"; then
-  fail 'release script accepted a tag that differs from the manifest'
+if mismatch_output="$("$release_script" v0.2.0 --output "$archive" 2>&1)"; then
+  mismatch_status=0
+else
+  mismatch_status=$?
 fi
+[ "$mismatch_status" -ne 0 ] || fail 'release script accepted a tag that differs from the manifest'
 case "$mismatch_output" in
   *"does not match manifest version $version"*) ;;
   *) fail "mismatch error did not name the manifest version: $mismatch_output" ;;
