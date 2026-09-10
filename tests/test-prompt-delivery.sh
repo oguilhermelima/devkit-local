@@ -66,7 +66,7 @@ assert_equal "$received_output" 'received sent: optional-receipt'
 received_message="$state_dir/dispatches/optional-receipt/messages/0001-child-received.json"
 [ -f "$received_message" ] || fail 'received command did not leave a durable message'
 assert_equal "$(jq -r '.type' "$received_message")" received
-assert_equal "$(jq -r '.state' "$state_dir/dispatches/optional-receipt/meta.json")" spawning
+assert_equal "$(jq -r '.state' "$state_dir/dispatches/optional-receipt/meta.json")" running
 printf 'received command is durable and authoritative\n'
 
 receipt_dispatch=receipt-retry
