@@ -63,6 +63,11 @@ append_ask() {
   megabrain_dispatch_message_append "$dispatch_id" child ask "$text" "child-$dispatch_id" >/dev/null
 }
 
+append_message() {
+  local dispatch_id="$1" type="$2" text="$3"
+  megabrain_dispatch_message_append "$dispatch_id" child "$type" "$text" "child-$dispatch_id" >/dev/null
+}
+
 run_hook() {
   "$root/hooks/megabrain-turn-end.sh" '{}' >/dev/null
 }
@@ -129,5 +134,32 @@ assert_equal "$(jq -r '.lastReadSeq' "$MEGABRAIN_DISPATCH_DIR/waiter/cursor.json
 run_hook
 assert_equal "$(send_count)" 3
 printf 'waiter removal: deferred mail delivered once\n'
+
+create_dispatch type-ask running
+create_dispatch type-done running
+create_dispatch type-stalled stalled
+create_dispatch type-received running
+create_dispatch type-ack running
+append_message type-ask ask 'ask needs a decision'
+append_message type-done done 'done needs acknowledgement'
+append_message type-stalled stalled 'stalled needs intervention'
+append_message type-received received 'prompt received'
+append_message type-ack ack 'delivery-id'
+
+run_hook
+assert_equal "$(send_count)" 4
+latest_notice="$(tail -n 1 "$send_log")"
+assert_contains "$latest_notice" '3 mails: run megabrain orchestrate list'
+assert_equal "$(jq -r '.lastReadSeq' "$MEGABRAIN_DISPATCH_DIR/type-ask/cursor.json")" 1
+assert_equal "$(jq -r '.lastReadSeq' "$MEGABRAIN_DISPATCH_DIR/type-done/cursor.json")" 1
+assert_equal "$(jq -r '.lastReadSeq' "$MEGABRAIN_DISPATCH_DIR/type-stalled/cursor.json")" 1
+assert_equal "$(jq -r '.lastReadSeq' "$MEGABRAIN_DISPATCH_DIR/type-received/cursor.json")" 0
+assert_equal "$(jq -r '.lastReadSeq' "$MEGABRAIN_DISPATCH_DIR/type-ack/cursor.json")" 0
+printf 'parent pointer: ask, done, and stalled interrupt; received and ack do not\n'
+
+ack_delivery="$(megabrain orchestrate watch type-ack --timeout 0 --poll-interval 0 --wait-mode poll --json)"
+assert_equal "$(jq -r '.messages | length' <<<"$ack_delivery")" 1
+assert_equal "$(jq -r '.messages[0].type' <<<"$ack_delivery")" ack
+printf 'ack-only queue: watcher still receives the recorded message\n'
 
 printf 'child branch: covered by tests/test-e2e-findings.sh\n'

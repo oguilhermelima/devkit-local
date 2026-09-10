@@ -157,7 +157,7 @@ create_meta tmux-idle "$parent_pane"
 idle_meta="$(megabrain_dispatch_meta_read tmux-idle)"
 append_message tmux-idle 'body must remain in queue'
 megabrain_parent_notify_dispatch "$idle_meta"
-assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
+assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" queued
 idle_capture="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 assert_contains "$idle_capture" 'mail: megabrain orchestrate watch tmux-idle'
 assert_not_contains "$idle_capture" 'body must remain in queue'
@@ -247,7 +247,7 @@ host_tmux_meta="$(megabrain_dispatch_meta_read host-runtime-tmux-parent)"
 assert_equal "$(megabrain_parent_notify_channel "$host_tmux_meta")" tmux
 append_message host-runtime-tmux-parent 'host runtime body'
 megabrain_parent_notify_dispatch "$host_tmux_meta"
-assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
+assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" queued
 host_tmux_capture="$(tmux_cmd capture-pane -p -J -t "$parent_pane" -S -20)"
 assert_contains "$host_tmux_capture" 'mail: megabrain orchestrate watch host-runtime-tmux-parent'
 assert_not_contains "$host_tmux_capture" 'host runtime body'
@@ -269,7 +269,7 @@ megabrain_superset() {
   fi
 }
 megabrain_parent_notify_dispatch "$host_meta"
-assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
+assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" queued
 assert_equal "$superset_send_count" 1
 megabrain_parent_notify_waiter_register ide-dispatch "$host_meta"
 megabrain_parent_notify_dispatch "$host_meta"
@@ -324,7 +324,7 @@ export TMUX="$tmux_info" TMUX_PANE="$parent_pane"
 create_meta same-context "$parent_pane"
 same_context_meta="$(megabrain_dispatch_meta_read same-context)"
 megabrain_parent_notify_dispatch "$same_context_meta"
-assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
+assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" queued
 same_context_capture="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
 assert_contains "$same_context_capture" 'mail: megabrain orchestrate watch same-context'
 printf 'same-context parent notice still delivers\n'
@@ -339,8 +339,8 @@ wait_for_pane_text "$no_context_pane" no-context-ready
 create_meta no-context "$no_context_pane" tmux superset "$no_context_pane" "$no_context_session"
 no_context_meta="$(megabrain_dispatch_meta_read no-context)"
 megabrain_parent_notify_dispatch "$no_context_meta"
-assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
-assert_contains "$(cat "$state_dir/dispatches/no-context/nudge.log")" 'outcome=delivered reason=parent-notified'
+assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" queued
+assert_contains "$(cat "$state_dir/dispatches/no-context/nudge.log")" 'outcome=queued reason=parent-notified'
 printf 'tmux without state context delivers from the dispatch location\n'
 
 rename_home="$state_dir/rename-home"
@@ -359,8 +359,8 @@ MEGABRAIN_STATE_DIR="$rename_new_state"
 MEGABRAIN_DISPATCH_DIR="$rename_new_state/dispatches"
 renamed_meta="$(megabrain_dispatch_meta_read renamed-context)"
 megabrain_parent_notify_dispatch "$renamed_meta"
-assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
-assert_contains "$(cat "$rename_new_state/dispatches/renamed-context/nudge.log")" 'outcome=delivered reason=parent-notified'
+assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" queued
+assert_contains "$(cat "$rename_new_state/dispatches/renamed-context/nudge.log")" 'outcome=queued reason=parent-notified'
 HOME="$saved_home"
 MEGABRAIN_STATE_DIR="$saved_state_dir"
 MEGABRAIN_DISPATCH_DIR="$saved_dispatch_dir"
