@@ -486,21 +486,23 @@ megabrain_chain_limits_update_providers() {
 }
 
 megabrain_chain_limits_print_rows() {
-  local agent="$1" result="$2" source="$3" fetched_at="$4" reason="$5" requested_window="${6:-}" window used reset bucket
+  local agent="$1" result="$2" source="$3" fetched_at="$4" reason="$5" requested_window="${6:-}" window used reset bucket reading_kind reading_basis
+  reading_kind="$(printf '%s' "$result" | jq -r '.reading.kind // empty' 2>/dev/null || true)"
+  reading_basis="$(printf '%s' "$result" | jq -r '.reading.basis // empty' 2>/dev/null || true)"
   if [ -n "$result" ]; then
     while IFS=$'\t' read -r window bucket used reset; do
       if [ "${MEGABRAIN_CHAIN_LIMIT_STATUS:-unknown}" = current ]; then
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t%s\n' "$agent" "$window" current "$used" "$reset" "$source" "$fetched_at" "$bucket"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t%s\t%s\t%s\n' "$agent" "$window" current "$used" "$reset" "$source" "$fetched_at" "$bucket" "$reading_kind" "$reading_basis"
       else
-        printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\n' "$agent" "$window" "$fetched_at" "$reason"
+        printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\t%s\t%s\n' "$agent" "$window" "$fetched_at" "$reason" "$reading_kind" "$reading_basis"
       fi
     done < <(printf '%s' "$result" | jq -r '.windows[]? | [.name, (.bucket // "default"), .usedPercent, .resetsAt] | @tsv')
   else
     if [ -n "$requested_window" ]; then
-      printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\n' "$agent" "$requested_window" "$fetched_at" "$reason"
+      printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\t\t\n' "$agent" "$requested_window" "$fetched_at" "$reason"
     else
       for window in 5h weekly; do
-        printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\n' "$agent" "$window" "$fetched_at" "$reason"
+        printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\t\t\n' "$agent" "$window" "$fetched_at" "$reason"
       done
     fi
   fi
@@ -558,7 +560,7 @@ command_chain_limits() {
     fi
   done
   if [ "$json" = true ]; then
-    jq -Rn '[inputs | split("\t") | {provider: .[0], window: .[1], status: .[2], usedPercent: (if .[3] == "" then null else (.[3] | tonumber) end), resetsAt: (if .[4] == "" then null else .[4] end), source: .[5], fetchedAt: (if .[6] == "" then null else (.[6] | tonumber) end), reason: (if .[7] == "" then null else .[7] end), bucket: (if .[8] == "" then null else .[8] end)}]' "$tmp_file"
+    jq -Rn '[inputs | split("\t") | {provider: .[0], window: .[1], status: .[2], usedPercent: (if .[3] == "" then null else (.[3] | tonumber) end), resetsAt: (if .[4] == "" then null else .[4] end), source: .[5], fetchedAt: (if .[6] == "" then null else (.[6] | tonumber) end), reason: (if .[7] == "" then null else .[7] end), bucket: (if .[8] == "" then null else .[8] end), reading: (if .[9] == "" then null else {kind: .[9], basis: (if .[10] == "" then null else .[10] end)} end)}]' "$tmp_file"
   else
     printf '%-8s %-8s %-9s %-12s %-28s %-8s %s\n' PROVIDER WINDOW STATUS USED RESET SOURCE REASON
     while IFS=$'\t' read -r agent window line used reset result fetched_at reason; do
@@ -765,7 +767,7 @@ megabrain_chain_percent_text() {
 megabrain_chain_limit_result_codex() {
   local snapshot="$1" fetched_at="$2"
   jq -cn --argjson snapshot "$snapshot" --argjson fetchedAt "$fetched_at" '
-    {provider: "codex", fetchedAt: $fetchedAt, windows: [
+    {provider: "codex", fetchedAt: $fetchedAt, reading: {kind: "floor", basis: "last-recorded-turn", fetchedAt: $fetchedAt}, windows: [
       {name: "5h", bucket: "default", usedPercent: $snapshot.primary.used_percent,
        remainingPercent: (100 - $snapshot.primary.used_percent),
        resetsAt: ($snapshot.primary.resets_at | tostring)},
@@ -1023,9 +1025,9 @@ megabrain_chain_limit_read() {
     return 0
   fi
   now="$(date +%s)"
-  # WHY: current Codex snapshots nest rate_limits under payload.
+  # WHY: a recorded reset means the snapshot no longer describes the current window.
   if [ "$MEGABRAIN_CHAIN_LIMIT_RESETS" -le "$now" ]; then
-    megabrain_chain_limit_unknown codex "$window" "snapshot stale; reset $MEGABRAIN_CHAIN_LIMIT_RESETS"
+    megabrain_chain_limit_unknown codex "$window" "recorded window already reset at $MEGABRAIN_CHAIN_LIMIT_RESETS and carries no information about the current window"
     return 0
   fi
   fetched_at="$(megabrain_path_mtime "$rollout" 2>/dev/null || printf '%s' "$now")"
