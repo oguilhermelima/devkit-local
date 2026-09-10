@@ -67,6 +67,7 @@ megabrain_doctor_one() {
   local json="${2:-false}"
   MODULE_UNCERTAIN_DISPATCHES=0
   MODULE_RETAINED_TERMINALS=0
+  MODULE_LEAKED_DISPATCH_SESSIONS=0
   MODULE_PRUNABLE_DISPATCHES=0
   MODULE_UNCERTAIN_REASONS='[]'
   MODULE_RETAINED_REASONS='[]'
@@ -86,10 +87,11 @@ megabrain_doctor_one() {
     jq -n --arg moduleName "$module" --arg status "$MODULE_STATUS" --arg reason "$MODULE_REASON" \
       --argjson uncertainDispatches "${MODULE_UNCERTAIN_DISPATCHES:-0}" \
       --argjson retainedTerminals "${MODULE_RETAINED_TERMINALS:-0}" \
+      --argjson leakedDispatchSessions "${MODULE_LEAKED_DISPATCH_SESSIONS:-0}" \
       --argjson prunableDispatches "${MODULE_PRUNABLE_DISPATCHES:-0}" \
       --argjson uncertainReasons "${MODULE_UNCERTAIN_REASONS:-[]}" \
       --argjson retainedReasons "${MODULE_RETAINED_REASONS:-[]}" \
-      '{module: $moduleName, status: $status, reason: $reason, uncertainDispatches: $uncertainDispatches, uncertainReasons: $uncertainReasons, retainedTerminals: $retainedTerminals, retainedReasons: $retainedReasons, prunableDispatches: $prunableDispatches}'
+      '{module: $moduleName, status: $status, reason: $reason, uncertainDispatches: $uncertainDispatches, uncertainReasons: $uncertainReasons, retainedTerminals: $retainedTerminals, retainedReasons: $retainedReasons, leakedDispatchSessions: $leakedDispatchSessions, prunableDispatches: $prunableDispatches}'
   else
     megabrain_status_line "$module" "$MODULE_STATUS" "$MODULE_REASON"
   fi
@@ -225,7 +227,7 @@ command_doctor() {
 module_orchestration_doctor() {
   local orca_status superset_status counts_suffix tmux_runtime=false
   megabrain_dispatch_health_counts
-  counts_suffix="; uncertain dispatches: $MODULE_UNCERTAIN_DISPATCHES (review with megabrain orchestrate list --uncertain; reconcile or archive eligible records with megabrain orchestrate prune --older-than 1); retained terminals: $MODULE_RETAINED_TERMINALS; prunable dispatches: $MODULE_PRUNABLE_DISPATCHES"
+  counts_suffix="; uncertain dispatches: $MODULE_UNCERTAIN_DISPATCHES (review with megabrain orchestrate list --uncertain; reconcile or archive eligible records with megabrain orchestrate prune --older-than 1); retained terminals: $MODULE_RETAINED_TERMINALS; leaked dispatch sessions: $MODULE_LEAKED_DISPATCH_SESSIONS; prunable dispatches: $MODULE_PRUNABLE_DISPATCHES"
   if [ "${MODULE_UNCERTAIN_DISPATCHES:-0}" -gt 0 ]; then
     counts_suffix="$counts_suffix; unresolved reasons: $(printf '%s' "${MODULE_UNCERTAIN_REASONS:-[]}" | jq -r '[.[].reason] | unique | join(", ")')"
   fi
