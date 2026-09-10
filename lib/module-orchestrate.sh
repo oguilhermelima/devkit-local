@@ -8,6 +8,7 @@ MEGABRAIN_DISPATCH_DELIVERY_BATCH_CAP="${MEGABRAIN_DISPATCH_DELIVERY_BATCH_CAP:-
 MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS="${MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS:-30}"
 MEGABRAIN_PROMPT_RECEIPT_ATTEMPTS="${MEGABRAIN_PROMPT_RECEIPT_ATTEMPTS:-3}"
 MEGABRAIN_PROMPT_RECEIPT_POLL_INTERVAL="${MEGABRAIN_PROMPT_RECEIPT_POLL_INTERVAL:-0.1}"
+MEGABRAIN_PROMPT_RECEIPT_WAITING_STATUS=2
 MEGABRAIN_PROMPT_BUDGET_ARGV_BYTES=262144
 MEGABRAIN_PROMPT_BUDGET_TMUX_BYTES=12000
 MEGABRAIN_DISPATCH_CLOSE_OUTCOME=unknown
@@ -236,7 +237,7 @@ megabrain_dispatch_meta_write() {
     --argjson chainDefault "$(megabrain_bool_json "$chain_default")" \
     --argjson modelHonored "$(megabrain_bool_json "$model_honored")" \
     --arg now "$(megabrain_iso_now)" \
-    '{dispatchId: $dispatchId, parentSessionId: $parentSessionId, parentHost: $parentHost, parentWorkspaceId: (if $parentWorkspaceId == "" then null else $parentWorkspaceId end), parentTmuxSession: (if $parentTmuxSession == "" then null else $parentTmuxSession end), parentTmuxPane: (if $parentTmuxPane == "" then null else $parentTmuxPane end), childHost: $childHost, workspaceId: $workspaceId, terminalId: $terminalId, worktreePath: $worktreePath, branch: $branch, agent: $agent, agentId: $agentId, model: $model, effort: (if $effort == "" then null else $effort end), modelHonored: $modelHonored, modelSubstitution: null, runtime: $runtime, spawnRuntime: $spawnRuntime, tmuxSession: (if $tmuxSession == "" then null else $tmuxSession end), tmuxPane: (if $tmuxPane == "" then null else $tmuxPane end), label: $labelText, chain: (if $chainName == "" then null else {name: $chainName, step: $chainStep, total: $chainTotal, reason: $chainReason, usedDefault: $chainDefault} end), state: $state, promptDelivered: false, promptDelivery: "pending", promptDeliveryReason: null, processState: (if $state == "spawning" then "starting" elif $state == "running" then "running" elif $state == "done" then "succeeded" elif $state == "failed" then "failed" elif $state == "closed" then "stopped" else "start-unproven" end), terminalState: "owned", terminalReason: null, failureCount: 0, stage: null, reason: null, reconcileOutcome: null, createdAt: $now, updatedAt: $now}' \
+    '{dispatchId: $dispatchId, parentSessionId: $parentSessionId, parentHost: $parentHost, parentWorkspaceId: (if $parentWorkspaceId == "" then null else $parentWorkspaceId end), parentTmuxSession: (if $parentTmuxSession == "" then null else $parentTmuxSession end), parentTmuxPane: (if $parentTmuxPane == "" then null else $parentTmuxPane end), childHost: $childHost, workspaceId: $workspaceId, terminalId: $terminalId, worktreePath: $worktreePath, branch: $branch, agent: $agent, agentId: $agentId, model: $model, effort: (if $effort == "" then null else $effort end), modelHonored: $modelHonored, modelSubstitution: null, runtime: $runtime, spawnRuntime: $spawnRuntime, tmuxSession: (if $tmuxSession == "" then null else $tmuxSession end), tmuxPane: (if $tmuxPane == "" then null else $tmuxPane end), label: $labelText, chain: (if $chainName == "" then null else {name: $chainName, step: $chainStep, total: $chainTotal, reason: $chainReason, usedDefault: $chainDefault} end), state: $state, promptDelivered: false, promptDelivery: "pending", promptDeliveryReason: null, promptPublication: "pending", promptTransport: "pending", promptReceipt: "pending", promptState: "awaiting-publication", processState: (if $state == "spawning" then "starting" elif $state == "running" then "running" elif $state == "done" then "succeeded" elif $state == "failed" then "failed" elif $state == "closed" then "stopped" else "start-unproven" end), terminalState: "owned", terminalReason: null, failureCount: 0, stage: null, reason: null, reconcileOutcome: null, createdAt: $now, updatedAt: $now}' \
     >"$tmp"; then
     rm -f "$tmp"
     return 1
@@ -266,8 +267,34 @@ megabrain_dispatch_meta_update_prompt() {
   if ! jq \
     --argjson delivered "$(megabrain_bool_json "$delivered")" --arg delivery "$delivery" --arg reason "$reason" \
     --arg now "$(megabrain_iso_now)" \
-    '.promptDelivered = $delivered | .promptDelivery = $delivery | .promptDeliveryReason = (if $reason == "" then null else $reason end) | .updatedAt = $now' \
+    '.promptDelivered = $delivered | .promptDelivery = $delivery | .promptDeliveryReason = (if $reason == "" then null else $reason end) | if $delivery == "delivered" then .promptReceipt = "received" | .promptState = "confirmed" elif $delivery == "not-delivered" then .promptState = "failed" else . end | .updatedAt = $now' \
     "$path" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$path"
+}
+
+megabrain_dispatch_meta_update_prompt_layers() {
+  local dispatch_id="$1" publication="$2" transport="$3" receipt="$4" prompt_state="$5" reason="${6:-__keep__}"
+  local path tmp
+  case "$publication" in __keep__|pending|published|not-published|unknown) ;; *) megabrain_error "invalid prompt publication state: $publication"; return 1 ;; esac
+  case "$transport" in __keep__|pending|transported|not-transported|unknown) ;; *) megabrain_error "invalid prompt transport state: $transport"; return 1 ;; esac
+  case "$receipt" in __keep__|pending|received|unknown) ;; *) megabrain_error "invalid prompt receipt state: $receipt"; return 1 ;; esac
+  case "$prompt_state" in __keep__|awaiting-publication|awaiting-transport|awaiting-receipt|confirmed|failed|legacy|unknown) ;; *) megabrain_error "invalid prompt state: $prompt_state"; return 1 ;; esac
+  path="$(megabrain_dispatch_meta_path "$dispatch_id")" || return 1
+  tmp="$(mktemp "$(megabrain_dispatch_dir "$dispatch_id")/.meta.XXXXXX")" || return 1
+  if ! jq \
+    --arg publication "$publication" --arg transport "$transport" --arg receipt "$receipt" \
+    --arg promptState "$prompt_state" --arg reason "$reason" --arg now "$(megabrain_iso_now)" '
+      . as $before
+      | if $publication == "__keep__" then . else .promptPublication = $publication end
+      | if $transport == "__keep__" then . else .promptTransport = $transport end
+      | if $receipt == "__keep__" then . else .promptReceipt = $receipt end
+      | if $promptState == "__keep__" then . else .promptState = $promptState end
+      | if $reason == "__keep__" then . elif $reason == "__clear__" then .promptDeliveryReason = null else .promptDeliveryReason = $reason end
+      | if . == $before then . else .updatedAt = $now end
+    ' "$path" >"$tmp"; then
     rm -f "$tmp"
     return 1
   fi
@@ -365,6 +392,10 @@ megabrain_dispatch_meta_normalize() {
     | .reconcileOutcome //= null
     | .modelSubstitution //= null
     | .effort //= null
+    | .promptPublication //= "unknown"
+    | .promptTransport //= "unknown"
+    | .promptReceipt //= "unknown"
+    | .promptState //= "legacy"
   ' "$path" >"$tmp"; then
     rm -f "$tmp"
     return 1
@@ -422,9 +453,23 @@ megabrain_dispatch_wait_for_prompt_receipt() {
   while :; do
     megabrain_dispatch_has_prompt_receipt "$dispatch_id" && return 0
     now="$(date +%s)"
-    [ $((now - started)) -ge "$timeout" ] && return 1
+    [ $((now - started)) -ge "$timeout" ] && return "$MEGABRAIN_PROMPT_RECEIPT_WAITING_STATUS"
     sleep "$MEGABRAIN_PROMPT_RECEIPT_POLL_INTERVAL"
   done
+}
+
+megabrain_dispatch_sync_prompt_receipt() {
+  local dispatch_id="$1" path delivery
+  megabrain_dispatch_has_prompt_receipt "$dispatch_id" || return 0
+  path="$(megabrain_dispatch_meta_path "$dispatch_id")" || return 1
+  delivery="$(jq -r '.promptDelivery // "pending"' "$path" 2>/dev/null || true)"
+  if [ "$delivery" = pending ] || [ "$delivery" = delivered ]; then
+    megabrain_dispatch_meta_update_prompt "$dispatch_id" true delivered
+  else
+    # A legacy not-delivered value is retained as history; the receipt fact is still
+    # recorded independently rather than rewriting what the old field meant.
+    megabrain_dispatch_meta_update_prompt_layers "$dispatch_id" __keep__ __keep__ received confirmed __keep__
+  fi
 }
 
 megabrain_dispatch_reconcile_one() {
@@ -433,6 +478,7 @@ megabrain_dispatch_reconcile_one() {
   MEGABRAIN_RECONCILE_OUTCOME=unchanged
   if [ "${MEGABRAIN_RECONCILE_DRY_RUN:-false}" != true ]; then
     megabrain_dispatch_meta_normalize "$dispatch_id" || return 1
+    megabrain_dispatch_sync_prompt_receipt "$dispatch_id" || return 1
   fi
   meta="$(megabrain_dispatch_meta_read "$dispatch_id")" || return 1
   state="$(printf '%s' "$meta" | jq -r '.state')"

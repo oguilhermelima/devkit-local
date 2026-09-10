@@ -576,12 +576,34 @@ megabrain_superset_wait_for_terminal_ready() {
   return 1
 }
 
+megabrain_spawn_mark_prompt_published() {
+  megabrain_dispatch_meta_update_prompt_layers "$1" published pending pending awaiting-transport __clear__
+}
+
+megabrain_spawn_publish_prompt() {
+  local dispatch_id="$1" text="$2"
+  if ! megabrain_dispatch_message_append "$dispatch_id" parent prompt "$text" "$MEGABRAIN_SESSION_ID" >/dev/null; then
+    megabrain_dispatch_meta_update_prompt_layers "$dispatch_id" not-published pending pending failed publication-failed >/dev/null 2>&1 || true
+    return 1
+  fi
+  megabrain_spawn_mark_prompt_published "$dispatch_id"
+}
+
+megabrain_spawn_mark_prompt_transported() {
+  megabrain_dispatch_meta_update_prompt_layers "$1" __keep__ transported __keep__ awaiting-receipt __keep__
+}
+
+megabrain_spawn_mark_prompt_awaiting_receipt() {
+  megabrain_dispatch_meta_update_prompt_layers "$1" __keep__ __keep__ __keep__ awaiting-receipt __keep__
+}
+
 megabrain_spawn_mark_prompt_delivered() {
   megabrain_dispatch_meta_update_prompt "$1" true delivered
 }
 
 megabrain_spawn_mark_prompt_failed() {
   local dispatch_id="$1" reason="$2"
+  megabrain_dispatch_meta_update_prompt_layers "$dispatch_id" __keep__ __keep__ __keep__ failed "$reason" >/dev/null 2>&1 || true
   megabrain_dispatch_meta_update_prompt "$dispatch_id" false not-delivered "$reason" >/dev/null 2>&1 || true
   megabrain_dispatch_meta_update_state "$dispatch_id" failed >/dev/null 2>&1 || true
   megabrain_dispatch_meta_update_process_state "$dispatch_id" failed >/dev/null 2>&1 || true
@@ -589,7 +611,7 @@ megabrain_spawn_mark_prompt_failed() {
 }
 
 megabrain_dispatch_send_prompt_with_receipt() {
-  local dispatch_id="$1" text="$2" attempt meta attempts runtime tmux_pane
+  local dispatch_id="$1" text="$2" attempt meta attempts runtime tmux_pane receipt_status transport_state
   attempts="${MEGABRAIN_PROMPT_RECEIPT_ATTEMPTS:-3}"
   [[ "$attempts" =~ ^[1-9][0-9]*$ ]] || {
     megabrain_error "prompt receipt attempts is invalid: $attempts"
@@ -604,15 +626,27 @@ megabrain_dispatch_send_prompt_with_receipt() {
       if [ "$attempt" -gt 1 ]; then
         megabrain_tmux_retry_prompt "$tmux_pane" || return 1
       else
-        megabrain_tmux_send_agent "$tmux_pane" "$text" prompt || return 1
+        if ! megabrain_tmux_send_agent "$tmux_pane" "$text" prompt; then
+          transport_state="$(megabrain_dispatch_meta_read "$dispatch_id" | jq -r '.promptTransport // "pending"')"
+          [ "$transport_state" = transported ] || megabrain_dispatch_meta_update_prompt_layers "$dispatch_id" __keep__ not-transported __keep__ __keep__ __keep__ || return 1
+          return 1
+        fi
       fi
     else
-      megabrain_dispatch_native_send "$meta" "$text" || return 1
+      if ! megabrain_dispatch_native_send "$meta" "$text"; then
+        transport_state="$(megabrain_dispatch_meta_read "$dispatch_id" | jq -r '.promptTransport // "pending"')"
+        [ "$transport_state" = transported ] || megabrain_dispatch_meta_update_prompt_layers "$dispatch_id" __keep__ not-transported __keep__ __keep__ __keep__ || return 1
+        return 1
+      fi
     fi
-    megabrain_dispatch_wait_for_prompt_receipt "$dispatch_id" && return 0
+    megabrain_spawn_mark_prompt_transported "$dispatch_id" || return 1
+    megabrain_dispatch_wait_for_prompt_receipt "$dispatch_id"
+    receipt_status=$?
+    [ "$receipt_status" -eq 0 ] && return 0
+    [ "$receipt_status" -eq "$MEGABRAIN_PROMPT_RECEIPT_WAITING_STATUS" ] && continue
+    return "$receipt_status"
   done
-  megabrain_error "prompt delivery failed: no receipt after $attempts attempts"
-  return 1
+  return "$MEGABRAIN_PROMPT_RECEIPT_WAITING_STATUS"
 }
 
 megabrain_spawn_mark_running_if_spawning() {
@@ -632,7 +666,7 @@ megabrain_launch_agent() {
   local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
   local context="" command_text="" response="" session_id="" final_prompt="" dispatch_preamble="" parent_id="" parent_host="" child_host="" branch="" meta=""
   local parent_tmux_session="" parent_tmux_pane="" parent_workspace_id="${SUPERSET_WORKSPACE_ID:-}"
-  local agent_used="" model_honored=false substitution_report="" dispatch_id="" runtime="" tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false
+  local agent_used="" model_honored=false substitution_report="" dispatch_id="" runtime="" tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false prompt_status=0
   local -a passthrough_args=()
   shift 7
   [ "$#" -eq 0 ] || passthrough_args=("$@")
@@ -754,6 +788,12 @@ ${prompt}"
       megabrain_error "could not persist dispatch metadata: $dispatch_id"
       return 1
     }
+    if ! megabrain_spawn_publish_prompt "$dispatch_id" "$final_prompt"; then
+      megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+      megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-publication-failed
+      megabrain_dispatch_failure_error "$dispatch_id" "could not publish prompt for dispatch $dispatch_id"
+      return 1
+    fi
     if ! megabrain_tmux_send_agent "$tmux_pane" "$command_text"; then
       megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
       megabrain_spawn_mark_prompt_failed "$dispatch_id" command-not-submitted
@@ -774,10 +814,22 @@ ${prompt}"
       megabrain_dispatch_failure_error "$dispatch_id" "agent output contains terminal-identification escape leakage in pane $tmux_pane"
       return 1
     fi
-    if ! megabrain_dispatch_send_prompt_with_receipt "$dispatch_id" "$final_prompt"; then
+    megabrain_dispatch_send_prompt_with_receipt "$dispatch_id" "$final_prompt"
+    prompt_status=$?
+    if [ "$prompt_status" -eq "$MEGABRAIN_PROMPT_RECEIPT_WAITING_STATUS" ]; then
+      megabrain_spawn_mark_prompt_awaiting_receipt "$dispatch_id" || {
+        megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+        megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-state-persist-failed
+        return 1
+      }
+      MEGABRAIN_LAST_DISPATCH="$dispatch_id"
+      megabrain_notice "dispatch $dispatch_id prompt awaiting receipt; run megabrain orchestrate reconcile $dispatch_id"
+      printf '%s\n' "$response"
+      return 0
+    elif [ "$prompt_status" -ne 0 ]; then
       megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
-      megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-receipt-timeout
-      megabrain_dispatch_failure_error "$dispatch_id" "prompt delivery failed: no receipt"
+      megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-transport-failed
+      megabrain_dispatch_failure_error "$dispatch_id" "prompt transport failed for dispatch $dispatch_id"
       return 1
     fi
     if ! megabrain_spawn_mark_prompt_delivered "$dispatch_id"; then
@@ -792,6 +844,7 @@ ${prompt}"
       return 1
     }
     MEGABRAIN_LAST_DISPATCH="$dispatch_id"
+    megabrain_notice "dispatch $dispatch_id prompt awaiting receipt; run megabrain orchestrate reconcile $dispatch_id"
     printf '%s\n' "$response"
     return 0
   fi
@@ -843,6 +896,12 @@ ${prompt}"
     megabrain_error "could not persist dispatch metadata: $dispatch_id"
     return 1
   }
+  if ! megabrain_spawn_publish_prompt "$dispatch_id" "$final_prompt"; then
+    megabrain_host_cleanup_launch "$context" "$workspace_id" "$session_id"
+    megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-publication-failed
+    megabrain_dispatch_failure_error "$dispatch_id" "could not publish prompt for dispatch $dispatch_id"
+    return 1
+  fi
   if [ "$child_host" = orca ]; then
     command_text="cd $(printf '%q' "$worktree_path") && env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR=$(printf '%q' "$MEGABRAIN_STATE_DIR") ORCA_TERMINAL_HANDLE=$(printf '%q' "$session_id") MEGABRAIN_DISPATCH_ID=$(printf '%q' "$dispatch_id") $command_text"
   else
@@ -874,10 +933,21 @@ ${prompt}"
     return 1
   fi
   meta="$(megabrain_dispatch_meta_read "$dispatch_id")" || return 1
-  if ! megabrain_dispatch_send_prompt_with_receipt "$dispatch_id" "$final_prompt"; then
+  megabrain_dispatch_send_prompt_with_receipt "$dispatch_id" "$final_prompt"
+  prompt_status=$?
+  if [ "$prompt_status" -eq "$MEGABRAIN_PROMPT_RECEIPT_WAITING_STATUS" ]; then
+    megabrain_spawn_mark_prompt_awaiting_receipt "$dispatch_id" || {
+      megabrain_host_cleanup_launch "$context" "$workspace_id" "$session_id"
+      megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-state-persist-failed
+      return 1
+    }
+    MEGABRAIN_LAST_DISPATCH="$dispatch_id"
+    printf '%s\n' "$response"
+    return 0
+  elif [ "$prompt_status" -ne 0 ]; then
     megabrain_host_cleanup_launch "$context" "$workspace_id" "$session_id"
-    megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-receipt-timeout
-    megabrain_dispatch_failure_error "$dispatch_id" "prompt delivery failed: no receipt"
+    megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-transport-failed
+    megabrain_dispatch_failure_error "$dispatch_id" "prompt transport failed for dispatch $dispatch_id"
     return 1
   fi
   if ! megabrain_spawn_mark_prompt_delivered "$dispatch_id"; then
