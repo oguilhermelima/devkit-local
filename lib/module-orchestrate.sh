@@ -305,26 +305,23 @@ megabrain_dispatch_transcript_path() {
   printf '%s/transcript\n' "$(megabrain_dispatch_dir "$1")"
 }
 
-megabrain_dispatch_capture_transcript() {
-  local dispatch_id="$1" meta="${2:-}" runtime pane path tmp
-  [ -n "$meta" ] || meta="$(megabrain_dispatch_meta_read "$dispatch_id" 2>/dev/null || true)"
-  [ -n "$meta" ] || return 0
+megabrain_dispatch_start_transcript() {
+  local dispatch_id="$1" pane="$2" path
+  path="$(megabrain_dispatch_transcript_path "$dispatch_id")" || return 1
+  mkdir -p "$(dirname "$path")" || return 1
+  touch "$path" || return 1
+  declare -F megabrain_tmux_pipe_pane_start >/dev/null 2>&1 || return 1
+  megabrain_tmux_pipe_pane_start "$pane" "$path"
+}
+
+megabrain_dispatch_stop_transcript() {
+  local meta="$1" runtime pane
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"' 2>/dev/null || true)"
   [ "$runtime" = tmux ] || return 0
   pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty' 2>/dev/null || true)"
   [ -n "$pane" ] || return 0
-  declare -F megabrain_tmux_capture_pane >/dev/null 2>&1 || return 0
-  path="$(megabrain_dispatch_transcript_path "$dispatch_id" 2>/dev/null || true)"
-  [ -n "$path" ] || return 0
-  tmp="$(mktemp "$(dirname "$path")/.transcript.XXXXXX" 2>/dev/null || true)"
-  [ -n "$tmp" ] || return 0
-  if ! megabrain_tmux_capture_pane "$pane" - >"$tmp" 2>/dev/null; then
-    rm -f "$tmp"
-    return 0
-  fi
-  if ! mv -f "$tmp" "$path"; then
-    rm -f "$tmp"
-  fi
+  declare -F megabrain_tmux_pipe_pane_stop >/dev/null 2>&1 || return 0
+  megabrain_tmux_pipe_pane_stop "$pane" >/dev/null 2>&1 || true
   return 0
 }
 
@@ -379,9 +376,6 @@ megabrain_dispatch_meta_update_fields() {
     rm -f "$tmp"
     return 1
   fi
-  case "$state" in
-    done|failed|stalled) megabrain_dispatch_capture_transcript "$dispatch_id" || true ;;
-  esac
   mv -f "$tmp" "$path"
 }
 
@@ -821,8 +815,7 @@ megabrain_dispatch_prune() {
         reason="archive destination already exists"
       elif ! meta="$(cat "$meta_path")"; then
         reason="could not read dispatch metadata"
-      elif ! megabrain_dispatch_capture_transcript "$dispatch_id" "$meta" ||
-        ! megabrain_dispatch_release_tmux_session "$meta"; then
+      elif ! megabrain_dispatch_release_tmux_session "$meta"; then
         reason="could not release dispatch terminal"
       elif mkdir -p "$(dirname "$target")" && mv "$dispatch_dir" "$target"; then
         archived_count=$((archived_count + 1))
@@ -833,8 +826,7 @@ megabrain_dispatch_prune() {
       fi
     elif ! meta="$(cat "$meta_path")"; then
       reason="could not read dispatch metadata"
-    elif ! megabrain_dispatch_capture_transcript "$dispatch_id" "$meta" ||
-      ! megabrain_dispatch_release_tmux_session "$meta"; then
+    elif ! megabrain_dispatch_release_tmux_session "$meta"; then
       reason="could not release dispatch terminal"
     elif rm -rf "$dispatch_dir"; then
       deleted_count=$((deleted_count + 1))
@@ -1314,6 +1306,7 @@ megabrain_dispatch_release_tmux_session() {
   declare -F megabrain_tmux_session_exists >/dev/null 2>&1 || return 0
   megabrain_tmux_session_exists "$tmux_session" || return 0
   megabrain_dispatch_close_refuse_caller "$meta" || return 1
+  megabrain_dispatch_stop_transcript "$meta"
   megabrain_dispatch_native_close "$meta"
 }
 
@@ -1697,7 +1690,7 @@ megabrain_dispatch_close() {
   fi
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   child_host="$(printf '%s' "$meta" | jq -r '.childHost')"
-  megabrain_dispatch_capture_transcript "$dispatch_id" "$meta"
+  megabrain_dispatch_stop_transcript "$meta"
   megabrain_dispatch_native_close "$meta" || { megabrain_error "could not close dispatch $dispatch_id"; return 1; }
   megabrain_dispatch_meta_update_state "$dispatch_id" closed || return 1
   process_state="$(printf '%s' "$meta" | jq -r '.processState // empty')"
