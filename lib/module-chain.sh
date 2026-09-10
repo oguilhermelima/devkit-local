@@ -583,14 +583,22 @@ MEGABRAIN_CHAIN_LIMIT_RESULT=""
 MEGABRAIN_CHAIN_LIMIT_FETCHED_AT=""
 
 megabrain_chain_codex_rollouts() {
-  local root="$HOME/.codex/sessions" path mtime
+  local window="${1:-5h}" root="$HOME/.codex/sessions" path mtime now cutoff max_age
+  case "$window" in
+    5h) max_age=18000 ;;
+    weekly) max_age=604800 ;;
+    *) return 1 ;;
+  esac
   [ -d "$root" ] || return 1
+  now="$(date +%s)"
+  cutoff=$((now - max_age))
   while IFS= read -r path; do
     [ -f "$path" ] || continue
     mtime="$(megabrain_path_mtime "$path" || printf '')"
     case "$mtime" in
       ''|*[!0-9]*) continue ;;
     esac
+    [ "$mtime" -ge "$cutoff" ] || continue
     printf '%s\t%s\n' "$mtime" "$path"
   done < <(find "$root" -type f -name 'rollout-*.jsonl' -print 2>/dev/null)
 }
@@ -1017,7 +1025,7 @@ megabrain_chain_limit_read() {
       break
     fi
     rollout=""
-  done < <(megabrain_chain_codex_rollouts 2>/dev/null | LC_ALL=C sort -k1,1nr -k2,2r | cut -f2- || true)
+  done < <(megabrain_chain_codex_rollouts "$window" 2>/dev/null | LC_ALL=C sort -k1,1nr -k2,2r | head -n "$MEGABRAIN_CHAIN_CODEX_ROLLOUT_SCAN_LIMIT" | cut -f2- || true)
   if [ -z "$snapshot" ]; then
     megabrain_chain_limit_unknown codex "$window" 'rollout has no rate limit snapshot'
     return 0
@@ -1170,6 +1178,7 @@ MEGABRAIN_CHAIN_WALK_REASON=""
 MEGABRAIN_CHAIN_WALK_SKIPPED='[]'
 MEGABRAIN_CHAIN_WALK_DISPATCH_ID=""
 MEGABRAIN_CHAIN_WALK_START_INDEX=0
+MEGABRAIN_CHAIN_CODEX_ROLLOUT_SCAN_LIMIT=50
 
 # WHY: chain run and orchestrate spawn are two front doors to the same fallback
 # policy. Keeping the limit checks and launch retry in one walk prevents the front
