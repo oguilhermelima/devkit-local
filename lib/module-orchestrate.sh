@@ -875,7 +875,10 @@ megabrain_dispatch_last_child_mail_seq() {
   messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
   while IFS=$'\t' read -r seq path; do
     [ -n "$path" ] || continue
-    jq -e '.from == "child" and (.type == "ask" or .type == "done" or .type == "stalled" or .type == "received" or .type == "ack")' "$path" >/dev/null 2>&1 || continue
+    # received and ack are durable protocol evidence, but do not require a human
+    # decision. Keep them in the queue; only actionable child mail advances the
+    # interruption cursor used by the parent turn-end hook.
+    jq -e '.from == "child" and (.type == "ask" or .type == "done" or .type == "stalled")' "$path" >/dev/null 2>&1 || continue
     [ "$seq" -gt "$latest" ] && latest="$seq"
   done < <(megabrain_dispatch_message_paths "$messages_dir")
   printf '%s\n' "$latest"
