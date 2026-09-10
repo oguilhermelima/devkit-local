@@ -178,6 +178,20 @@ assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
 assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'no rate limit snapshot'
 printf 'limit absent: unknown honestly\n'
 
+write_rollout "$rollouts_dir/rollout-reset-only.jsonl" 12.0 "$past_reset"
+megabrain_chain_limit_read codex 5h
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
+assert_not_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'stale'
+assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'already reset'
+printf 'limit reset-only snapshot: distinct unknown reason\n'
+
+write_rollout "$rollouts_dir/rollout-reset-only.jsonl" 12.0 "$past_reset"
+megabrain_chain_limit_read codex 5h
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
+assert_not_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'stale'
+assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'already reset'
+printf 'limit reset-only snapshot: distinct unknown reason\n'
+
 write_config '{"chains":{"run":{"when":{"parentAgent":"codex"},"steps":[{"agent":"codex","model":"m1","effort":"e1","until":{"usedPercent":95,"window":"5h"}},{"agent":"agy","model":"m2","effort":"e2"}]}},"defaultSteps":[]}'
 command_orchestrate() {
   printf '%s\n' "$*" >"$call_file"
