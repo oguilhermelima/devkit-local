@@ -1376,7 +1376,6 @@ megabrain_dispatch_child_check() {
 megabrain_dispatch_ack_for_owner() {
   local owner="$1" dispatch_id="" delivery_id="" consumer="${MEGABRAIN_CONSUMER_ID:-}" generation="${MEGABRAIN_CONSUMER_GENERATION:-1}"
   local json=false arg meta path status record_consumer record_generation lock tmp now message_seqs
-  local should_record_receipt=false
   shift
   case "${1:-}" in
     -h|--help)
@@ -1465,7 +1464,6 @@ megabrain_dispatch_ack_for_owner() {
   fi
   now="$(megabrain_iso_now)"
   if [ "$owner" = child ] && megabrain_dispatch_delivery_is_reply "$dispatch_id" "$path"; then
-    should_record_receipt=true
     if ! megabrain_dispatch_has_reply_receipt "$dispatch_id" "$delivery_id"; then
       megabrain_dispatch_message_append_locked "$dispatch_id" child ack "$delivery_id" "$MEGABRAIN_SESSION_ID" >/dev/null || {
         rmdir "$lock"
@@ -1482,9 +1480,6 @@ megabrain_dispatch_ack_for_owner() {
   mv -f "$tmp" "$path"
   message_seqs="$(jq -c '.messageSeqs // []' "$path")"
   rmdir "$lock"
-  if [ "$should_record_receipt" = true ] && declare -F megabrain_parent_notify_dispatch >/dev/null 2>&1; then
-    megabrain_parent_notify_dispatch "$meta" >/dev/null 2>&1 || true
-  fi
   if [ "$json" = true ]; then
     jq -n --arg dispatchId "$dispatch_id" --arg deliveryId "$delivery_id" --argjson messageSeqs "$message_seqs" \
       '{dispatchId: $dispatchId, deliveryId: $deliveryId, acknowledged: true, duplicate: false, status: "acknowledged", messageSeqs: $messageSeqs}'
