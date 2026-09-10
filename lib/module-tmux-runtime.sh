@@ -308,6 +308,16 @@ megabrain_tmux_capture_pane() {
   tmux capture-pane -p -t "$pane" -S "$start"
 }
 
+megabrain_tmux_pipe_pane_start() {
+  local pane="$1" path="$2" quoted_path
+  quoted_path="$(printf '%q' "$path")"
+  tmux pipe-pane -o -t "$pane" "cat >> $quoted_path"
+}
+
+megabrain_tmux_pipe_pane_stop() {
+  tmux pipe-pane -t "$1"
+}
+
 megabrain_tmux_model_substitution_report() {
   local pane="$1" output report
   output="$(megabrain_tmux_capture_pane "$pane" -200 2>/dev/null || true)"

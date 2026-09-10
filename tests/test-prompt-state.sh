@@ -25,6 +25,8 @@ pane_exists=false
 cleanup_called=false
 send_mode=success
 prompt_transport_attempts=0
+pipe_start_mode=success
+pipe_start_calls=0
 
 fail_test() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -56,6 +58,8 @@ reset_fixture() {
   cleanup_called=false
   send_mode=success
   prompt_transport_attempts=0
+  pipe_start_mode=success
+  pipe_start_calls=0
   export MEGABRAIN_PROMPT_RECEIPT_ATTEMPTS=1
   export MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS=0
   export MEGABRAIN_PROMPT_RECEIPT_POLL_INTERVAL=0.01
@@ -74,6 +78,11 @@ megabrain_tmux_split_pane() { printf 'test-pane\n'; }
 megabrain_tmux_apply_config() { return 0; }
 megabrain_tmux_wait_for_session() { return 0; }
 megabrain_tmux_set_state_dir() { return 0; }
+megabrain_tmux_pipe_pane_start() {
+  pipe_start_calls=$((pipe_start_calls + 1))
+  [ "$pipe_start_mode" = success ]
+}
+megabrain_tmux_pipe_pane_stop() { return 0; }
 megabrain_agent_command() { printf 'true\n'; }
 megabrain_tmux_model_substitution_report() { return 0; }
 megabrain_tmux_agent_output_clean() { return 0; }
@@ -120,6 +129,7 @@ dispatch_id="${dispatch_dir##*/}"
 assert_equal "$launch_status" 0
 assert_true "$pane_exists"
 assert_false "$cleanup_called"
+assert_equal "$pipe_start_calls" 1
 assert_equal "$prompt_transport_attempts" 1
 assert_equal "$(jq -r '.state' "$dispatch_dir/meta.json")" spawning
 assert_equal "$(jq -r '.promptPublication' "$dispatch_dir/meta.json")" published
@@ -172,6 +182,20 @@ assert_equal "$failed_output" "received sent: $failed_dispatch"
 assert_equal "$(jq -r '.promptReceipt' "$MEGABRAIN_DISPATCH_DIR/$failed_dispatch/meta.json")" received
 assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/$failed_dispatch/meta.json")" failed
 printf 'receipt after failure is recorded without reopening the dispatch\n'
+
+reset_fixture
+pipe_start_mode=failure
+if megabrain_launch_agent "$root" workspace-test codex gpt-5 medium no-transcript test-label >/dev/null 2>&1; then
+  launch_status=0
+else
+  launch_status=$?
+fi
+dispatch_dir="$(dispatch_path)"
+assert_equal "$launch_status" 1
+assert_false "$pane_exists"
+assert_equal "$(jq -r '.state' "$dispatch_dir/meta.json")" failed
+assert_equal "$(jq -r '.promptState' "$dispatch_dir/meta.json")" failed
+printf 'transcript pipe failure is loud and records a failed dispatch\n'
 
 reset_fixture
 send_mode=failure
