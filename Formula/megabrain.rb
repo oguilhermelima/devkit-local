@@ -3,7 +3,7 @@ class Megabrain < Formula
   desc "Tooling for Git worktrees, agent orchestration, and device testing"
   homepage "https://github.com/oguilhermelima/megabrain"
   url "https://github.com/oguilhermelima/megabrain/releases/download/v0.1.0/megabrain-0.1.0.tar.gz"
-  sha256 "b58701215557ddc31f8ee408493fcf462476860d594a5150fe757d5a1280472b"
+  sha256 "34e6728685fff7d07b9362ffe6fd5f42bf1c56d75ef101074f1327c75979bf60"
   license "MIT"
 
   depends_on "jq"
@@ -15,14 +15,14 @@ class Megabrain < Formula
     bin.install_symlink libexec/"mb"
   end
 
-  test do
-    assert_match(/^megabrain [0-9]+\.[0-9]+\.[0-9]+$/, shell_output("#{bin}/megabrain version"))
-  end
-
   def caveats
     <<~EOS
       Homebrew installs the megabrain CLI. Run `megabrain install` for machine setup.
       The megabrain skill is kept in sync by megabrain itself.
     EOS
+  end
+
+  test do
+    assert_match(/^megabrain [0-9]+\.[0-9]+\.[0-9]+$/, shell_output("#{bin}/megabrain version"))
   end
 end
