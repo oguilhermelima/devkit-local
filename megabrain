@@ -97,4 +97,9 @@ megabrain_main() {
   esac
 }
 
+case "${1:-}" in
+  doctor) ;;
+  *) megabrain_skill_reconcile || true ;;
+esac
+
 megabrain_main "$@"

@@ -11,6 +11,7 @@ megabrain_module_doctor() {
     simulator-tv) module_simulator_tv_doctor ;;
     tv-adb) module_tv_adb_doctor ;;
     tmux-runtime) module_tmux_runtime_doctor ;;
+    skill-sync) module_skill_sync_doctor ;;
     *) megabrain_set_status missing "unknown module"; return 1 ;;
   esac
 }
@@ -26,6 +27,7 @@ megabrain_module_install() {
     simulator-tv) module_simulator_tv_install ;;
     tv-adb) module_tv_adb_install ;;
     tmux-runtime) module_tmux_runtime_install "${2:-false}" ;;
+    skill-sync) module_skill_sync_install ;;
     *) megabrain_error "unknown module: $module"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
 }
