@@ -660,10 +660,12 @@ megabrain_dispatch_health_counts() {
     [ -f "$meta_path" ] || continue
     state="$(jq -r '.state // empty' "$meta_path" 2>/dev/null || true)"
     megabrain_dispatch_prune_state_terminal "$state" || continue
+    meta="$(cat "$meta_path" 2>/dev/null || true)"
     runtime="$(jq -r '.runtime // "host"' "$meta_path" 2>/dev/null || true)"
     [ "$runtime" = tmux ] || continue
     tmux_session="$(jq -r '.tmuxSession // empty' "$meta_path" 2>/dev/null || true)"
     [ -n "$tmux_session" ] || continue
+    megabrain_dispatch_tmux_session_owned "$meta" || continue
     declare -F megabrain_tmux_session_exists >/dev/null 2>&1 || continue
     megabrain_tmux_session_exists "$tmux_session" || continue
     if ! printf '%s\n' "$leaked_sessions" | grep -Fx "$tmux_session" >/dev/null 2>&1; then
@@ -1297,12 +1299,25 @@ megabrain_dispatch_native_close() {
   esac
 }
 
+megabrain_dispatch_tmux_session_owned() {
+  local meta="$1" tmux_session parent_tmux_session caller_tmux_session
+  tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
+  parent_tmux_session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
+  [ -n "$tmux_session" ] || return 1
+  # A split dispatch records the parent's session, which owns the session and
+  # only lends the child its pane. It is never safe for prune to release it.
+  [ "$tmux_session" != "$parent_tmux_session" ] || return 1
+  caller_tmux_session="$(megabrain_dispatch_tmux_caller_session 2>/dev/null || true)"
+  [ -z "$caller_tmux_session" ] || [ "$tmux_session" != "$caller_tmux_session" ]
+}
+
 megabrain_dispatch_release_tmux_session() {
   local meta="$1" runtime tmux_session
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   [ "$runtime" = tmux ] || return 0
   tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
   [ -n "$tmux_session" ] || return 0
+  megabrain_dispatch_tmux_session_owned "$meta" || return 0
   declare -F megabrain_tmux_session_exists >/dev/null 2>&1 || return 0
   megabrain_tmux_session_exists "$tmux_session" || return 0
   megabrain_dispatch_close_refuse_caller "$meta" || return 1
