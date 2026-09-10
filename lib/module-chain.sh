@@ -583,7 +583,7 @@ MEGABRAIN_CHAIN_LIMIT_RESULT=""
 MEGABRAIN_CHAIN_LIMIT_FETCHED_AT=""
 
 megabrain_chain_codex_rollouts() {
-  local window="${1:-5h}" root="$HOME/.codex/sessions" path mtime now cutoff max_age
+  local window="${1:-5h}" root="$HOME/.codex/sessions" path="" mtime="" now="" cutoff="" max_age="" reference="" stamp=""
   case "$window" in
     5h) max_age=18000 ;;
     weekly) max_age=604800 ;;
@@ -591,16 +591,27 @@ megabrain_chain_codex_rollouts() {
   esac
   [ -d "$root" ] || return 1
   now="$(date +%s)"
-  cutoff=$((now - max_age))
+  cutoff=$((now - max_age - 1))
+  reference="$(mktemp "${TMPDIR:-/tmp}/megabrain-chain-rollouts.XXXXXX")" || return 1
+  if ! stamp="$(date -r "$cutoff" '+%Y%m%d%H%M.%S' 2>/dev/null)"; then
+    stamp="$(date -d "@$cutoff" '+%Y%m%d%H%M.%S' 2>/dev/null)" || {
+      rm -f "$reference"
+      return 1
+    }
+  fi
+  if ! touch -t "$stamp" "$reference"; then
+    rm -f "$reference"
+    return 1
+  fi
   while IFS= read -r path; do
     [ -f "$path" ] || continue
     mtime="$(megabrain_path_mtime "$path" || printf '')"
     case "$mtime" in
       ''|*[!0-9]*) continue ;;
     esac
-    [ "$mtime" -ge "$cutoff" ] || continue
     printf '%s\t%s\n' "$mtime" "$path"
-  done < <(find "$root" -type f -name 'rollout-*.jsonl' -print 2>/dev/null)
+  done < <(find "$root" -type f -name 'rollout-*.jsonl' -newer "$reference" -print 2>/dev/null)
+  rm -f "$reference"
 }
 
 megabrain_chain_limit_unknown() {
