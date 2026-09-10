@@ -326,13 +326,13 @@ megabrain_lower() {
 
 megabrain_validate_module() {
   case "$1" in
-    orchestration|orchestration-hooks|worktree|simulator-web|simulator-native|simulator-tv|tv-adb|tmux-runtime) return 0 ;;
+    orchestration|orchestration-hooks|worktree|simulator-web|simulator-native|simulator-tv|tv-adb|tmux-runtime|skill-sync) return 0 ;;
     *) return 1 ;;
   esac
 }
 
 megabrain_module_ids() {
-  printf '%s\n' orchestration orchestration-hooks worktree simulator-web simulator-native simulator-tv tv-adb tmux-runtime
+  printf '%s\n' orchestration orchestration-hooks worktree simulator-web simulator-native simulator-tv tv-adb tmux-runtime skill-sync
 }
 
 # WHY: a file that cannot be parsed used to fail this read exactly like an absent flag, so
