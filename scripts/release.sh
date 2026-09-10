@@ -27,13 +27,18 @@ sha256_file() {
 }
 
 archive_release_tree() {
-  if git -C "$root" archive -h 2>&1 | grep -q -- '--mtime'; then
+  local help_output=''
+  help_output="$(git -C "$root" archive -h 2>&1 || true)"
+  case "$help_output" in
+    *--mtime*)
     git -C "$root" archive --format=tar --mtime='1970-01-01 00:00:00' \
       --prefix="megabrain-$version/" HEAD^{tree} -- . ':(exclude)Formula'
-  else
+    ;;
+    *)
     git -C "$root" archive --format=tar --prefix="megabrain-$version/" \
       HEAD^{tree} -- . ':(exclude)Formula'
-  fi
+    ;;
+  esac
 }
 
 [ -f "$manifest" ] || fail "manifest is missing: $manifest"
