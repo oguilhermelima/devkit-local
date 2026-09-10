@@ -507,6 +507,9 @@ megabrain_project_run_command() {
 
 megabrain_tmux_cleanup_launch() {
   local context="$1" workspace_id="$2" terminal_id="$3" tmux_session="$4" tmux_pane="$5" host_terminal_created="$6"
+  if [ -n "$tmux_pane" ] && declare -F megabrain_tmux_pipe_pane_stop >/dev/null 2>&1; then
+    megabrain_tmux_pipe_pane_stop "$tmux_pane" >/dev/null 2>&1 || true
+  fi
   if [ "$host_terminal_created" = true ]; then
     tmux kill-session -t "$tmux_session" >/dev/null 2>&1 || true
     [ -n "$terminal_id" ] || return 0
@@ -788,6 +791,12 @@ ${prompt}"
       megabrain_error "could not persist dispatch metadata: $dispatch_id"
       return 1
     }
+    if ! megabrain_dispatch_start_transcript "$dispatch_id" "$tmux_pane"; then
+      megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+      megabrain_spawn_mark_prompt_failed "$dispatch_id" transcript-start-failed
+      megabrain_error "could not start transcript for dispatch $dispatch_id"
+      return 1
+    fi
     if ! megabrain_spawn_publish_prompt "$dispatch_id" "$final_prompt"; then
       megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
       megabrain_spawn_mark_prompt_failed "$dispatch_id" prompt-publication-failed

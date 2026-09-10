@@ -301,6 +301,30 @@ megabrain_dispatch_meta_update_prompt_layers() {
   mv -f "$tmp" "$path"
 }
 
+megabrain_dispatch_transcript_path() {
+  printf '%s/transcript\n' "$(megabrain_dispatch_dir "$1")"
+}
+
+megabrain_dispatch_start_transcript() {
+  local dispatch_id="$1" pane="$2" path
+  path="$(megabrain_dispatch_transcript_path "$dispatch_id")" || return 1
+  mkdir -p "$(dirname "$path")" || return 1
+  touch "$path" || return 1
+  declare -F megabrain_tmux_pipe_pane_start >/dev/null 2>&1 || return 1
+  megabrain_tmux_pipe_pane_start "$pane" "$path"
+}
+
+megabrain_dispatch_stop_transcript() {
+  local meta="$1" runtime pane
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"' 2>/dev/null || true)"
+  [ "$runtime" = tmux ] || return 0
+  pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty' 2>/dev/null || true)"
+  [ -n "$pane" ] || return 0
+  declare -F megabrain_tmux_pipe_pane_stop >/dev/null 2>&1 || return 0
+  megabrain_tmux_pipe_pane_stop "$pane" >/dev/null 2>&1 || true
+  return 0
+}
+
 megabrain_dispatch_meta_read() {
   local dispatch_id="$1" path
   path="$(megabrain_dispatch_meta_path "$dispatch_id")" || return 1
@@ -600,8 +624,10 @@ megabrain_dispatch_reconcile() {
 
 megabrain_dispatch_health_counts() {
   local meta_path meta records='[]' dispatch_path dispatch_name state timestamp timestamp_epoch cutoff
+  local runtime tmux_session leaked_sessions=''
   MODULE_UNCERTAIN_DISPATCHES=0
   MODULE_RETAINED_TERMINALS=0
+  MODULE_LEAKED_DISPATCH_SESSIONS=0
   MODULE_PRUNABLE_DISPATCHES=0
   MODULE_UNCERTAIN_REASONS='[]'
   MODULE_RETAINED_REASONS='[]'
@@ -630,6 +656,27 @@ megabrain_dispatch_health_counts() {
   MODULE_RETAINED_TERMINALS="$(printf '%s' "$records" | jq '[.[] | select((.terminalState // "") == "retained")] | length')"
   MODULE_UNCERTAIN_REASONS="$(printf '%s' "$records" | jq '[.[] | select((.processState // "") == "start-unproven" or (.processState // "") == "stop-unproven" or (.processState // "") == "abandoned") | {dispatchId, reason: (if .processState == "start-unproven" then "process start was not proven" elif .processState == "stop-unproven" then "process stop was not proven" else "process was abandoned without proof" end), processState, terminalState}]')"
   MODULE_RETAINED_REASONS="$(printf '%s' "$records" | jq '[.[] | select((.terminalState // "") == "retained") | {dispatchId, reason: (.terminalReason // "terminal identity remains unproven"), processState, terminalState}]')"
+  for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
+    [ -f "$meta_path" ] || continue
+    state="$(jq -r '.state // empty' "$meta_path" 2>/dev/null || true)"
+    megabrain_dispatch_prune_state_terminal "$state" || continue
+    meta="$(cat "$meta_path" 2>/dev/null || true)"
+    runtime="$(jq -r '.runtime // "host"' "$meta_path" 2>/dev/null || true)"
+    [ "$runtime" = tmux ] || continue
+    tmux_session="$(jq -r '.tmuxSession // empty' "$meta_path" 2>/dev/null || true)"
+    [ -n "$tmux_session" ] || continue
+    megabrain_dispatch_tmux_session_owned "$meta" || continue
+    declare -F megabrain_tmux_session_exists >/dev/null 2>&1 || continue
+    megabrain_tmux_session_exists "$tmux_session" || continue
+    if ! printf '%s\n' "$leaked_sessions" | grep -Fx "$tmux_session" >/dev/null 2>&1; then
+      if [ -n "$leaked_sessions" ]; then
+        leaked_sessions="$leaked_sessions"$'\n'"$tmux_session"
+      else
+        leaked_sessions="$tmux_session"
+      fi
+      MODULE_LEAKED_DISPATCH_SESSIONS=$((MODULE_LEAKED_DISPATCH_SESSIONS + 1))
+    fi
+  done
   cutoff=$(( $(date -u +%s) - MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS * 86400 ))
   for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
     [ -f "$meta_path" ] || continue
@@ -671,7 +718,7 @@ megabrain_dispatch_timestamp_epoch() {
 megabrain_dispatch_prune() {
   local older_than="$MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS" state_filter="$(megabrain_dispatch_prune_states)"
   local mode=archive dry_run=false json=false arg now_epoch cutoff archive_month
-  local meta_path dispatch_dir dispatch_id state process_state terminal_state timestamp timestamp_epoch reason target reconcile_outcome reconcile_rc
+  local meta_path dispatch_dir dispatch_id state process_state terminal_state timestamp timestamp_epoch reason target reconcile_outcome reconcile_rc meta
   local archived_ids='[]' deleted_ids='[]' skipped_dispatches='[]'
   local archived_count=0 deleted_count=0 skipped_count=0
   case "${1:-}" in
@@ -768,6 +815,10 @@ megabrain_dispatch_prune() {
     if [ "$mode" = archive ]; then
       if [ -e "$target" ]; then
         reason="archive destination already exists"
+      elif ! meta="$(cat "$meta_path")"; then
+        reason="could not read dispatch metadata"
+      elif ! megabrain_dispatch_release_tmux_session "$meta"; then
+        reason="could not release dispatch terminal"
       elif mkdir -p "$(dirname "$target")" && mv "$dispatch_dir" "$target"; then
         archived_count=$((archived_count + 1))
         archived_ids="$(jq --arg dispatchId "$dispatch_id" --arg path "$target" '. + [{dispatchId: $dispatchId, path: $path}]' <<<"$archived_ids")"
@@ -775,6 +826,10 @@ megabrain_dispatch_prune() {
       else
         reason="could not archive dispatch"
       fi
+    elif ! meta="$(cat "$meta_path")"; then
+      reason="could not read dispatch metadata"
+    elif ! megabrain_dispatch_release_tmux_session "$meta"; then
+      reason="could not release dispatch terminal"
     elif rm -rf "$dispatch_dir"; then
       deleted_count=$((deleted_count + 1))
       deleted_ids="$(jq --arg dispatchId "$dispatch_id" '. + [$dispatchId]' <<<"$deleted_ids")"
@@ -1244,8 +1299,34 @@ megabrain_dispatch_native_close() {
   esac
 }
 
+megabrain_dispatch_tmux_session_owned() {
+  local meta="$1" tmux_session parent_tmux_session caller_tmux_session
+  tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
+  parent_tmux_session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
+  [ -n "$tmux_session" ] || return 1
+  # A split dispatch records the parent's session, which owns the session and
+  # only lends the child its pane. It is never safe for prune to release it.
+  [ "$tmux_session" != "$parent_tmux_session" ] || return 1
+  caller_tmux_session="$(megabrain_dispatch_tmux_caller_session 2>/dev/null || true)"
+  [ -z "$caller_tmux_session" ] || [ "$tmux_session" != "$caller_tmux_session" ]
+}
+
+megabrain_dispatch_release_tmux_session() {
+  local meta="$1" runtime tmux_session
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  [ "$runtime" = tmux ] || return 0
+  tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
+  [ -n "$tmux_session" ] || return 0
+  megabrain_dispatch_tmux_session_owned "$meta" || return 0
+  declare -F megabrain_tmux_session_exists >/dev/null 2>&1 || return 0
+  megabrain_tmux_session_exists "$tmux_session" || return 0
+  megabrain_dispatch_close_refuse_caller "$meta" || return 1
+  megabrain_dispatch_stop_transcript "$meta"
+  megabrain_dispatch_native_close "$meta"
+}
+
 megabrain_dispatch_read() {
-  local dispatch_id="${1:-}" lines=200 json=false arg meta runtime pane output
+  local dispatch_id="${1:-}" lines=200 json=false arg meta runtime pane output source transcript_path
   case "$dispatch_id" in
     -h|--help) megabrain_usage_show orchestrate-read; return 0 ;;
   esac
@@ -1265,11 +1346,22 @@ megabrain_dispatch_read() {
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   [ "$runtime" = tmux ] || { megabrain_error "dispatch $dispatch_id does not use tmux-runtime"; return 1; }
   pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
-  output="$(megabrain_tmux_capture_pane "$pane" "-$lines")" || { megabrain_error "could not read tmux pane $pane"; return 1; }
+  source=tmux
+  if ! output="$(megabrain_tmux_capture_pane "$pane" "-$lines" 2>/dev/null)"; then
+    transcript_path="$(megabrain_dispatch_transcript_path "$dispatch_id")"
+    if [ -f "$transcript_path" ]; then
+      output="$(tail -n "$lines" "$transcript_path")" || { megabrain_error "could not read dispatch transcript $transcript_path"; return 1; }
+      source=file
+    else
+      megabrain_error "could not read tmux pane $pane and no persisted transcript exists"
+      return 1
+    fi
+  fi
   if [ "$json" = true ]; then
-    jq -n --arg dispatchId "$dispatch_id" --arg pane "$pane" --arg output "$output" \
-      '{dispatchId: $dispatchId, pane: $pane, text: $output}'
+    jq -n --arg dispatchId "$dispatch_id" --arg pane "$pane" --arg source "$source" --arg output "$output" \
+      '{dispatchId: $dispatchId, pane: $pane, source: $source, text: $output}'
   else
+    printf 'source: %s\n' "$source"
     printf '%s\n' "$output"
   fi
 }
@@ -1613,6 +1705,7 @@ megabrain_dispatch_close() {
   fi
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   child_host="$(printf '%s' "$meta" | jq -r '.childHost')"
+  megabrain_dispatch_stop_transcript "$meta"
   megabrain_dispatch_native_close "$meta" || { megabrain_error "could not close dispatch $dispatch_id"; return 1; }
   megabrain_dispatch_meta_update_state "$dispatch_id" closed || return 1
   process_state="$(printf '%s' "$meta" | jq -r '.processState // empty')"
