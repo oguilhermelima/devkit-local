@@ -42,7 +42,7 @@ case "$matching_output" in
 esac
 tar -tzf "$archive" | grep -F "megabrain-$version/megabrain" >/dev/null ||
   fail 'release tarball does not contain the megabrain entrypoint'
-grep -F "version \"$version\"" "$formula" >/dev/null || fail 'rendered formula has the wrong version'
+grep -F "releases/download/v$version/megabrain-$version.tar.gz" "$formula" >/dev/null || fail 'rendered formula has the wrong version'
 grep -Eq '^  sha256 "[0-9a-f]{64}"$' "$formula" || fail 'rendered formula has no concrete sha256'
 grep -F '__VERSION__' "$formula" >/dev/null && fail 'rendered formula retained a version placeholder'
 printf 'scenario 2: matching release tag creates the formula tarball and instructions\n'
