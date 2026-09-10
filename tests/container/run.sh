@@ -21,7 +21,7 @@ docker build -t "$image" -f "$root/tests/container/Dockerfile" "$root/tests/cont
 # The checkout is mounted read-only and copied inside before anything runs. Read-only is
 # what stops a test writing to the host tree; the copy is what lets the tests work at all.
 exec docker run --rm \
-  -e "MEGABRAIN_TEST_JOBS=$test_jobs" \
+  -e "MEGABRAIN_TEST_JOBS=${MEGABRAIN_TEST_JOBS:-}" \
   -e "MEGABRAIN_TEST_TIMING=${MEGABRAIN_TEST_TIMING:-}" \
   -e MEGABRAIN_IN_CONTAINER=true \
   -e MEGABRAIN_TEST_OUTPUT_DIR=/results \
