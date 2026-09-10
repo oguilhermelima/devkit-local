@@ -95,6 +95,20 @@ dispatch_path() {
   find "$MEGABRAIN_DISPATCH_DIR" -mindepth 1 -maxdepth 1 -type d -print | head -n 1
 }
 
+create_host_dispatch() {
+  local dispatch_id="$1" state="$2"
+  megabrain_dispatch_meta_write "$dispatch_id" parent-terminal superset orca workspace-test child-terminal \
+    "$root" main codex label "$state" gpt-5 true codex '' '' host ide >/dev/null
+}
+
+run_child_message() (
+  local dispatch_id="$1" type="$2" text="$3"
+  export ORCA_TERMINAL_HANDLE=child-terminal
+  unset SUPERSET_TERMINAL_ID TMUX TMUX_PANE
+  export MEGABRAIN_DISPATCH_ID="$dispatch_id"
+  megabrain_dispatch_child_message "$type" "$text"
+)
+
 reset_fixture
 if megabrain_launch_agent "$root" workspace-test codex gpt-5 medium slow-prompt test-label >/dev/null 2>&1; then
   launch_status=0
@@ -126,6 +140,38 @@ assert_equal "$(jq -r '.promptState' "$dispatch_dir/meta.json")" confirmed
 assert_equal "$(jq -r '.promptDelivery' "$dispatch_dir/meta.json")" delivered
 assert_equal "$(jq -r '.promptDelivered' "$dispatch_dir/meta.json")" true
 printf 'reconcile records a later child receipt\n'
+
+late_dispatch=late-receipt
+create_host_dispatch "$late_dispatch" spawning
+megabrain_dispatch_meta_update_prompt_layers "$late_dispatch" published transported pending awaiting-receipt __clear__
+late_output="$(run_child_message "$late_dispatch" received 'prompt received')" || fail_test 'late receipt was rejected'
+assert_equal "$late_output" "received sent: $late_dispatch"
+assert_equal "$(jq -r '.promptReceipt' "$MEGABRAIN_DISPATCH_DIR/$late_dispatch/meta.json")" received
+assert_equal "$(jq -r '.promptState' "$MEGABRAIN_DISPATCH_DIR/$late_dispatch/meta.json")" confirmed
+assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/$late_dispatch/meta.json")" running
+printf 'late child receipt is honored and advances spawning\n'
+
+done_output="$(run_child_message "$late_dispatch" done 'late completion')" || fail_test 'done after a late receipt was rejected'
+assert_equal "$done_output" "done sent: $late_dispatch"
+assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/$late_dispatch/meta.json")" done
+printf 'done after a late receipt follows the transition table\n'
+
+closed_dispatch=closed-receipt
+create_host_dispatch "$closed_dispatch" closed
+closed_output="$(run_child_message "$closed_dispatch" received 'receipt after close')" || fail_test 'receipt for a closed dispatch crashed'
+assert_equal "$closed_output" "received sent: $closed_dispatch"
+assert_equal "$(jq -r '.promptReceipt' "$MEGABRAIN_DISPATCH_DIR/$closed_dispatch/meta.json")" received
+assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/$closed_dispatch/meta.json")" closed
+printf 'receipt after close is recorded without reopening the dispatch\n'
+
+failed_dispatch=failed-receipt
+create_host_dispatch "$failed_dispatch" failed
+megabrain_spawn_mark_prompt_failed "$failed_dispatch" prompt-send-failed
+failed_output="$(run_child_message "$failed_dispatch" received 'receipt after failure')" || fail_test 'receipt for a failed dispatch crashed'
+assert_equal "$failed_output" "received sent: $failed_dispatch"
+assert_equal "$(jq -r '.promptReceipt' "$MEGABRAIN_DISPATCH_DIR/$failed_dispatch/meta.json")" received
+assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/$failed_dispatch/meta.json")" failed
+printf 'receipt after failure is recorded without reopening the dispatch\n'
 
 reset_fixture
 send_mode=failure
