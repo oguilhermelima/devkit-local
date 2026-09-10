@@ -1039,7 +1039,7 @@ megabrain_chain_limit_read() {
   now="$(date +%s)"
   # WHY: a recorded reset means the snapshot no longer describes the current window.
   if [ "$MEGABRAIN_CHAIN_LIMIT_RESETS" -le "$now" ]; then
-    megabrain_chain_limit_unknown codex "$window" "recorded window already reset at $MEGABRAIN_CHAIN_LIMIT_RESETS and carries no information about the current window"
+    megabrain_chain_limit_unknown codex "$window" "recorded window has already reset at $MEGABRAIN_CHAIN_LIMIT_RESETS and carries no information about the current window"
     return 0
   fi
   fetched_at="$(megabrain_path_mtime "$rollout" 2>/dev/null || printf '%s' "$now")"
