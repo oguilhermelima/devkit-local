@@ -368,6 +368,7 @@ megabrain_tmux_send_literal() {
 megabrain_tmux_nudge_affordance() {
   case "$1" in
     claude) printf 'Enter\n' ;;
+    codex) printf 'Tab\n' ;;
     *) return 1 ;;
   esac
 }
