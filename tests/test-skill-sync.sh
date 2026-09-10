@@ -53,8 +53,8 @@ megabrain_skill_reconcile
 assert_equal "$target_hash_calls" 0
 printf 'scenario 2: current skill is a no-op\n'
 
+printf '\nnew cached content\n' >>"$cached_skill"
 chmod 0555 "$(dirname "$cached_skill")"
-printf '\nnew cached content\n' >>"$cached_skill" 2>/dev/null || true
 if reconcile_output="$(megabrain_skill_reconcile 2>&1)"; then
   fail 'unwritable skill target was accepted'
 fi
