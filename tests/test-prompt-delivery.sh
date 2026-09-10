@@ -122,4 +122,50 @@ assert_equal "$(jq -r '.status' $waiting_delivery)" outstanding
 assert_equal "$(jq -r '.state' "$state_dir/dispatches/waiting-reply/meta.json")" waiting_for_reply
 printf 'waiting child turn: hook exposes queued reply before the state guard\n'
 
+# A starting agent may accept the first prompt's keystrokes while ignoring Enter. A
+# receipt retry must press the prompt affordance again without appending another copy.
+tmux_prompt_dispatch=tmux-prompt-retry
+tmux_prompt_pane=%prompt
+tmux_prompt_composer="$state_dir/tmux-prompt-composer"
+tmux_prompt_submitted="$state_dir/tmux-prompt-submitted"
+tmux_prompt_keys="$state_dir/tmux-prompt-keys"
+create_tmux_dispatch() {
+  megabrain_dispatch_meta_write "$tmux_prompt_dispatch" parent-terminal orca orca "" child-terminal "$root" fix/prompt-delivery-proof codex label spawning gpt-5 true codex test-session "$tmux_prompt_pane" tmux tmux >/dev/null
+}
+create_tmux_dispatch
+: >"$tmux_prompt_composer"
+: >"$tmux_prompt_submitted"
+: >"$tmux_prompt_keys"
+tmux() {
+  local command="${1:-}" enter_count
+  case "$command" in
+    send-keys)
+      case "${4:-}" in
+        -l) printf '%s' "${5:-}" >>"$tmux_prompt_composer" ;;
+        Enter)
+          printf '%s\n' Enter >>"$tmux_prompt_keys"
+          enter_count="$(wc -l <"$tmux_prompt_keys" | tr -d ' ')"
+          if [ "$enter_count" -ge 2 ]; then
+            cat "$tmux_prompt_composer" >"$tmux_prompt_submitted"
+            : >"$tmux_prompt_composer"
+            megabrain_dispatch_message_append "$tmux_prompt_dispatch" child received 'prompt received' child-terminal >/dev/null
+          fi
+          ;;
+      esac
+      ;;
+    *) return 0 ;;
+  esac
+}
+export MEGABRAIN_PROMPT_RECEIPT_ATTEMPTS=2
+export MEGABRAIN_PROMPT_RECEIPT_TIMEOUT_SECONDS=0
+tmux_prompt_text='prompt survives a non-submitting first Enter'
+if ! megabrain_dispatch_send_prompt_with_receipt "$tmux_prompt_dispatch" "$tmux_prompt_text"; then
+  fail 'tmux prompt retry did not receive the child receipt'
+fi
+assert_equal "$(wc -l <"$tmux_prompt_keys" | tr -d ' ')" 2
+assert_equal "$(cat "$tmux_prompt_submitted")" "$tmux_prompt_text"
+assert_equal "$(cat "$tmux_prompt_composer")" ''
+printf 'tmux prompt receipt retry: Enter is retried without duplicating composer text\n'
+unset -f tmux
+
 printf 'ok: receipt delivery and running reply scenarios\n'
