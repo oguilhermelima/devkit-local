@@ -1333,8 +1333,11 @@ megabrain_chain_continue_refused() {
   worktree="$(printf '%s' "$meta" | jq -r '.worktreePath // empty')"
   label="$(printf '%s' "$meta" | jq -r '.label // empty')"
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
-  case "$chain_step:$chain_total" in
-    ''|*[!0-9:]*|*:0|0:*) return 1 ;;
+  case "$chain_step" in
+    ''|*[!0-9]*|0) return 1 ;;
+  esac
+  case "$chain_total" in
+    ''|*[!0-9]*|0) return 1 ;;
   esac
   [ -n "$prompt" ] && [ -n "$worktree" ] || return 1
   [ "$chain_step" -lt "$chain_total" ] || return 1
