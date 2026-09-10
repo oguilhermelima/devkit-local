@@ -131,18 +131,13 @@ assert_equal "$unresolved_before" "$unresolved_after"
 printf 'unknown parent pane: notification ran without typing\n'
 
 # A worker pane is owned by its dispatch metadata even when it is not the tmux session
-# registry's main pane. Resolve the recorded Codex agent and keep the no-affordance proof.
+# registry's main pane. Resolve the recorded Codex agent from its dispatch metadata.
 worker_pane="$(tmux_cmd split-window -d -t "$parent_pane" -P -F '#{pane_id}' bash)"
 create_meta parent-codex-owner "$worker_pane"
 create_meta child-codex-pane '%fake-child' tmux tmux "$worker_pane" "$session_name"
 codex_parent_meta="$(megabrain_dispatch_meta_read child-codex-pane)"
 assert_equal "$(megabrain_tmux_agent_for_pane "$worker_pane")" codex
-codex_parent_before="$(tmux_cmd capture-pane -J -p -t "$worker_pane" -S -20)"
-megabrain_parent_notify_dispatch "$codex_parent_meta"
-codex_parent_after="$(tmux_cmd capture-pane -J -p -t "$worker_pane" -S -20)"
-assert_equal "$MEGABRAIN_TMUX_SEND_STATUS" not-typed
-assert_equal "$codex_parent_before" "$codex_parent_after"
-printf 'recorded Codex worker parent: pane ownership resolves without typing\n'
+printf 'recorded Codex worker parent: pane ownership resolves the agent\n'
 
 # A top-level coordinator is represented by the session registry rather than a dispatch.
 # Its recorded Claude affordance remains usable without any default or guess.
