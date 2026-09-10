@@ -4,9 +4,6 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 release_source_root="$root"
-if [ "${MEGABRAIN_IN_CONTAINER:-false}" = true ] && [ -x /src/scripts/release.sh ]; then
-  release_source_root=/src
-fi
 work="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-clean-install.XXXXXX")"
 cleanup() {
   local rc=$?
@@ -20,6 +17,12 @@ fail() {
   printf 'FAIL: %s\n' "$*" >&2
   exit 1
 }
+
+if [ "${MEGABRAIN_IN_CONTAINER:-false}" = true ]; then
+  git -C "$root" add -A
+  git -C "$root" -c user.name=megabrain-test -c user.email=test@example.invalid \
+    commit -qm 'fixture release source' || fail 'could not commit the container release fixture'
+fi
 
 version="$(jq -r '.version' "$release_source_root/.claude-plugin/plugin.json")"
 archive="$work/release.tar.gz"
