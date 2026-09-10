@@ -21,6 +21,7 @@ mkdir -p "$rollouts_dir"
 
 source "$root/lib/common.sh"
 source "$root/lib/module-orchestrate.sh"
+source "$root/lib/module-tmux-runtime.sh"
 source "$root/lib/module-chain.sh"
 
 fail() {
@@ -40,6 +41,13 @@ assert_contains() {
   case "$1" in
     *"$2"*) ;;
     *) fail "expected '$1' to contain '$2'" ;;
+  esac
+}
+
+assert_not_contains() {
+  case "$1" in
+    *"$2"*) fail "expected '$1' not to contain '$2'" ;;
+    *) ;;
   esac
 }
 
@@ -94,6 +102,8 @@ assert_percent "$MEGABRAIN_CHAIN_LIMIT_USED" 73.0
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_RESETS" 4102444800
 assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" '73.0 percent'
 assert_equal "$(printf '%s' "$MEGABRAIN_CHAIN_LIMIT_RESULT" | jq -r '.windows[0].usedPercent | type')" number
+assert_equal "$(printf '%s' "$MEGABRAIN_CHAIN_LIMIT_RESULT" | jq -r '.reading.kind')" floor
+assert_equal "$(printf '%s' "$MEGABRAIN_CHAIN_LIMIT_RESULT" | jq -r '.reading.basis')" last-recorded-turn
 printf 'limit real-shaped sample guard: current at 73 percent\n'
 
 write_rollout "$rollouts_dir/rollout-current.jsonl" 97.0 "$future_reset"
@@ -154,8 +164,10 @@ write_rollout "$rollouts_dir/rollout-stale.jsonl" 99.0 "$past_reset"
 touch -t 202609070105 "$rollouts_dir/rollout-stale.jsonl"
 megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
-assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'stale'
-printf 'limit stale snapshot: unknown\n'
+assert_not_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'stale'
+assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'already reset'
+assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'no information about the current window'
+printf 'limit reset snapshot: unknown without stale claim\n'
 megabrain_chain_limit_read claude 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
 printf 'limit unavailable provider: unknown and usable\n'
@@ -177,6 +189,19 @@ assert_equal "$(printf '%s' "$run_output" | jq -r '.step')" 1
 assert_equal "$(printf '%s' "$run_output" | jq -r '.agent')" codex
 assert_equal "$(printf '%s' "$run_output" | jq '.skipped | length')" 0
 printf 'limit unknown: step is usable, not exhausted\n'
+
+write_config '{"chains":{"unknown-skip":{"when":{"parentAgent":"codex"},"steps":[{"agent":"codex","model":"m1","effort":"e1","until":{"usedPercent":95,"window":"5h","onUnknown":"skip"}},{"agent":"agy","model":"m2","effort":"e2"}]}},"defaultSteps":[]}'
+unknown_skip_output="$(command_chain_run --parent-agent codex --worktree "$root" --prompt test --json)"
+assert_equal "$(printf '%s' "$unknown_skip_output" | jq -r '.step')" 2
+assert_equal "$(printf '%s' "$unknown_skip_output" | jq -r '.skipped[0].kind')" limit
+assert_contains "$(printf '%s' "$unknown_skip_output" | jq -r '.skipped[0].reason')" 'already reset'
+printf 'limit unknown skip policy: advanced to step 2\n'
+
+write_config '{"chains":{"unknown-take":{"when":{"parentAgent":"codex"},"steps":[{"agent":"codex","model":"m1","effort":"e1","until":{"usedPercent":95,"window":"5h","onUnknown":"take"}},{"agent":"agy","model":"m2","effort":"e2"}]}},"defaultSteps":[]}'
+unknown_take_stderr="$state_dir/unknown-take.stderr"
+command_chain_run --parent-agent codex --worktree "$root" --prompt test --json 2>"$unknown_take_stderr" >/dev/null
+assert_contains "$(cat "$unknown_take_stderr")" 'usage limit is unknown; taking step'
+printf 'limit unknown take policy: emits an explicit stderr decision\n'
 
 write_rollout "$rollouts_dir/rollout-run.jsonl" 97.0 "$future_reset"
 touch -t 202609070106 "$rollouts_dir/rollout-run.jsonl"
@@ -291,6 +316,8 @@ printf 'stale cache: expired entry refreshed\n'
 limits_output="$(command_chain_limits --json)"
 assert_equal "$(printf '%s' "$limits_output" | jq 'map(select(.provider == "codex")) | length')" 2
 assert_equal "$(printf '%s' "$limits_output" | jq 'map(select(.provider == "claude")) | length')" 2
+assert_equal "$(printf '%s' "$limits_output" | jq -r 'map(select(.provider == "codex"))[0].reading.kind')" floor
+assert_equal "$(printf '%s' "$limits_output" | jq -r 'map(select(.provider == "codex"))[0].reading.basis')" last-recorded-turn
 printf 'chain limits command: all providers and windows listed\n'
 
 write_config '{"chains":{"provider":{"when":{"parentAgent":"codex"},"steps":[{"agent":"claude","model":"m","effort":"e"}]}},"defaultSteps":[],"usageLimits":{"liveProviders":["claude"],"cacheTtlSeconds":30,"timeoutSeconds":5,"notice":{"enabled":true,"intervalSeconds":3600}}}'
@@ -332,5 +359,42 @@ kill -TERM "$interrupt_pid"
 wait "$interrupt_pid" 2>/dev/null || true
 assert_equal "$(find "$interrupt_state" -name 'chain-run.*' -type f -print 2>/dev/null | wc -l | tr -d ' ')" 0
 printf 'interrupted chain walk: scratch file removed\n'
+
+# The refusal reader must report the marker from the shared tmux pane and ignore other output.
+megabrain_dispatch_meta_write refusal-reading parent-terminal superset tmux workspace-test child-terminal \
+  "$root" main codex label running gpt-5 true codex refusal-session refusal-pane tmux tmux >/dev/null
+fake_pane_output="You've hit your usage limit for this account."
+megabrain_tmux_capture_pane() { printf '%s\n' "$fake_pane_output"; }
+megabrain_dispatch_limit_refusal_read refusal-reading
+assert_equal "$MEGABRAIN_DISPATCH_LIMIT_REFUSAL" true
+assert_contains "$MEGABRAIN_DISPATCH_LIMIT_REFUSAL_REASON" 'usage limit'
+fake_pane_output='normal agent output'
+megabrain_dispatch_limit_refusal_read refusal-reading
+assert_equal "$MEGABRAIN_DISPATCH_LIMIT_REFUSAL" false
+printf 'limit refusal reader: marker detected and absent output ignored\n'
+
+# A long run of rollouts without a snapshot is bounded by count, never by time.
+scan_root="$state_dir/scan-rollouts"
+scan_count_file="$state_dir/scan-count"
+mkdir -p "$scan_root"
+: >"$scan_count_file"
+scan_index=1
+while [ "$scan_index" -le 55 ]; do
+  : >"$scan_root/rollout-$scan_index.jsonl"
+  scan_index=$((scan_index + 1))
+done
+megabrain_chain_codex_rollouts() {
+  local path index=1
+  while [ "$index" -le 55 ]; do
+    path="$scan_root/rollout-$index.jsonl"
+    printf '%s\t%s\n' "$((1000 - index))" "$path"
+    printf '%s\n' "$path" >>"$scan_count_file"
+    index=$((index + 1))
+  done
+}
+megabrain_chain_limit_read codex 5h
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
+assert_equal "$(wc -l <"$scan_count_file" | tr -d ' ')" 50
+printf 'codex rollout scan: bounded at 50 files\n'
 
 printf 'ok: chain selection, limits, failure advance, exhaustion, and reporting\n'
