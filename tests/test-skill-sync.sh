@@ -44,13 +44,14 @@ megabrain_skill_reconcile
 cmp -s "$source_skill" "$cached_skill" || fail 'runtime reconcile did not repair skill drift'
 printf 'scenario 1: drift is detected and repaired\n'
 
-target_hash_calls=0
+hash_calls_file="$work/hash-calls"
+: >"$hash_calls_file"
 megabrain_skill_hash_file() {
-  target_hash_calls=$((target_hash_calls + 1))
+  [ "$1" = "$source_skill" ] || printf '%s\n' "$1" >>"$hash_calls_file"
   megabrain_sha256_file "$@"
 }
 megabrain_skill_reconcile
-assert_equal "$target_hash_calls" 0
+assert_equal "$(wc -l <"$hash_calls_file" | tr -d '[:space:]')" 0
 printf 'scenario 2: current skill is a no-op\n'
 
 printf '\nnew cached content\n' >>"$cached_skill"
@@ -65,20 +66,27 @@ printf 'scenario 3: an unwritable target reports clearly\n'
 cp "$source_skill" "$cached_skill"
 rm -rf "$MEGABRAIN_STATE_DIR"
 mkdir -p "$MEGABRAIN_STATE_DIR"
-target_hash_calls=0
+: >"$hash_calls_file"
 megabrain_skill_reconcile
-first_calls="$target_hash_calls"
-[ "$first_calls" -gt 0 ] || fail 'initial reconcile did not inspect target content'
+assert_equal "$(wc -l <"$hash_calls_file" | tr -d '[:space:]')" 1
+: >"$hash_calls_file"
 megabrain_skill_reconcile
-assert_equal "$target_hash_calls" "$first_calls"
+assert_equal "$(wc -l <"$hash_calls_file" | tr -d '[:space:]')" 0
 printf 'scenario 4: the stamp prevents a repeated target comparison\n'
 
 cp "$source_skill" "$cached_skill"
+printf '\nuncorrected drift\n' >>"$cached_skill"
+: >"$hash_calls_file"
+megabrain_skill_reconcile
+cmp -s "$source_skill" "$cached_skill" || fail 'stamp did not allow a changed skill to be repaired'
+assert_equal "$(wc -l <"$hash_calls_file" | tr -d '[:space:]')" 1
+printf 'scenario 5: changed content is hashed and repaired\n'
+
 printf '\nuncorrected drift\n' >>"$cached_skill"
 doctor_json="$("$root/megabrain" doctor skill-sync --json 2>/dev/null)" || true
 printf '%s' "$doctor_json" | jq -e '.module == "skill-sync" and .status == "misconfigured" and (.reason | contains("skill drift"))' >/dev/null ||
   fail "doctor did not report skill drift as its own condition: $doctor_json"
 cmp -s "$source_skill" "$cached_skill" && fail 'doctor silently repaired drift before reporting it'
-printf 'scenario 5: doctor reports skill drift independently\n'
+printf 'scenario 6: doctor reports skill drift independently\n'
 
 printf 'ok: skill synchronization scenarios\n'
