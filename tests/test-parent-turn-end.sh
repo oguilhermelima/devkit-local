@@ -157,7 +157,7 @@ assert_equal "$(jq -r '.lastReadSeq' "$MEGABRAIN_DISPATCH_DIR/type-received/curs
 assert_equal "$(jq -r '.lastReadSeq' "$MEGABRAIN_DISPATCH_DIR/type-ack/cursor.json")" 0
 printf 'parent pointer: ask, done, and stalled interrupt; received and ack do not\n'
 
-ack_delivery="$(megabrain orchestrate watch type-ack --timeout 0 --poll-interval 0 --wait-mode poll --json)"
+ack_delivery="$("$root/megabrain" orchestrate watch type-ack --timeout 0 --poll-interval 0 --wait-mode poll --json)"
 assert_equal "$(jq -r '.messages | length' <<<"$ack_delivery")" 1
 assert_equal "$(jq -r '.messages[0].type' <<<"$ack_delivery")" ack
 printf 'ack-only queue: watcher still receives the recorded message\n'
