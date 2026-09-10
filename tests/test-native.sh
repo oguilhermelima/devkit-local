@@ -179,6 +179,7 @@ SIMCTL_BOOTED_JSON="$work_dir/shutdown.json"
 rm -f "$SIMCTL_BOOT_MARKER"
 if output="$(command_native sim ensure phone --device phone-1 --timeout 1 2>&1)"; then fail 'boot timeout unexpectedly succeeded'; fi
 assert_contains "$output" 'timed out waiting for simulator phone-1'
+rm -f "$SIMCTL_BOOT_MARKER"
 SIMCTL_DEVICES_JSON="$work_dir/shutdown.json"
 if output="$(command_native app reload phone --bundle-id com.example.phone --url-template 'exp://127.0.0.1:{metro_port}/--/{route}' --metro-port 8082 --timeout 1 2>&1)"; then fail 'reload without a booted simulator unexpectedly succeeded'; fi
 assert_contains "$output" 'no booted iOS simulator'
