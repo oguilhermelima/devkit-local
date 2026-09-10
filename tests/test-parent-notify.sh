@@ -117,6 +117,30 @@ tmux_cmd send-keys -t "$parent_pane" -l "PS1='IDLE$ '; export PS1; printf 'paren
 tmux_cmd send-keys -t "$parent_pane" Enter
 wait_for_pane_text "$parent_pane" parent-ready
 
+# A human coordinator has no dispatch metadata, so its pane has no measured agent
+# affordance. The notification path must run, prove that it skipped typing, and leave
+# the pane unchanged while the durable queue remains authoritative.
+megabrain_dispatch_meta_write unresolved-parent-pane "$parent_id" tmux tmux "" unresolved-child "$root" main codex label running gpt-5 true codex fake-child-session %fake-child tmux tmux "$session_name" "$parent_pane" "$workspace_id" >/dev/null
+unresolved_meta="$(megabrain_dispatch_meta_read unresolved-parent-pane)"
+unresolved_before="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
+megabrain_parent_notify_dispatch "$unresolved_meta"
+unresolved_after="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
+assert_equal "$MEGABRAIN_TMUX_SEND_STATUS" not-typed
+assert_equal "$unresolved_before" "$unresolved_after"
+printf 'unresolved human parent: notification ran without typing\n'
+
+# A worker pane is owned by its dispatch metadata even when it is not the tmux session
+# registry's main pane. Resolve the recorded Codex agent and keep the no-affordance proof.
+create_meta parent-codex-owner "$parent_pane"
+create_meta child-codex-pane '%fake-child' tmux tmux "$parent_pane" "$session_name"
+codex_parent_meta="$(megabrain_dispatch_meta_read child-codex-pane)"
+codex_parent_before="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
+megabrain_parent_notify_dispatch "$codex_parent_meta"
+codex_parent_after="$(tmux_cmd capture-pane -J -p -t "$parent_pane" -S -20)"
+assert_equal "$MEGABRAIN_TMUX_SEND_STATUS" not-typed
+assert_equal "$codex_parent_before" "$codex_parent_after"
+printf 'recorded Codex parent: pane ownership resolves without typing\n'
+
 create_meta tmux-idle "$parent_pane"
 idle_meta="$(megabrain_dispatch_meta_read tmux-idle)"
 append_message tmux-idle 'body must remain in queue'
