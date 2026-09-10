@@ -217,6 +217,7 @@ command_chain_run --parent-agent codex --worktree "$root" --prompt test --json 2
 assert_contains "$(cat "$unknown_take_stderr")" 'usage limit is unknown; taking step'
 printf 'limit unknown take policy: emits an explicit stderr decision\n'
 
+rm -f "$rollouts_dir/rollout-reset-only.jsonl"
 write_rollout "$rollouts_dir/rollout-run.jsonl" 97.0 "$future_reset"
 touch -t 202609070106 "$rollouts_dir/rollout-run.jsonl"
 run_output="$(command_chain_run --parent-agent codex --worktree "$root" --prompt test --json)"
