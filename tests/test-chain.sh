@@ -172,7 +172,7 @@ assert_percent "$MEGABRAIN_CHAIN_LIMIT_USED" 40.0
 printf 'limit under threshold: current at 40 percent\n'
 past_reset="$(($(date +%s) - 60))"
 write_rollout "$rollouts_dir/rollout-stale.jsonl" 99.0 "$past_reset"
-set_mtime_offset "$rollouts_dir/rollout-stale.jsonl" 30
+set_mtime_offset "$rollouts_dir/rollout-stale.jsonl" 10
 megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
 assert_not_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'stale'
