@@ -333,7 +333,7 @@ scenario_list_process_states() {
 scenario_restart_marker_identity() {
   local output
   fake_id=terminal-marker-restart
-  fake_pid=335
+  fake_pid=100
   fake_port=8088
   fake_host_live=true
   fake_process_alive=true
@@ -343,7 +343,7 @@ scenario_restart_marker_identity() {
   output="$(command_terminal create --worktree "$root" --command 'run restart' --port 8088 --json)"
   fake_port_set_listening listening
   output="$(command_terminal restart id:terminal-marker-restart --timeout 0 --json)"
-  assert_json_true "$output" '.killedPid == 335 and .recreated == true'
+  assert_json_true "$output" '.killedPid == 100 and .recreated == true'
   printf 'restart reaches an identity obtained from the create marker\n'
 }
 
