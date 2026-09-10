@@ -7,6 +7,8 @@ state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-dispatch-transcript.XXXXXX")"
 live_sessions="$state_dir/live-sessions"
 capture_log="$state_dir/capture.log"
 release_log="$state_dir/release.log"
+pipe_log="$state_dir/pipe.log"
+active_pipe_path=''
 
 cleanup() {
   rm -rf "$state_dir"
@@ -40,6 +42,7 @@ assert_missing() {
 export MEGABRAIN_STATE_DIR="$state_dir/state"
 export SUPERSET_TERMINAL_ID=parent-terminal
 unset TMUX TMUX_PANE
+touch "$capture_log" "$pipe_log" "$release_log"
 
 source "$root/lib/common.sh"
 source "$root/lib/module-context.sh"
@@ -48,12 +51,27 @@ source "$root/lib/module-install.sh"
 
 capture_output='captured dispatch transcript'
 capture_available=true
+pipe_start_available=true
 
 megabrain_tmux_capture_pane() {
   local pane="$1" start="$2"
   printf '%s\t%s\n' "$pane" "$start" >>"$capture_log"
   [ "$capture_available" = true ] || return 1
   printf '%s\n' "$capture_output"
+}
+
+megabrain_tmux_pipe_pane_start() {
+  local pane="$1" path="$2"
+  printf 'start\t%s\t%s\n' "$pane" "$path" >>"$pipe_log"
+  [ "$pipe_start_available" = true ] || return 1
+  active_pipe_path="$path"
+  printf '%s\n' "$capture_output" >>"$path"
+}
+
+megabrain_tmux_pipe_pane_stop() {
+  local pane="$1"
+  printf 'stop\t%s\n' "$pane" >>"$pipe_log"
+  printf '%s\n' "$capture_output" >>"$active_pipe_path"
 }
 
 megabrain_tmux_session_exists() {
@@ -95,26 +113,35 @@ transcript_path() {
 
 printf '%s\n' 'transition-session' >"$live_sessions"
 write_dispatch transition-session running transition-session
+megabrain_dispatch_start_transcript transition-session %99
+assert_contains "$(cat "$pipe_log")" 'start	%99'
+before_capture="$(wc -l <"$capture_log" | tr -d ' ')"
 megabrain_dispatch_meta_update_state transition-session done
+after_capture="$(wc -l <"$capture_log" | tr -d ' ')"
+assert_equal "$after_capture" "$before_capture"
 assert_file "$(transcript_path transition-session)"
 assert_contains "$(cat "$(transcript_path transition-session)")" 'captured dispatch transcript'
-printf 'terminal transition persists tmux scrollback\n'
+printf 'dispatch start streams output without terminal-state snapshotting\n'
 
-capture_available=false
+pipe_start_available=false
 write_dispatch transition-missing running transition-missing
-megabrain_dispatch_meta_update_state transition-missing done
-assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/transition-missing/meta.json")" done
-assert_missing "$(transcript_path transition-missing)"
-printf 'terminal transition survives an already-gone pane\n'
+if megabrain_dispatch_start_transcript transition-missing %100 >/dev/null 2>&1; then
+  fail 'transcript start succeeded when the pipe could not be started'
+fi
+assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/transition-missing/meta.json")" running
+printf 'dispatch start fails loudly when the pipe cannot be started\n'
 capture_available=true
+pipe_start_available=true
 
 printf '%s\n' 'close-session' >"$live_sessions"
 capture_output='final output before close'
 write_dispatch close-session done close-session
+megabrain_dispatch_start_transcript close-session %99
 megabrain_dispatch_close close-session --json >/dev/null
 assert_contains "$(cat "$(transcript_path close-session)")" 'final output before close'
 assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/close-session/meta.json")" closed
-printf 'close refreshes the persisted transcript before releasing tmux\n'
+assert_contains "$(cat "$pipe_log")" 'stop'
+printf 'close stops the persisted transcript stream before releasing tmux\n'
 
 capture_available=false
 write_dispatch read-fallback done read-fallback
@@ -143,11 +170,13 @@ printf 'doctor reports zero terminal dispatch session leaks when released\n'
 capture_output='prune transcript'
 printf '%s\n' 'prune-session' >"$live_sessions"
 write_dispatch prune-session done prune-session
+megabrain_dispatch_start_transcript prune-session %99
 set_old_timestamp prune-session
 prune_result="$(command_orchestrate prune --json)"
 assert_equal "$(printf '%s' "$prune_result" | jq -r '.archived')" 1
 assert_missing "$MEGABRAIN_DISPATCH_DIR/prune-session"
 assert_equal "$(grep -c '^prune-session$' "$release_log")" 1
+assert_contains "$(cat "$pipe_log")" 'stop'
 if grep -Fx 'prune-session' "$live_sessions" >/dev/null 2>&1; then
   fail 'prune left the released tmux session alive'
 fi
