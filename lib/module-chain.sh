@@ -1169,6 +1169,7 @@ MEGABRAIN_CHAIN_WALK_TOTAL=""
 MEGABRAIN_CHAIN_WALK_REASON=""
 MEGABRAIN_CHAIN_WALK_SKIPPED='[]'
 MEGABRAIN_CHAIN_WALK_DISPATCH_ID=""
+MEGABRAIN_CHAIN_WALK_START_INDEX=0
 
 # WHY: chain run and orchestrate spawn are two front doors to the same fallback
 # policy. Keeping the limit checks and launch retry in one walk prevents the front
@@ -1176,7 +1177,7 @@ MEGABRAIN_CHAIN_WALK_DISPATCH_ID=""
 megabrain_chain_walk() {
   local worktree="$1" repo="$2" branch="$3" base="$4" slug="$5" prompt="$6" label="$7" tmux_choice="$8"
   local model_override="$9" effort_override="${10}" model_explicit="${11}" effort_explicit="${12}"
-  local step_count index step agent model effort until_json threshold window on_unknown limit_reason reason reset_text failure_reason final_reason report_chain
+  local step_count index step agent model effort until_json threshold window on_unknown limit_reason reason reset_text failure_reason final_reason report_chain start_index
   local spawn_output spawn_json spawn_error error_file dispatch_id spawn_succeeded
   local -a agent_args=()
   shift 12
@@ -1189,6 +1190,10 @@ megabrain_chain_walk() {
   MEGABRAIN_CHAIN_WALK_REASON=""
   MEGABRAIN_CHAIN_WALK_SKIPPED='[]'
   MEGABRAIN_CHAIN_WALK_DISPATCH_ID=""
+  start_index="${MEGABRAIN_CHAIN_WALK_START_INDEX:-0}"
+  case "$start_index" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
   step_count="$(printf '%s' "$MEGABRAIN_CHAIN_SELECTED_STEPS" | jq 'length')" || return 1
   report_chain="$MEGABRAIN_CHAIN_SELECTED_NAME"
   [ "$MEGABRAIN_CHAIN_SELECTION_DEFAULT" = true ] && report_chain=defaultSteps
@@ -1203,6 +1208,7 @@ megabrain_chain_walk() {
   index=0
   while IFS= read -r step; do
     index=$((index + 1))
+    [ "$index" -gt "$start_index" ] || continue
     agent="$(printf '%s' "$step" | jq -r '.agent')"
     model="$(printf '%s' "$step" | jq -r '.model')"
     effort="$(printf '%s' "$step" | jq -r '.effort // empty')"
@@ -1286,6 +1292,8 @@ megabrain_chain_walk() {
       MEGABRAIN_CHAIN_WALK_STEP="$index"
       MEGABRAIN_CHAIN_WALK_REASON="$final_reason"
       MEGABRAIN_CHAIN_WALK_DISPATCH_ID="$dispatch_id"
+      megabrain_dispatch_meta_update_chain_context "$dispatch_id" "$prompt" >/dev/null 2>&1 || true
+      MEGABRAIN_CHAIN_WALK_START_INDEX=0
       megabrain_chain_temp_end
       return 0
     fi
@@ -1298,7 +1306,49 @@ megabrain_chain_walk() {
   megabrain_chain_temp_end
   MEGABRAIN_CHAIN_WALK_REASON="$(printf '%s' "$MEGABRAIN_CHAIN_WALK_SKIPPED" | jq -r '[.[].reason] | join("; ")')"
   [ -n "$MEGABRAIN_CHAIN_WALK_REASON" ] || MEGABRAIN_CHAIN_WALK_REASON='chain has no usable steps; add a chain with megabrain chain add'
+  MEGABRAIN_CHAIN_WALK_START_INDEX=0
   return 1
+}
+
+megabrain_chain_continue_refused() {
+  local dispatch_id="$1" meta chain_name chain_step chain_total chain_default prompt worktree label runtime config
+  local selected_steps
+  meta="$(megabrain_dispatch_meta_read "$dispatch_id" 2>/dev/null || true)"
+  [ -n "$meta" ] || return 1
+  [ "$(printf '%s' "$meta" | jq -r '.reconcileOutcome // empty')" = limit-refused ] || return 1
+  chain_name="$(printf '%s' "$meta" | jq -r '.chain.name // empty')"
+  chain_step="$(printf '%s' "$meta" | jq -r '.chain.step // empty')"
+  chain_total="$(printf '%s' "$meta" | jq -r '.chain.total // empty')"
+  chain_default="$(printf '%s' "$meta" | jq -r '.chain.usedDefault // false')"
+  prompt="$(printf '%s' "$meta" | jq -r '.chain.prompt // empty')"
+  worktree="$(printf '%s' "$meta" | jq -r '.worktreePath // empty')"
+  label="$(printf '%s' "$meta" | jq -r '.label // empty')"
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  case "$chain_step:$chain_total" in
+    ''|*[!0-9:]*|*:0|0:*) return 1 ;;
+  esac
+  [ -n "$prompt" ] && [ -n "$worktree" ] || return 1
+  [ "$chain_step" -lt "$chain_total" ] || return 1
+  config="$(megabrain_chain_read)" || return 1
+  megabrain_chain_validate_config "$config" || return 1
+  if [ "$chain_default" = true ] || [ "$chain_name" = defaultSteps ]; then
+    selected_steps="$(printf '%s' "$config" | jq -c '.defaultSteps')"
+    MEGABRAIN_CHAIN_SELECTION_DEFAULT=true
+    MEGABRAIN_CHAIN_SELECTED_NAME=defaultSteps
+  else
+    selected_steps="$(printf '%s' "$config" | jq -c --arg name "$chain_name" '.chains[$name].steps // empty')"
+    MEGABRAIN_CHAIN_SELECTION_DEFAULT=false
+    MEGABRAIN_CHAIN_SELECTED_NAME="$chain_name"
+  fi
+  [ -n "$selected_steps" ] || return 1
+  MEGABRAIN_CHAIN_SELECTED_STEPS="$selected_steps"
+  MEGABRAIN_CHAIN_SELECTION_REASON="continued after limit refusal at step $chain_step"
+  MEGABRAIN_CHAIN_WALK_START_INDEX="$chain_step"
+  case "$runtime" in
+    tmux) runtime=tmux ;;
+    *) runtime=host ;;
+  esac
+  megabrain_chain_walk "$worktree" '' '' '' '' "$prompt" "$label" "$runtime" '' '' false false
 }
 
 command_chain_run() {
