@@ -493,19 +493,12 @@ megabrain_dispatch_limit_refusal_read() {
   pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
   [ -n "$pane" ] || return 0
   output="$(megabrain_tmux_capture_pane "$pane" -200 2>/dev/null || true)"
-  case "$output" in
-    *"You've hit your usage limit for"*) ;;
-    *) return 0 ;;
-  esac
-  # WHY: tmux captures echoed input too; the second line identifies the actual
-  # refusal instead of a prompt that merely quotes its first line.
-  case "$output" in
-    *"Switch to another model now"*)
-      MEGABRAIN_DISPATCH_LIMIT_REFUSAL=true
-      MEGABRAIN_DISPATCH_LIMIT_REFUSAL_REASON="agent refused the dispatch: You've hit your usage limit for"
-      return 0
-      ;;
-  esac
+  # WHY: tmux captures echoed input too; a refusal marker must begin a pane line,
+  # so prose that merely quotes it cannot trigger the guard.
+  if printf '%s\n' "$output" | grep -E "^You've hit your usage limit for" >/dev/null 2>&1; then
+    MEGABRAIN_DISPATCH_LIMIT_REFUSAL=true
+    MEGABRAIN_DISPATCH_LIMIT_REFUSAL_REASON="agent refused the dispatch: You've hit your usage limit for"
+  fi
 }
 
 megabrain_dispatch_mark_limit_refused() {
