@@ -149,9 +149,10 @@ megabrain worktree pr <branch|path|slug> [--base <ref>] [--title <text>] [--body
 megabrain worktree finish <branch|path|slug> [--delete-branch] [--force] [--json]
 megabrain worktree list [--repo <name|path>] [--tree|--flat] [--json]
 megabrain worktree adopt <path|branch> [--json]
-megabrain terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--json]
+megabrain terminal create [--worktree <path>] [--command <cmd>] [--title <text>] [--port <port>] [--json]
 megabrain terminal list [--worktree <path>] [--json]
 megabrain terminal restart <selector> [--command <cmd>] [--wait-port <port>] [--timeout <seconds>] [--json]
+megabrain terminal close <selector> [--json]
 ```
 
 `worktree create` does the git worktree add and registers the workspace so Orca and Superset both
@@ -177,10 +178,12 @@ not make listing depend on gh or Orca.
 `finish` refuses an unmerged branch unless `--force` is given. `terminal create` with no
 `--command` runs the worktree's `.superset/config.json` run script. Superset tabs come back
 untitled; only Orca tabs carry a title. Terminal identities, commands and creation times are
-recorded under `$MEGABRAIN_STATE_DIR/terminals/`, so `terminal list` can retain a host-gone
-terminal as `stale`. `terminal restart` accepts `id:`, `title:`, `port:` or `worktree:` selectors,
-kills only the recorded process tree after proving a port listener belongs to it, waits for the
-old port to be free, and optionally waits for it to listen again with `--wait-port`.
+recorded under `$MEGABRAIN_STATE_DIR/terminals/`, so `terminal list` reports `alive` or `dead`,
+and retains a host-gone terminal as `stale`. `terminal restart` accepts `id:`, `title:`, `port:` or
+`worktree:` selectors, kills only the recorded process tree after proving a port listener belongs
+to it, waits for the old port to be free, and optionally waits for it to listen again with
+`--wait-port`. `terminal close` removes the host terminal and local record, and reports when the
+host already forgot it or process identity was unavailable.
 
 ## Setup and diagnosis
 
