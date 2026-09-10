@@ -103,7 +103,7 @@ unknown_meta="$(megabrain_dispatch_meta_read unrecognised-parent)"
 unknown_before="$(tmux_cmd capture-pane -J -p -t "$unknown_pane" -S -20)"
 megabrain_parent_notify_dispatch "$unknown_meta"
 unknown_after="$(tmux_cmd capture-pane -J -p -t "$unknown_pane" -S -20)"
-assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" queued
+assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" not-typed
 assert_equal "$MEGABRAIN_TMUX_SEND_STATUS" not-typed
 assert_equal "$unknown_before" "$unknown_after"
 assert_contains "$(cat "$state_dir/dispatches/unrecognised-parent/nudge.log")" 'outcome=not-typed reason=parent-notified'

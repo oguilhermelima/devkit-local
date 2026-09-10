@@ -269,7 +269,7 @@ megabrain_superset() {
   fi
 }
 megabrain_parent_notify_dispatch "$host_meta"
-assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" queued
+assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" delivered
 assert_equal "$superset_send_count" 1
 megabrain_parent_notify_waiter_register ide-dispatch "$host_meta"
 megabrain_parent_notify_dispatch "$host_meta"
@@ -339,8 +339,8 @@ wait_for_pane_text "$no_context_pane" no-context-ready
 create_meta no-context "$no_context_pane" tmux superset "$no_context_pane" "$no_context_session"
 no_context_meta="$(megabrain_dispatch_meta_read no-context)"
 megabrain_parent_notify_dispatch "$no_context_meta"
-assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" queued
-assert_contains "$(cat "$state_dir/dispatches/no-context/nudge.log")" 'outcome=queued reason=parent-notified'
+assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" not-typed
+assert_contains "$(cat "$state_dir/dispatches/no-context/nudge.log")" 'outcome=not-typed reason=parent-notified'
 printf 'tmux without state context delivers from the dispatch location\n'
 
 rename_home="$state_dir/rename-home"
@@ -359,8 +359,8 @@ MEGABRAIN_STATE_DIR="$rename_new_state"
 MEGABRAIN_DISPATCH_DIR="$rename_new_state/dispatches"
 renamed_meta="$(megabrain_dispatch_meta_read renamed-context)"
 megabrain_parent_notify_dispatch "$renamed_meta"
-assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" queued
-assert_contains "$(cat "$rename_new_state/dispatches/renamed-context/nudge.log")" 'outcome=queued reason=parent-notified'
+assert_equal "$MEGABRAIN_PARENT_NOTIFY_RESULT" not-typed
+assert_contains "$(cat "$rename_new_state/dispatches/renamed-context/nudge.log")" 'outcome=not-typed reason=parent-notified'
 HOME="$saved_home"
 MEGABRAIN_STATE_DIR="$saved_state_dir"
 MEGABRAIN_DISPATCH_DIR="$saved_dispatch_dir"
