@@ -404,7 +404,7 @@ megabrain_native_app_reload() {
   if [ "$terminate_rc" -ne 0 ]; then
     terminate_lower="$(printf '%s' "$terminate_output" | tr '[:upper:]' '[:lower:]')"
     case "$terminate_lower" in
-      *'not running'*|*'no such process'*|*'does not exist'*|*'not found'*) ;;
+      *'not running'*|*'no such process'*|*'does not exist'*|*'not found'*|*'nothing to terminate'*) ;;
       *) megabrain_error "failed to terminate $bundle_id on simulator $MEGABRAIN_NATIVE_SELECTED_UDID: ${terminate_output:-simctl exited $terminate_rc}"; return 1 ;;
     esac
   fi
