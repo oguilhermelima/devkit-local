@@ -34,14 +34,18 @@ chmod -R a-w "$release_root"
 [ ! -w "$release_root" ] || fail 'clean release install root is writable'
 export HOME="$home"
 export MEGABRAIN_STATE_DIR="$home/.megabrain"
+clean_path="$PATH"
 
-version_output="$($release_root/megabrain version)"
+version_output="$(env -i HOME="$home" PATH="$clean_path" MEGABRAIN_STATE_DIR="$home/.megabrain" "$release_root/megabrain" version)"
 case "$version_output" in
   "megabrain $version") ;;
   *) fail "clean install returned an unexpected version: $version_output" ;;
 esac
-context_json="$($release_root/megabrain context --json)"
+context_json="$(env -i HOME="$home" PATH="$clean_path" MEGABRAIN_STATE_DIR="$home/.megabrain" "$release_root/megabrain" context --json)"
 printf '%s' "$context_json" | jq -e '.host == "unknown"' >/dev/null || fail 'clean install context failed'
-$release_root/megabrain model list >/dev/null || fail 'clean install model list failed'
+env -i HOME="$home" PATH="$clean_path" MEGABRAIN_STATE_DIR="$home/.megabrain" \
+  "$release_root/megabrain" model list >/dev/null || fail 'clean install model list failed'
 
-printf 'ok: release tarball runs from a non-git, read-only install root\n'
+printf 'scenario 1: no-host clean install has a sane context result\n'
+printf 'scenario 2: release tarball commands run from a non-git, read-only root\n'
+printf 'ok: clean install scenarios\n'
