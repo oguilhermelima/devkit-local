@@ -94,6 +94,17 @@ write_rollout() {
   printf '%s\n' "{\"timestamp\":\"2026-09-07T08:15:21.790Z\",\"ordinal\":15,\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":19712,\"cached_input_tokens\":2816,\"cache_write_input_tokens\":0,\"output_tokens\":22,\"reasoning_output_tokens\":13,\"total_tokens\":19734},\"model_context_window\":258400},\"rate_limits\":{\"limit_id\":\"codex\",\"primary\":{\"used_percent\":$used,\"window_minutes\":300,\"resets_at\":$reset},\"secondary\":{\"used_percent\":19.0,\"window_minutes\":10080,\"resets_at\":$reset}}}}" >"$path"
 }
 
+set_mtime_offset() {
+  local path="$1" offset="$2" epoch stamp
+  epoch="$(($(date +%s) - offset))"
+  if stamp="$(date -r "$epoch" '+%Y%m%d%H%M.%S' 2>/dev/null)"; then
+    touch -t "$stamp" "$path"
+  else
+    stamp="$(date -d "@$epoch" '+%Y%m%d%H%M.%S')"
+    touch -t "$stamp" "$path"
+  fi
+}
+
 future_reset="$(($(date +%s) + 3600))"
 cp "$root/tests/fixtures/codex-rollout-rate-limits.jsonl" "$rollouts_dir/rollout-real-shaped.jsonl"
 megabrain_chain_limit_read codex 5h
@@ -108,8 +119,8 @@ printf 'limit real-shaped sample guard: current at 73 percent\n'
 
 write_rollout "$rollouts_dir/rollout-current.jsonl" 97.0 "$future_reset"
 printf '%s\n' '{"timestamp":"2026-09-07T08:15:22.790Z","ordinal":16,"type":"event_msg","payload":{"type":"token_count","info":{"model_context_window":258400}}}' >>"$rollouts_dir/rollout-current.jsonl"
-touch -t 202609070101 "$rollouts_dir/rollout-real-shaped.jsonl"
-touch -t 202609070102 "$rollouts_dir/rollout-current.jsonl"
+set_mtime_offset "$rollouts_dir/rollout-real-shaped.jsonl" 180
+set_mtime_offset "$rollouts_dir/rollout-current.jsonl" 120
 megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
 assert_percent "$MEGABRAIN_CHAIN_LIMIT_USED" 97.0
@@ -117,7 +128,7 @@ assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" '97.0 percent'
 printf 'limit trailing non-snapshot line: last usable snapshot\n'
 
 printf '%s\n' '{"timestamp":"2026-09-07T08:15:23.790Z","ordinal":17,"type":"event_msg","payload":{"type":"token_count","info":{"model_context_window":258400}}}' >"$rollouts_dir/rollout-empty.jsonl"
-touch -t 202609070103 "$rollouts_dir/rollout-empty.jsonl"
+set_mtime_offset "$rollouts_dir/rollout-empty.jsonl" 60
 megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
 assert_percent "$MEGABRAIN_CHAIN_LIMIT_USED" 97.0
@@ -154,14 +165,14 @@ printf 'selection no match: defaultSteps\n'
 
 write_rollout "$rollouts_dir/rollout-under.jsonl" 40.0 "$future_reset"
 printf '%s\n' '{"timestamp":"2026-09-07T08:15:24.790Z","ordinal":18,"type":"event_msg","payload":{"type":"token_count","info":{"model_context_window":258400}}}' >>"$rollouts_dir/rollout-under.jsonl"
-touch -t 202609070104 "$rollouts_dir/rollout-under.jsonl"
+set_mtime_offset "$rollouts_dir/rollout-under.jsonl" 30
 megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
 assert_percent "$MEGABRAIN_CHAIN_LIMIT_USED" 40.0
 printf 'limit under threshold: current at 40 percent\n'
 past_reset="$(($(date +%s) - 60))"
 write_rollout "$rollouts_dir/rollout-stale.jsonl" 99.0 "$past_reset"
-touch -t 202609070105 "$rollouts_dir/rollout-stale.jsonl"
+set_mtime_offset "$rollouts_dir/rollout-stale.jsonl" 30
 megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
 assert_not_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'stale'
@@ -177,13 +188,6 @@ megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
 assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'no rate limit snapshot'
 printf 'limit absent: unknown honestly\n'
-
-write_rollout "$rollouts_dir/rollout-reset-only.jsonl" 12.0 "$past_reset"
-megabrain_chain_limit_read codex 5h
-assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
-assert_not_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'stale'
-assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'already reset'
-printf 'limit reset-only snapshot: distinct unknown reason\n'
 
 write_rollout "$rollouts_dir/rollout-reset-only.jsonl" 12.0 "$past_reset"
 megabrain_chain_limit_read codex 5h
@@ -219,7 +223,7 @@ printf 'limit unknown take policy: emits an explicit stderr decision\n'
 
 rm -f "$rollouts_dir/rollout-reset-only.jsonl"
 write_rollout "$rollouts_dir/rollout-run.jsonl" 97.0 "$future_reset"
-touch -t 202609070106 "$rollouts_dir/rollout-run.jsonl"
+set_mtime_offset "$rollouts_dir/rollout-run.jsonl" 30
 run_output="$(command_chain_run --parent-agent codex --worktree "$root" --prompt test --json)"
 assert_equal "$(printf '%s' "$run_output" | jq -r '.step')" 2
 assert_contains "$(printf '%s' "$run_output" | jq -r '.skipped[0].reason')" '97.0'
@@ -388,24 +392,32 @@ megabrain_dispatch_limit_refusal_read refusal-reading
 assert_equal "$MEGABRAIN_DISPATCH_LIMIT_REFUSAL" false
 printf 'limit refusal reader: marker detected and absent output ignored\n'
 
-# A long run of rollouts without a snapshot is bounded by count, never by time.
-scan_root="$state_dir/scan-rollouts"
+# A long run of recent rollouts without a snapshot is bounded by the relevance
+# window and a hard file ceiling before jq opens each file.
+scan_root="$HOME/.codex/sessions/scan"
 scan_count_file="$state_dir/scan-count"
 mkdir -p "$scan_root"
 : >"$scan_count_file"
+: >"$scan_root/rollout-outside.jsonl"
+: >"$scan_root/rollout-boundary.jsonl"
+set_mtime_offset "$scan_root/rollout-outside.jsonl" 18001
+set_mtime_offset "$scan_root/rollout-boundary.jsonl" 18000
+scan_relevant="$(megabrain_chain_codex_rollouts 5h)"
+assert_not_contains "$scan_relevant" 'rollout-outside.jsonl'
+assert_contains "$scan_relevant" 'rollout-boundary.jsonl'
+printf 'codex rollout relevance: outside excluded and boundary included\n'
 scan_index=1
 while [ "$scan_index" -le 55 ]; do
   : >"$scan_root/rollout-$scan_index.jsonl"
+  touch "$scan_root/rollout-$scan_index.jsonl"
   scan_index=$((scan_index + 1))
 done
-megabrain_chain_codex_rollouts() {
-  local path index=1
-  while [ "$index" -le 55 ]; do
-    path="$scan_root/rollout-$index.jsonl"
-    printf '%s\t%s\n' "$((1000 - index))" "$path"
-    printf '%s\n' "$path" >>"$scan_count_file"
-    index=$((index + 1))
-  done
+real_jq="$(command -v jq)"
+jq() {
+  case " $* " in
+    *"$scan_root"*) printf '%s\n' "$1" >>"$scan_count_file" ;;
+  esac
+  "$real_jq" "$@"
 }
 megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
