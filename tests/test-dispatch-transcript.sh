@@ -133,6 +133,15 @@ printf 'dispatch start fails loudly when the pipe cannot be started\n'
 capture_available=true
 pipe_start_available=true
 
+capture_output='first streamed output'
+write_dispatch reconnect-session running reconnect-session
+megabrain_dispatch_start_transcript reconnect-session %99
+capture_output='second streamed output'
+megabrain_dispatch_start_transcript reconnect-session %99
+assert_contains "$(cat "$(transcript_path reconnect-session)")" 'first streamed output'
+assert_contains "$(cat "$(transcript_path reconnect-session)")" 'second streamed output'
+printf 'transcript stream appends output across reconnect\n'
+
 printf '%s\n' 'close-session' >"$live_sessions"
 capture_output='final output before close'
 write_dispatch close-session done close-session
