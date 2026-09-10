@@ -793,6 +793,7 @@ ${prompt}"
     }
     if ! megabrain_dispatch_start_transcript "$dispatch_id" "$tmux_pane"; then
       megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
+      megabrain_spawn_mark_prompt_failed "$dispatch_id" transcript-start-failed
       megabrain_error "could not start transcript for dispatch $dispatch_id"
       return 1
     fi
