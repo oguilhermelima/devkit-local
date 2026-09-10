@@ -373,19 +373,48 @@ megabrain_tmux_nudge_affordance() {
 }
 
 megabrain_tmux_agent_for_pane() {
-  local pane="$1" session record_path record record_pane
+  local pane="$1" session record_path record agent resolved_agent=""
   session="$(tmux display-message -p -t "$pane" '#{session_name}' 2>/dev/null || true)"
   [ -n "$session" ] || return 1
+  # A worker parent pane is owned by a dispatch, not necessarily by the tmux
+  # session's registered main pane. Prefer this source because it identifies child
+  # panes directly and records the worker's agent.
+  for record_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
+    [ -f "$record_path" ] || continue
+    record="$(cat "$record_path" 2>/dev/null || true)"
+    agent="$(printf '%s' "$record" | jq -r --arg session "$session" --arg pane "$pane" '
+      select(.runtime == "tmux" and .tmuxSession == $session and .tmuxPane == $pane and
+        (.state == "spawning" or .state == "running" or .state == "waiting_for_reply" or .state == "stalled")) |
+      .agent // empty' 2>/dev/null || true)"
+    [ -n "$agent" ] || continue
+    if [ -n "$resolved_agent" ] && [ "$resolved_agent" != "$agent" ]; then
+      return 1
+    fi
+    resolved_agent="$agent"
+  done
+  if [ -n "$resolved_agent" ]; then
+    printf '%s\n' "$resolved_agent"
+    return 0
+  fi
+
+  # A top-level coordinator is not a dispatch. Its session registry record is the
+  # next authoritative source; an absent record means the agent is unknown, never
+  # an invitation to assume Claude.
+  resolved_agent=""
   for record_path in "$MEGABRAIN_TMUX_SESSION_DIR"/*.json; do
     [ -f "$record_path" ] || continue
     record="$(cat "$record_path" 2>/dev/null || true)"
-    record_pane="$(printf '%s' "$record" | jq -r --arg session "$session" \
-      'select(.tmuxSession == $session and .role == "main") | .tmuxPane // empty' 2>/dev/null || true)"
-    [ "$record_pane" = "$pane" ] || continue
-    printf '%s\n' "$(printf '%s' "$record" | jq -r '.agent // empty' 2>/dev/null || true)"
-    return 0
+    agent="$(printf '%s' "$record" | jq -r --arg session "$session" --arg pane "$pane" '
+      select(.tmuxSession == $session and .tmuxPane == $pane and .role == "main") |
+      .agent // empty' 2>/dev/null || true)"
+    [ -n "$agent" ] || continue
+    if [ -n "$resolved_agent" ] && [ "$resolved_agent" != "$agent" ]; then
+      return 1
+    fi
+    resolved_agent="$agent"
   done
-  return 1
+  [ -n "$resolved_agent" ] || return 1
+  printf '%s\n' "$resolved_agent"
 }
 
 megabrain_tmux_send_lock_path() {
@@ -445,9 +474,6 @@ megabrain_tmux_send_nudge() {
   fi
   if [ -z "$agent" ]; then
     agent="$(megabrain_tmux_agent_for_pane "$pane" 2>/dev/null || true)"
-    # Parent notifications predate per-agent metadata; their managed coordinator is
-    # Claude unless the session registry identifies another agent explicitly.
-    [ -n "$agent" ] || agent=claude
   fi
   text="$(megabrain_tmux_nudge_text_for_pane "$pane" "$text")"
   megabrain_tmux_send_text "$pane" "$text" "$agent" nudge
