@@ -216,7 +216,7 @@ printf 'chain run preserves skipped-step reporting: passed\n'
 # A refusal recorded by the parent hook is a failed chain step. Continuation starts
 # at the following step and reuses the original prompt without replaying step 1.
 clear_state
-write_config '{"chains":{"fallback":{"when":{"parentAgent":"codex"},"steps":[{"agent":"codex","model":"gpt-5.6-luna","effort":"high"},{"agent":"agy","model":"gemini-3.8-flash-high","effort":"medium"}]}},"defaultSteps":[]}'
+write_config '{"chains":{"fallback":{"when":{"parentAgent":"codex"},"steps":[{"agent":"codex","model":"gpt-5.6-luna","effort":"high"},{"agent":"agy","model":"gemini-3.8-flash-medium"}]}},"defaultSteps":[]}'
 megabrain_dispatch_meta_write refused-chain parent-terminal superset superset workspace-test refused-terminal \
   "$root" main codex label running gpt-5 true codex '' '' host ide '' '' workspace-test fallback 1 2 'initial chain step' false >/dev/null
 jq '.chain.prompt = "resume-prompt"' "$MEGABRAIN_STATE_DIR/dispatches/refused-chain/meta.json" >"$state_root/refused-meta.json"
