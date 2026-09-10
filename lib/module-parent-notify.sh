@@ -177,7 +177,7 @@ megabrain_parent_notify() {
 }
 
 megabrain_parent_notify_dispatch() {
-  local meta="$1" dispatch_id pointer notify_error notify_reason notify_error_path notify_status
+  local meta="$1" dispatch_id pointer notify_error notify_reason notify_error_path notify_status notify_outcome
   MEGABRAIN_PARENT_NOTIFY_RESULT=skipped
   dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty')"
   [ -n "$dispatch_id" ] || { MEGABRAIN_PARENT_NOTIFY_RESULT=failed; return 1; }
@@ -203,8 +203,14 @@ megabrain_parent_notify_dispatch() {
     notify_error=""
   fi
   if [ "$notify_status" -eq 0 ]; then
-    MEGABRAIN_PARENT_NOTIFY_RESULT=delivered
-    megabrain_parent_notify_wake "$dispatch_id" "$pointer" delivered parent-notified >/dev/null 2>&1 || true
+    notify_outcome=delivered
+    if [ "$(megabrain_parent_notify_channel "$meta")" = tmux ]; then
+      # A successful tmux transport call can mean that no keys were typed. Keep
+      # the transport's measured result instead of inferring delivery from rc=0.
+      notify_outcome="${MEGABRAIN_TMUX_SEND_STATUS:-unknown}"
+    fi
+    MEGABRAIN_PARENT_NOTIFY_RESULT="$notify_outcome"
+    megabrain_parent_notify_wake "$dispatch_id" "$pointer" "$notify_outcome" parent-notified >/dev/null 2>&1 || true
     return 0
   fi
   MEGABRAIN_PARENT_NOTIFY_RESULT=failed
