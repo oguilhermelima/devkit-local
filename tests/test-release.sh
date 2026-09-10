@@ -14,6 +14,7 @@ fail() {
 release_script="$root/scripts/release.sh"
 version="$(jq -r '.version' "$root/.claude-plugin/plugin.json")"
 archive="$work/megabrain-$version.tar.gz"
+formula="$work/megabrain.rb"
 
 if mismatch_output="$("$release_script" v0.2.0 --output "$archive" 2>&1)"; then
   mismatch_status=0
@@ -27,9 +28,10 @@ case "$mismatch_output" in
 esac
 printf 'scenario 1: mismatched release tag is refused\n'
 
-matching_output="$($release_script "v$version" --output "$archive" 2>&1)" ||
+matching_output="$($release_script "v$version" --output "$archive" --formula-output "$formula" 2>&1)" ||
   fail "matching release tag was refused: $matching_output"
 [ -s "$archive" ] || fail 'matching release did not produce a tarball'
+[ -s "$formula" ] || fail 'matching release did not render a formula'
 case "$matching_output" in
   *"git tag -a v$version"*) ;;
   *) fail "release instructions omitted the tag command: $matching_output" ;;
@@ -40,6 +42,9 @@ case "$matching_output" in
 esac
 tar -tzf "$archive" | grep -F "megabrain-$version/megabrain" >/dev/null ||
   fail 'release tarball does not contain the megabrain entrypoint'
+grep -F "version \"$version\"" "$formula" >/dev/null || fail 'rendered formula has the wrong version'
+grep -Eq '^  sha256 "[0-9a-f]{64}"$' "$formula" || fail 'rendered formula has no concrete sha256'
+grep -F '__VERSION__' "$formula" >/dev/null && fail 'rendered formula retained a version placeholder'
 printf 'scenario 2: matching release tag creates the formula tarball and instructions\n'
 
 printf 'ok: release guard scenarios\n'
