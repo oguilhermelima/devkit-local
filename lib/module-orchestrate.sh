@@ -1647,7 +1647,7 @@ megabrain_dispatch_close() {
 }
 
 megabrain_dispatch_child_message() {
-  local type="$1" text="$2" dispatch_id meta process_state
+  local type="$1" text="$2" dispatch_id meta process_state state
   case "$type" in
     received|ask|done) ;;
     *) megabrain_error "unsupported child message type: $type"; return "$MEGABRAIN_USAGE_ERROR" ;;
@@ -1661,8 +1661,15 @@ megabrain_dispatch_child_message() {
     starting|start-unproven) megabrain_dispatch_meta_update_process_state "$dispatch_id" running || return 1 ;;
   esac
   if [ "$type" = received ]; then
-    # WHY: received is the authoritative prompt-delivery fact. The parent waits for it
-    # directly in the durable queue, so it does not need a terminal observation.
+    # WHY: received is the authoritative prompt-delivery fact. Honor it in the child
+    # writer so a receipt that arrives after the parent's bounded wait is not stranded
+    # until a human runs reconcile. Terminal dispatches retain their terminal state.
+    megabrain_dispatch_sync_prompt_receipt "$dispatch_id" || return 1
+    meta="$(megabrain_dispatch_meta_read "$dispatch_id")" || return 1
+    state="$(printf '%s' "$meta" | jq -r '.state // empty')"
+    if [ "$state" = spawning ]; then
+      megabrain_dispatch_meta_update_state "$dispatch_id" running || return 1
+    fi
     printf '%s sent: %s\n' "$type" "$dispatch_id"
     return 0
   elif [ "$type" = ask ]; then
