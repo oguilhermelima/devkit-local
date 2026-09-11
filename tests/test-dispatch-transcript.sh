@@ -191,7 +191,7 @@ printf 'read renders terminal controls and keeps the final overwritten lines\n'
 
 limited_result="$(command_orchestrate read rendered-fallback --lines 2 --json)"
 scenario_equal "$(printf '%s' "$limited_result" | jq -r '.text')" $'final two\nplain three'
-scenario_equal "$(printf '%s' "$limited_result" | jq -r '.text | split("\\n") | length')" 2
+scenario_equal "$(printf '%s' "$limited_result" | jq -r '.text | split("\n") | length')" 2
 if [ "$scenario_failures" -ne 0 ]; then
   printf 'observed %s transcript scenario failure(s) before implementation\n' "$scenario_failures"
   fail 'transcript rendering scenarios failed'
