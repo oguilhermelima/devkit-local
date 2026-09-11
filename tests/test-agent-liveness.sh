@@ -155,8 +155,13 @@ default_view="$(megabrain_dispatch_watch protocol-view --timeout 0 --poll-interv
 assert_equal "$(jq -r '.messages | length' <<<"$default_view")" 1
 assert_equal "$(jq -r '.messages[0].type' <<<"$default_view")" ask
 full_view="$(megabrain_dispatch_watch protocol-view --timeout 0 --poll-interval 0 --wait-mode poll --full --consumer protocol-trace --json)"
-assert_equal "$(jq -r '.messages | length' <<<"$full_view")" 3
-assert_equal "$(jq -r '[.messages[].type] | join(",")' <<<"$full_view")" 'received,ack,ask'
+assert_equal "$(jq -r '.messages | length' <<<"$full_view")" 1
+assert_equal "$(jq -r '.messages[0].type' <<<"$full_view")" received
+full_delivery_id="$(jq -r '.deliveryId' <<<"$full_view")"
+megabrain_dispatch_ack_for_owner parent protocol-view "$full_delivery_id" --consumer protocol-trace --generation 1 >/dev/null
+full_view="$(megabrain_dispatch_watch protocol-view --timeout 0 --poll-interval 0 --wait-mode poll --full --consumer protocol-trace --json)"
+assert_equal "$(jq -r '.messages | length' <<<"$full_view")" 1
+assert_equal "$(jq -r '.messages[0].type' <<<"$full_view")" ack
 printf 'default view hides protocol evidence and full trace reveals it\n'
 
 printf 'ok: agent liveness, retired state migration, and protocol view\n'
