@@ -17,7 +17,7 @@ MEGABRAIN_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS=60
 MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS=7
 
 megabrain_dispatch_prune_states() {
-  printf 'closed,done,failed,orphaned,circuit_broken,timeout\n'
+  printf 'closed,done,failed,orphaned,circuit_broken\n'
 }
 
 if ! declare -F megabrain_dispatch_preamble >/dev/null 2>&1; then
@@ -32,14 +32,12 @@ megabrain_dispatch_transition_allowed() {
   local axis="$1" from="$2" to="$3"
   case "$axis:$from:$to" in
     dispatch:spawning:spawning|dispatch:spawning:running|dispatch:spawning:failed|dispatch:spawning:closed) return 0 ;;
-    dispatch:running:running|dispatch:running:waiting_for_reply|dispatch:running:done|dispatch:running:failed|dispatch:running:orphaned|dispatch:running:stalled|dispatch:running:timeout|dispatch:running:closed) return 0 ;;
-    dispatch:waiting_for_reply:waiting_for_reply|dispatch:waiting_for_reply:running|dispatch:waiting_for_reply:done|dispatch:waiting_for_reply:failed|dispatch:waiting_for_reply:orphaned|dispatch:waiting_for_reply:stalled|dispatch:waiting_for_reply:timeout|dispatch:waiting_for_reply:closed) return 0 ;;
+    dispatch:running:running|dispatch:running:waiting_for_reply|dispatch:running:done|dispatch:running:failed|dispatch:running:orphaned|dispatch:running:closed) return 0 ;;
+    dispatch:waiting_for_reply:waiting_for_reply|dispatch:waiting_for_reply:running|dispatch:waiting_for_reply:done|dispatch:waiting_for_reply:failed|dispatch:waiting_for_reply:orphaned|dispatch:waiting_for_reply:closed) return 0 ;;
     dispatch:done:done|dispatch:done:failed|dispatch:done:orphaned|dispatch:done:closed) return 0 ;;
     dispatch:failed:failed|dispatch:failed:circuit_broken|dispatch:failed:closed) return 0 ;;
     dispatch:orphaned:orphaned|dispatch:orphaned:running|dispatch:orphaned:waiting_for_reply|dispatch:orphaned:done|dispatch:orphaned:failed|dispatch:orphaned:circuit_broken|dispatch:orphaned:closed) return 0 ;;
     # WHY: A child proving it is alive must be able to complete after a stall classification.
-    dispatch:stalled:stalled|dispatch:stalled:running|dispatch:stalled:waiting_for_reply|dispatch:stalled:done|dispatch:stalled:failed|dispatch:stalled:circuit_broken|dispatch:stalled:closed) return 0 ;;
-    dispatch:timeout:timeout|dispatch:timeout:failed|dispatch:timeout:circuit_broken|dispatch:timeout:closed) return 0 ;;
     dispatch:closed:closed|dispatch:circuit_broken:circuit_broken) return 0 ;;
     process:starting:starting|process:starting:running|process:starting:start-unproven|process:starting:failed|process:starting:stopping|process:starting:stopped|process:starting:stop-unproven|process:starting:abandoned) return 0 ;;
     process:start-unproven:start-unproven|process:start-unproven:running|process:start-unproven:failed|process:start-unproven:stopping|process:start-unproven:stopped|process:start-unproven:stop-unproven|process:start-unproven:abandoned) return 0 ;;
@@ -475,6 +473,9 @@ megabrain_dispatch_meta_read() {
     return 1
   fi
   jq -e . "$path" >/dev/null 2>&1 || { megabrain_error "dispatch metadata is not valid JSON: $dispatch_id"; return 1; }
+  # WHY: stalled and timeout were persisted by older versions on the contract axis;
+  # normalise them before any reader applies the current transition table.
+  megabrain_dispatch_meta_normalize "$dispatch_id" || return 1
   cat "$path"
 }
 
@@ -549,7 +550,8 @@ megabrain_dispatch_meta_normalize() {
   path="$(megabrain_dispatch_meta_path "$dispatch_id")" || return 1
   tmp="$(mktemp "$(megabrain_dispatch_dir "$dispatch_id")/.meta.XXXXXX")" || return 1
   if ! jq '
-    .processState //= (if .state == "spawning" then "starting" elif .state == "running" then "running" elif .state == "done" then "succeeded" elif .state == "failed" then "failed" elif .state == "closed" then "stopped" else "start-unproven" end)
+    if .state == "stalled" or .state == "timeout" then .state = "running" else . end
+    | .processState //= (if .state == "spawning" then "starting" elif .state == "running" then "running" elif .state == "done" then "succeeded" elif .state == "failed" then "failed" elif .state == "closed" then "stopped" else "start-unproven" end)
     | .terminalState //= "owned"
     | .terminalReason //= null
     | .failureCount //= 0
@@ -1869,7 +1871,7 @@ megabrain_dispatch_reply() {
   state="$(printf '%s' "$meta" | jq -r '.state // empty')"
   if ! megabrain_dispatch_reply_state_allowed "$state"; then
     case "$state" in
-      done|failed|closed|circuit_broken|timeout)
+      done|failed|closed|circuit_broken)
         megabrain_error "dispatch $dispatch_id is settled in state $state; open a new dispatch for a reply"
         ;;
       *)

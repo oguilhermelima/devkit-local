@@ -417,7 +417,7 @@ EOF
 }
 
 megabrain_tmux_agent_for_pane() {
-  local pane="$1" session record_path record agent resolved_agent=""
+  local pane="$1" session="" record_path="" record="" agent="" record_match="" record_state="" record_agent="" resolved_agent=""
   session="$(tmux display-message -p -t "$pane" '#{session_name}' 2>/dev/null || true)"
   [ -n "$session" ] || return 1
   # A worker parent pane is owned by a dispatch, not necessarily by the tmux
@@ -426,10 +426,15 @@ megabrain_tmux_agent_for_pane() {
   for record_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
     [ -f "$record_path" ] || continue
     record="$(cat "$record_path" 2>/dev/null || true)"
-    agent="$(printf '%s' "$record" | jq -r --arg session "$session" --arg pane "$pane" '
-      select(.runtime == "tmux" and .tmuxSession == $session and .tmuxPane == $pane and
-        (.state == "spawning" or .state == "running" or .state == "waiting_for_reply" or .state == "stalled")) |
-      .agent // empty' 2>/dev/null || true)"
+    record_match="$(printf '%s' "$record" | jq -r --arg session "$session" --arg pane "$pane" '
+      select(.runtime == "tmux" and .tmuxSession == $session and .tmuxPane == $pane) |
+      [.state // empty, .agent // empty] | @tsv' 2>/dev/null || true)"
+    while IFS=$'\t' read -r record_state record_agent; do
+      megabrain_dispatch_state_is_open "$record_state" || continue
+      agent="$record_agent"
+    done <<EOF
+$record_match
+EOF
     [ -n "$agent" ] || continue
     if [ -n "$resolved_agent" ] && [ "$resolved_agent" != "$agent" ]; then
       return 1

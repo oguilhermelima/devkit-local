@@ -23,6 +23,18 @@ MODULE_RETAINED_TERMINALS=0
 MODULE_LEAKED_DISPATCH_SESSIONS=0
 MODULE_PRUNABLE_DISPATCHES=0
 MEGABRAIN_STATE_RECONCILIATION=""
+MEGABRAIN_DISPATCH_OPEN_STATES='spawning
+running
+waiting_for_reply'
+
+megabrain_dispatch_state_is_open() {
+  [ -n "${1:-}" ] || return 1
+  printf '%s\n' "$MEGABRAIN_DISPATCH_OPEN_STATES" | grep -Fx "$1" >/dev/null 2>&1
+}
+
+megabrain_dispatch_open_states_json() {
+  printf '%s\n' "$MEGABRAIN_DISPATCH_OPEN_STATES" | jq -Rsc 'split("\n") | map(select(length > 0))'
+}
 
 megabrain_error() {
   printf 'megabrain: %s\n' "$*" >&2
@@ -240,7 +252,8 @@ megabrain_usage_line() {
     orchestrate-list) printf 'orchestrate list [--all|--orphans|--uncertain] [--json]' ;;
     orchestrate-prune) printf 'orchestrate prune [--older-than <days>] [--state <list>] [--archive|--delete] [--dry-run] [--json]' ;;
     orchestrate-reconcile) printf 'orchestrate reconcile <dispatch-id> [--all] [--json]' ;;
-    orchestrate-watch) printf 'orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--consumer <id>] [--generation <number>] [--json]' ;;
+    orchestrate-liveness) printf 'orchestrate liveness <dispatch-id> [--json]' ;;
+    orchestrate-watch) printf 'orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--consumer <id>] [--generation <number>] [--full] [--json]' ;;
     orchestrate-read) printf 'orchestrate read <dispatch-id> [--lines <count>] [--json]' ;;
     orchestrate-ack) printf 'orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json]' ;;
     orchestrate-reply) printf 'orchestrate reply <dispatch-id> --text <answer> [--json]' ;;
