@@ -6,8 +6,13 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-agent-liveness.XXXXXX")"
 fixture_dir="$root/tests/fixtures/agent-liveness"
 pane_output="$state_dir/pane.out"
+capture_calls_file="$state_dir/capture.calls"
+working_session="megabrain-agent-liveness-$$"
+working_pane=""
+capture_should_fail=false
 
 cleanup() {
+  tmux kill-session -t "$working_session" >/dev/null 2>&1 || true
   rm -rf "$state_dir"
 }
 trap cleanup EXIT
@@ -39,7 +44,17 @@ source "$root/lib/module-context.sh"
 source "$root/lib/module-parent-notify.sh"
 
 megabrain_tmux_capture_pane() {
+  printf 'called\n' >> "$capture_calls_file"
+  [ "$capture_should_fail" = false ] || return 1
   cat "$pane_output"
+}
+
+capture_call_count() {
+  wc -l <"$capture_calls_file" | tr -d ' '
+}
+
+megabrain_dispatch_render_transcript() {
+  cat "$1"
 }
 
 megabrain_tmux_agent_for_pane() {
@@ -47,16 +62,20 @@ megabrain_tmux_agent_for_pane() {
 }
 
 create_dispatch() {
-  local dispatch_id="$1" state="${2:-running}"
+  local dispatch_id="$1" state="${2:-running}" session="${3:-session}" pane="${4:-pane}"
   megabrain_dispatch_meta_write "$dispatch_id" parent-terminal superset superset workspace child-terminal \
-    "$root" main codex label "$state" gpt-5 true codex session pane tmux tmux >/dev/null
+    "$root" main codex label "$state" gpt-5 true codex "$session" "$pane" tmux tmux >/dev/null
 }
 
 write_pane_fixture() {
   cp "$fixture_dir/$1.transcript" "$pane_output"
 }
 
-create_dispatch working
+tmux new-session -d -s "$working_session" "export MEGABRAIN_DISPATCH_ID=working; exec -a MEGABRAIN_DISPATCH_ID=working sleep 60"
+working_pane="$(tmux list-panes -t "$working_session" -F '#{pane_id}')"
+[ -n "$working_pane" ] || fail 'could not create the identity fixture pane'
+
+create_dispatch working running "$working_session" "$working_pane"
 write_pane_fixture working
 working_result="$(megabrain_dispatch_liveness_read working --json)"
 assert_equal "$(jq -r '.terminalLiveness' <<<"$working_result")" working
@@ -89,6 +108,32 @@ printf '%s\n' "You've hit your usage limit for this account." "Switch to another
 quoted_result="$(megabrain_dispatch_liveness_read working --json)"
 assert_equal "$(jq -r '.terminalLiveness' <<<"$quoted_result")" unknown
 printf 'quoted marker does not trigger blocked classification\n'
+
+create_dispatch transcript-gone closed missing-session '%dead'
+cp "$fixture_dir/working.transcript" "$MEGABRAIN_DISPATCH_DIR/transcript-gone/transcript"
+capture_should_fail=true
+missing_result="$(megabrain_dispatch_liveness_read transcript-gone --json)"
+assert_equal "$(jq -r '.terminalLiveness' <<<"$missing_result")" missing
+assert_equal "$(jq -r '.source' <<<"$missing_result")" unknown
+assert_equal "$(capture_call_count)" 6
+capture_should_fail=false
+printf 'missing session does not classify stale transcript output\n'
+
+create_dispatch wrong-pane running "$working_session" "$working_pane"
+write_pane_fixture working
+: >"$capture_calls_file"
+wrong_identity_result="$(megabrain_dispatch_liveness_read wrong-pane --json)"
+assert_equal "$(jq -r '.terminalLiveness' <<<"$wrong_identity_result")" unknown
+assert_equal "$(jq -r '.source' <<<"$wrong_identity_result")" unknown
+assert_equal "$(capture_call_count)" 0
+printf 'pane with another dispatch identity is not read\n'
+
+: >"$capture_calls_file"
+proven_result="$(megabrain_dispatch_liveness_read working --json)"
+assert_equal "$(jq -r '.terminalLiveness' <<<"$proven_result")" working
+assert_equal "$(jq -r '.source' <<<"$proven_result")" tmux
+assert_equal "$(capture_call_count)" 1
+printf 'identity-proven pane remains classifiable\n'
 
 before_meta="$(cat "$MEGABRAIN_DISPATCH_DIR/working/meta.json")"
 write_pane_fixture working
