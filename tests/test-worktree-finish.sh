@@ -188,6 +188,7 @@ printf 'base\n' >"$work_dir/repo/base.txt"
 git -C "$work_dir/repo" add base.txt
 git -C "$work_dir/repo" commit -qm base
 git -C "$work_dir/repo" worktree add -q "$work_dir/shared/output" -b feat/output
+output_path="$(cd "$work_dir/shared/output" && pwd -P)"
 finish_uses_orca=true
 orca() {
   local command="" path=""
@@ -206,7 +207,7 @@ orca() {
 }
 output="$(megabrain_worktree_finish "$work_dir/shared/output" 2>&1)" ||
   fail "a removable worktree was refused: $output"
-assert_contains "$output" "removed: $work_dir/shared/output"
+assert_contains "$output" "removed: $output_path"
 case "$output" in
   *'"deleted"'*) fail 'the remover JSON was printed as megabrain output' ;;
 esac
