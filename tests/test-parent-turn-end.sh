@@ -40,10 +40,13 @@ assert_not_contains() {
 
 printf '%s\n' '#!/bin/sh' 'printf "%s\\n" "$*" >>"$MEGABRAIN_TEST_SEND_LOG"' >"$bin_dir/superset"
 chmod +x "$bin_dir/superset"
+printf '%s\n' '#!/bin/sh' 'if [ "$1" = capture-pane ]; then cat "$MEGABRAIN_TEST_PANE_OUTPUT"; fi' >"$bin_dir/tmux"
+chmod +x "$bin_dir/tmux"
 : >"$send_log"
 
 export MEGABRAIN_STATE_DIR="$state_dir/state"
 export MEGABRAIN_TEST_SEND_LOG="$send_log"
+export MEGABRAIN_TEST_PANE_OUTPUT="$state_dir/pane.out"
 export SUPERSET_TERMINAL_ID=parent-terminal
 export PATH="$bin_dir:$PATH"
 unset ORCA_TERMINAL_HANDLE TMUX TMUX_PANE
@@ -163,3 +166,16 @@ assert_equal "$(jq -r '.messages[0].type' <<<"$ack_delivery")" ack
 printf 'ack-only queue: watcher still receives the recorded message\n'
 
 printf 'child branch: covered by tests/test-e2e-findings.sh\n'
+
+megabrain_dispatch_meta_write refused parent-terminal superset tmux workspace-test refused-terminal \
+  "$root" main codex label running gpt-5 true codex refusal-session refusal-pane tmux tmux >/dev/null
+printf '%s\n%s\n' \
+  "You've hit your usage limit for this account." \
+  'Switch to another model now,' >"$MEGABRAIN_TEST_PANE_OUTPUT"
+run_hook
+assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/refused/meta.json")" failed
+assert_equal "$(jq -r '.processState' "$MEGABRAIN_DISPATCH_DIR/refused/meta.json")" failed
+assert_equal "$(jq -r '.stage' "$MEGABRAIN_DISPATCH_DIR/refused/meta.json")" limit-refused
+assert_equal "$(jq -r '.reconcileOutcome' "$MEGABRAIN_DISPATCH_DIR/refused/meta.json")" limit-refused
+assert_contains "$(jq -r '.reason' "$MEGABRAIN_DISPATCH_DIR/refused/meta.json")" 'usage limit'
+printf 'parent hook: records a pane usage-limit refusal without waiting\n'

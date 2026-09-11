@@ -301,6 +301,19 @@ megabrain_dispatch_meta_update_prompt_layers() {
   mv -f "$tmp" "$path"
 }
 
+megabrain_dispatch_meta_update_chain_context() {
+  local dispatch_id="$1" prompt="$2" path tmp
+  path="$(megabrain_dispatch_meta_path "$dispatch_id")" || return 1
+  tmp="$(mktemp "$(megabrain_dispatch_dir "$dispatch_id")/.meta.XXXXXX")" || return 1
+  if ! jq --arg prompt "$prompt" --arg now "$(megabrain_iso_now)" \
+    'if (.chain | type) == "object" then .chain.prompt = $prompt | .updatedAt = $now else . end' \
+    "$path" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$path"
+}
+
 megabrain_dispatch_transcript_path() {
   printf '%s/transcript\n' "$(megabrain_dispatch_dir "$1")"
 }
@@ -464,6 +477,39 @@ megabrain_dispatch_has_prompt_receipt() {
     jq -e '.from == "child" and .type == "received"' "$path" >/dev/null 2>&1 && return 0
   done
   return 1
+}
+
+MEGABRAIN_DISPATCH_LIMIT_REFUSAL=false
+MEGABRAIN_DISPATCH_LIMIT_REFUSAL_REASON=""
+
+megabrain_dispatch_limit_refusal_read() {
+  local dispatch_id="$1" meta runtime pane output
+  MEGABRAIN_DISPATCH_LIMIT_REFUSAL=false
+  MEGABRAIN_DISPATCH_LIMIT_REFUSAL_REASON=""
+  meta="$(megabrain_dispatch_meta_read "$dispatch_id" 2>/dev/null || true)"
+  [ -n "$meta" ] || return 1
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  [ "$runtime" = tmux ] || return 0
+  pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
+  [ -n "$pane" ] || return 0
+  output="$(megabrain_tmux_capture_pane "$pane" -200 2>/dev/null || true)"
+  # WHY: tmux captures echoed input too; a refusal needs both the anchored first
+  # marker and the separate model-switch marker, so prose that merely quotes its
+  # first line cannot trigger the guard.
+  if printf '%s\n' "$output" | grep -E "^You've hit your usage limit for" >/dev/null 2>&1; then
+    case "$output" in
+      *"Switch to another model now,"*)
+        MEGABRAIN_DISPATCH_LIMIT_REFUSAL=true
+        MEGABRAIN_DISPATCH_LIMIT_REFUSAL_REASON="agent refused the dispatch: You've hit your usage limit for"
+        ;;
+    esac
+  fi
+}
+
+megabrain_dispatch_mark_limit_refused() {
+  local dispatch_id="$1" reason="${2:-${MEGABRAIN_DISPATCH_LIMIT_REFUSAL_REASON:-agent refused the dispatch for a usage limit}}"
+  megabrain_dispatch_meta_update_prompt_layers "$dispatch_id" __keep__ __keep__ unknown failed "$reason" >/dev/null 2>&1 || true
+  megabrain_dispatch_meta_update_fields "$dispatch_id" failed failed __keep__ limit-refused "$reason" limit-refused __keep__ __keep__
 }
 
 megabrain_dispatch_wait_for_prompt_receipt() {

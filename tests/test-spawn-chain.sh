@@ -213,4 +213,26 @@ assert_equal "$(printf '%s' "$chain_json" | jq -r '.skipped[0].kind,.skipped[0].
 assert_contains "$(printf '%s' "$chain_json" | jq -r '.reason')" 'codex 5h window at 99 percent'
 printf 'chain run preserves skipped-step reporting: passed\n'
 
+# A refusal recorded by the parent hook is a failed chain step. Continuation starts
+# at the following step and reuses the original prompt without replaying step 1.
+clear_state
+write_config '{"chains":{"fallback":{"when":{"parentAgent":"codex"},"steps":[{"agent":"codex","model":"gpt-5.6-luna","effort":"high"},{"agent":"agy","model":"gemini-3.8-flash-medium"}]}},"defaultSteps":[]}'
+megabrain_dispatch_meta_write refused-chain parent-terminal superset superset workspace-test refused-terminal \
+  "$root" main codex label running gpt-5 true codex '' '' host ide '' '' workspace-test fallback 1 2 'initial chain step' false >/dev/null
+jq '.chain.prompt = "resume-prompt"' "$MEGABRAIN_STATE_DIR/dispatches/refused-chain/meta.json" >"$state_root/refused-meta.json"
+mv -f "$state_root/refused-meta.json" "$MEGABRAIN_STATE_DIR/dispatches/refused-chain/meta.json"
+megabrain_dispatch_mark_limit_refused refused-chain 'codex refused: usage limit marker'
+megabrain_chain_run_spawn() {
+  local dispatch_id=dispatch-test-continuation
+  printf '%s\t%s\n' agy resume-prompt >"$state_root/continuation-spawn"
+  megabrain_dispatch_meta_write "$dispatch_id" parent-terminal superset superset workspace-test child-terminal \
+    "$root" main agy label spawning gemini-3.8-flash-high true agy '' '' host ide >/dev/null
+  printf '{"dispatch":"%s"}\n' "$dispatch_id"
+}
+megabrain_chain_continue_refused refused-chain
+assert_equal "$(cut -f1 "$state_root/continuation-spawn")" agy
+assert_equal "$(cut -f2 "$state_root/continuation-spawn")" resume-prompt
+assert_equal "$MEGABRAIN_CHAIN_WALK_STEP" 2
+printf 'refused chain continuation: advanced from the recorded failure\n'
+
 printf 'ok: spawn chain scenarios\n'

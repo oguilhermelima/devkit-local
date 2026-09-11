@@ -5,7 +5,8 @@ set -euo pipefail
 # Scenarios written before the implementation:
 # 1. Invalid chain validation names the chain, step, and offending field.
 # 2. JSON chain list output stays byte-identical for several chains.
-# 3. Chain-list jq process count does not grow with the number of chains.
+# 3. onUnknown accepts take and skip, and rejects other values.
+# 4. Chain-list jq process count does not grow with the number of chains.
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 state_root="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-chain-validation.XXXXXX")"
@@ -68,6 +69,19 @@ if invalid_output="$(PATH="$path_without_wrapper" "$root/megabrain" chain list -
 fi
 assert_contains "$invalid_output" 'invalid chain broken-chain step 1: unsupported field unexpected'
 printf 'invalid chain: chain, step, and field are named\n'
+
+valid_policy_config="{\"chains\":{\"policy\":{\"when\":{\"parentAgent\":\"codex\"},\"steps\":[{\"agent\":\"codex\",\"model\":\"gpt-5.6-luna\",\"effort\":\"high\",\"until\":{\"usedPercent\":95,\"window\":\"5h\",\"onUnknown\":\"skip\"}}]}},\"defaultSteps\":[],$usage_limits}"
+prepare_state valid-policy "$valid_policy_config"
+PATH="$path_without_wrapper" "$root/megabrain" chain list --json >/dev/null
+printf 'onUnknown skip policy: accepted\n'
+
+invalid_policy_config="{\"chains\":{\"broken-policy\":{\"when\":{\"parentAgent\":\"codex\"},\"steps\":[{\"agent\":\"codex\",\"model\":\"gpt-5.6-luna\",\"effort\":\"high\",\"until\":{\"usedPercent\":95,\"window\":\"5h\",\"onUnknown\":\"defer\"}}]}},\"defaultSteps\":[],$usage_limits}"
+prepare_state invalid-policy "$invalid_policy_config"
+if invalid_policy_output="$(PATH="$path_without_wrapper" "$root/megabrain" chain list --json 2>&1)"; then
+  fail 'invalid onUnknown policy unexpectedly passed validation'
+fi
+assert_contains "$invalid_policy_output" 'until.onUnknown'
+printf 'onUnknown invalid policy: rejected with a named field\n'
 
 # 2. Pin the exact JSON bytes for multiple chains and default steps.
 prepare_state several "$several_chains"
