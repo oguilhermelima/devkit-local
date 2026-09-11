@@ -178,41 +178,43 @@ scenario_root_branch_uses_repository_default
 scenario_missing_parent_falls_back_loudly
 scenario_explicit_base_overrides_recorded_parent
 
-rm -rf "$work_dir/repo" "$work_dir/shared" "$work_dir/state"
-mkdir -p "$work_dir/shared" "$work_dir/state"
-fixture_shared_root="$work_dir/shared"
-git init -q "$work_dir/repo"
-git -C "$work_dir/repo" config user.email tester@example.com
-git -C "$work_dir/repo" config user.name tester
-printf 'base\n' >"$work_dir/repo/base.txt"
-git -C "$work_dir/repo" add base.txt
-git -C "$work_dir/repo" commit -qm base
-git -C "$work_dir/repo" worktree add -q "$work_dir/shared/output" -b feat/output
-output_path="$(cd "$work_dir/shared/output" && pwd -P)"
-finish_uses_orca=true
-orca() {
-  local command="" path=""
-  command="$1 $2"
-  [ "$command" = 'worktree rm' ] || return 1
-  shift 2
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --worktree) path="$(printf '%s' "$2" | sed 's/^path://')"; shift 2 ;;
-      --json|--force) shift ;;
-      *) shift ;;
-    esac
-  done
-  git -C "$work_dir/repo" worktree remove "$path"
-  printf '%s\n' '{"deleted":["external-id"],"warnings":[]}'
-}
-output="$(megabrain_worktree_finish "$work_dir/shared/output" 2>&1)" ||
-  fail "a removable worktree was refused: $output"
-assert_contains "$output" "removed: $output_path"
-case "$output" in
-  *'"deleted"'*) fail 'the remover JSON was printed as megabrain output' ;;
-esac
-[ ! -e "$work_dir/shared/output" ] || fail 'the successful finish kept the worktree'
-printf 'successful finish owns its human-readable output\n'
+(
+  rm -rf "$work_dir/repo" "$work_dir/shared" "$work_dir/state"
+  mkdir -p "$work_dir/shared" "$work_dir/state"
+  fixture_shared_root="$work_dir/shared"
+  git init -q "$work_dir/repo"
+  git -C "$work_dir/repo" config user.email tester@example.com
+  git -C "$work_dir/repo" config user.name tester
+  printf 'base\n' >"$work_dir/repo/base.txt"
+  git -C "$work_dir/repo" add base.txt
+  git -C "$work_dir/repo" commit -qm base
+  git -C "$work_dir/repo" worktree add -q "$work_dir/shared/output" -b feat/output
+  output_path="$(cd "$work_dir/shared/output" && pwd -P)"
+  finish_uses_orca=true
+  orca() {
+    local command="" path=""
+    command="$1 $2"
+    [ "$command" = 'worktree rm' ] || return 1
+    shift 2
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --worktree) path="$(printf '%s' "$2" | sed 's/^path://')"; shift 2 ;;
+        --json|--force) shift ;;
+        *) shift ;;
+      esac
+    done
+    git -C "$work_dir/repo" worktree remove "$path"
+    printf '%s\n' '{"deleted":["external-id"],"warnings":[]}'
+  }
+  output="$(megabrain_worktree_finish "$work_dir/shared/output" 2>&1)" ||
+    fail "a removable worktree was refused: $output"
+  assert_contains "$output" "removed: $output_path"
+  case "$output" in
+    *'"deleted"'*) fail 'the remover JSON was printed as megabrain output' ;;
+  esac
+  [ ! -e "$work_dir/shared/output" ] || fail 'the successful finish kept the worktree'
+  printf 'successful finish owns its human-readable output\n'
+)
 
 rm -rf "$work_dir/repo" "$work_dir/shared" "$work_dir/state"
 finish_uses_orca=true
