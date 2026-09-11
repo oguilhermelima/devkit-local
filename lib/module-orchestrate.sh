@@ -384,6 +384,69 @@ megabrain_dispatch_render_transcript() {
   printf '%s\n' "$trimmed"
 }
 
+MEGABRAIN_DISPATCH_LIVENESS_STATUS=unknown
+MEGABRAIN_DISPATCH_LIVENESS_REASON=''
+MEGABRAIN_DISPATCH_LIVENESS_SOURCE=unknown
+
+megabrain_dispatch_liveness_read() {
+  local dispatch_id="$1" json=false arg meta runtime pane agent output transcript_path source
+  MEGABRAIN_DISPATCH_LIVENESS_STATUS=unknown
+  MEGABRAIN_DISPATCH_LIVENESS_REASON=''
+  MEGABRAIN_DISPATCH_LIVENESS_SOURCE=unknown
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=true; shift ;;
+      *) megabrain_error "unknown liveness option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
+    esac
+  done
+  meta="$(megabrain_dispatch_meta_read "$dispatch_id")" || return 1
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
+  agent="$(printf '%s' "$meta" | jq -r '.agent // empty')"
+  if [ "$runtime" = tmux ] && [ -n "$pane" ]; then
+    agent="$(megabrain_tmux_agent_for_pane "$pane" 2>/dev/null || printf '%s' "$agent")"
+    if output="$(megabrain_tmux_capture_pane "$pane" -200 2>/dev/null)" && [ -n "$output" ]; then
+      source=tmux
+    else
+      transcript_path="$(megabrain_dispatch_transcript_path "$dispatch_id")"
+      if [ -f "$transcript_path" ]; then
+        output="$(megabrain_dispatch_render_transcript "$transcript_path" 200 2>/dev/null || true)"
+        source=file
+      else
+        output=''
+      fi
+    fi
+    if [ -n "$output" ] && [ -n "$agent" ]; then
+      megabrain_tmux_liveness_classify "$agent" "$output"
+      MEGABRAIN_DISPATCH_LIVENESS_STATUS="${MEGABRAIN_TMUX_LIVENESS_STATUS:-unknown}"
+      MEGABRAIN_DISPATCH_LIVENESS_REASON="${MEGABRAIN_TMUX_LIVENESS_REASON:-}"
+    fi
+  fi
+  if [ "$json" = true ]; then
+    jq -n --arg dispatchId "$dispatch_id" --arg dispatchState "$(printf '%s' "$meta" | jq -r '.state // "unknown"')" \
+      --arg terminalLiveness "$MEGABRAIN_DISPATCH_LIVENESS_STATUS" --arg source "$MEGABRAIN_DISPATCH_LIVENESS_SOURCE" \
+      --arg reason "$MEGABRAIN_DISPATCH_LIVENESS_REASON" \
+      '{dispatchId: $dispatchId, dispatchState: $dispatchState, terminalLiveness: $terminalLiveness, source: $source, reason: (if $reason == "" then null else $reason end)}'
+  else
+    printf 'dispatch: %s\nstate: %s\nterminal liveness: %s\nsource: %s\n' \
+      "$dispatch_id" "$(printf '%s' "$meta" | jq -r '.state // "unknown"')" \
+      "$MEGABRAIN_DISPATCH_LIVENESS_STATUS" "$MEGABRAIN_DISPATCH_LIVENESS_SOURCE"
+    [ -n "$MEGABRAIN_DISPATCH_LIVENESS_REASON" ] && printf 'reason: %s\n' "$MEGABRAIN_DISPATCH_LIVENESS_REASON"
+  fi
+}
+
+megabrain_dispatch_liveness() {
+  local dispatch_id="${1:-}"
+  case "$dispatch_id" in
+    -h|--help) megabrain_usage_show orchestrate-liveness; return 0 ;;
+  esac
+  [ -n "$dispatch_id" ] || { megabrain_usage_fail orchestrate-liveness; return "$MEGABRAIN_USAGE_ERROR"; }
+  shift
+  megabrain_dispatch_liveness_read "$dispatch_id" "$@"
+}
+
 megabrain_dispatch_start_transcript() {
   local dispatch_id="$1" pane="$2" path
   path="$(megabrain_dispatch_transcript_path "$dispatch_id")" || return 1

@@ -45,6 +45,7 @@ command_orchestrate() {
     list) command_orchestrate_list "$@" ;;
     prune) megabrain_dispatch_prune "$@" ;;
     reconcile) megabrain_dispatch_reconcile "$@" ;;
+    liveness) megabrain_dispatch_liveness "$@" ;;
     watch) megabrain_dispatch_watch "$@" ;;
     read) megabrain_dispatch_read "$@" ;;
     ack|acknowledge) megabrain_dispatch_ack "$@" ;;
