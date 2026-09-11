@@ -90,6 +90,10 @@ megabrain_tmux_session_exists() {
   grep -Fx "$1" "$live_sessions" >/dev/null 2>&1
 }
 
+megabrain_dispatch_terminal_status() {
+  MEGABRAIN_TERMINAL_STATUS=proven
+}
+
 megabrain_dispatch_close_refuse_caller() {
   return 0
 }
@@ -338,5 +342,24 @@ assert_equal "$(printf '%s' "$prune_result" | jq -r '.skippedDispatches[] | sele
 assert_file "$MEGABRAIN_DISPATCH_DIR/open-session/meta.json"
 assert_equal "$(grep -c '^open-session$' "$live_sessions")" 1
 printf 'prune refuses an open dispatch and leaves its session alive\n'
+
+printf '%s\n' 'unproven-session' >"$live_sessions"
+write_dispatch unproven-session done unproven-session
+touch "$(transcript_path unproven-session)"
+set_old_timestamp unproven-session
+megabrain_dispatch_terminal_status() {
+  MEGABRAIN_TERMINAL_STATUS=unknown
+}
+unproven_prune_result="$(command_orchestrate prune --json)"
+assert_equal "$(printf '%s' "$unproven_prune_result" | jq -r '.archived')" 1
+if grep -Fx 'unproven-session' "$live_sessions" >/dev/null 2>&1; then
+  :
+else
+  fail 'prune released an unproven terminal identity'
+fi
+if grep -Fx 'unproven-session' "$release_log" >/dev/null 2>&1; then
+  fail 'prune released an unproven terminal identity'
+fi
+printf 'prune leaves a terminal with unproven identity alive\n'
 
 printf 'ok: dispatch transcript persistence and session release\n'
