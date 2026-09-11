@@ -1591,7 +1591,7 @@ megabrain_dispatch_report() {
 }
 
 megabrain_dispatch_mailbox_watch() {
-  local mailbox="$1" dispatch_id timeout=120 poll_interval=3 wait_mode=nudge json=false arg meta start_time now remaining
+  local mailbox="$1" dispatch_id timeout=120 poll_interval=3 wait_mode=nudge json=false full=false arg meta start_time now remaining
   local consumer="${MEGABRAIN_CONSUMER_ID:-}" generation="${MEGABRAIN_CONSUMER_GENERATION:-1}"
   local messages_dir deliveries_dir lock path seq from type message_seqs delivery_id outstanding_path outstanding_consumer outstanding_generation
   shift
@@ -1622,6 +1622,7 @@ megabrain_dispatch_mailbox_watch() {
       --poll) wait_mode=poll; shift ;;
       --consumer) consumer="${2:-}"; shift 2 ;;
       --generation) generation="${2:-}"; shift 2 ;;
+      --full) full=true; shift ;;
       --json) json=true; shift ;;
       -h|--help)
         if [ "$mailbox" = parent ]; then
@@ -1685,10 +1686,18 @@ megabrain_dispatch_mailbox_watch() {
       type="$(jq -r '.type // empty' "$path")"
       if [ "$mailbox" = parent ]; then
         [ "$from" = child ] || continue
-        case "$type" in ask|done|stalled|received|ack) ;; *) continue ;; esac
+        if [ "$full" = true ]; then
+          case "$type" in ask|done|stalled|received|ack) ;; *) continue ;; esac
+        else
+          case "$type" in ask|done|stalled) ;; *) continue ;; esac
+        fi
       else
         [ "$from" = parent ] || continue
-        [ "$type" = reply ] || continue
+        if [ "$full" = true ]; then
+          case "$type" in reply|received|ack|ask|done|stalled) ;; *) continue ;; esac
+        else
+          [ "$type" = reply ] || continue
+        fi
       fi
       megabrain_dispatch_seq_acknowledged "$deliveries_dir" "$seq" && continue
       message_seqs="$(jq --argjson seq "$seq" '. + [$seq]' <<<"$message_seqs")" || { rmdir "$lock"; return 1; }

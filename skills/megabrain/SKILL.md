@@ -49,7 +49,8 @@ through tmux; over the limit is refused before anything is created, never trunca
 
 ```
 megabrain orchestrate list [--all|--orphans|--uncertain] [--json]
-megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--json]
+megabrain orchestrate liveness <dispatch-id> [--json]
+megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--consumer <id>] [--generation <number>] [--full] [--json]
 megabrain orchestrate ack <dispatch-id> <delivery-id> [--json]
 megabrain orchestrate reply <dispatch-id> --text <answer> [--json]
 megabrain orchestrate read <dispatch-id> [--lines <count>] [--json]
@@ -110,7 +111,7 @@ you to open a new dispatch rather than queueing an undeliverable message.
 ```
 megabrain received                 confirm that the prompt was received
 megabrain ask "question"           ask the coordinator and keep working only if told to
-megabrain check [--timeout <seconds>] [--poll-interval <seconds>] [--json]
+megabrain check [--timeout <seconds>] [--poll-interval <seconds>] [--full] [--json]
 megabrain ack <delivery-id> [--json]
 megabrain done "summary"           report the outcome and what you verified
 ```
