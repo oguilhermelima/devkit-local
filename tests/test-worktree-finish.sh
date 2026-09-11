@@ -113,20 +113,67 @@ scenario_stacked_branch_uses_recorded_parent() {
 }
 
 scenario_unmerged_branch_is_still_refused() {
-  local output
+  local output finish_rc finish_err
   setup_stack_fixture
   printf 'child\n' >"$work_dir/shared/child/child.txt"
   git -C "$work_dir/shared/child" add child.txt
   git -C "$work_dir/shared/child" commit -qm child
-  if output="$(megabrain_worktree_finish "$work_dir/shared/child" --delete-branch --json 2>&1)"; then
-    fail 'a branch merged into neither base was deleted'
-  fi
-  assert_contains "$output" 'refusing to delete unmerged branch: stack/child'
-  assert_contains "$output" 'base stack/base'
+  set +e
+  output="$(megabrain_worktree_finish "$work_dir/shared/child" --delete-branch --json 2>"$work_dir/unmerged.err")"
+  finish_rc=$?
+  set -e
+  [ "$finish_rc" -ne 0 ] || fail 'a branch merged into neither base was deleted'
+  printf '%s' "$output" | jq -e '.deleted == false and .refusal.code == "unmerged-branch" and (.refusal.message | contains("stack/child")) and .branch == "stack/child" and .base == "stack/base"' >/dev/null ||
+    fail "unmerged refusal did not return a JSON outcome: $output"
+  finish_err="$(cat "$work_dir/unmerged.err")"
+  assert_contains "$finish_err" 'refusing to delete unmerged branch: stack/child'
   [ -e "$work_dir/shared/child" ] || fail 'the refused branch worktree was removed before the guard'
   git -C "$work_dir/repo" branch --list stack/child | grep -q stack/child ||
     fail 'an unmerged branch was deleted despite the refusal'
   printf 'a branch merged into neither base remains refused\n'
+}
+
+scenario_worktree_not_found_returns_json_refusal() {
+  local output finish_rc finish_err
+  setup_root_fixture
+  set +e
+  output="$(megabrain_worktree_finish "$work_dir/shared/missing" --json 2>"$work_dir/missing.err")"
+  finish_rc=$?
+  set -e
+  [ "$finish_rc" -ne 0 ] || fail 'a missing worktree was accepted'
+  printf '%s' "$output" | jq -e '.deleted == false and .refusal.code == "worktree-not-found" and (.refusal.message | contains("shared/missing")) and .branch == null and .path == null' >/dev/null ||
+    fail "missing worktree refusal did not return a JSON outcome: $output"
+  finish_err="$(cat "$work_dir/missing.err")"
+  assert_contains "$finish_err" 'worktree not found: '
+  printf 'a missing worktree returns a JSON refusal\n'
+}
+
+scenario_missing_target_returns_json_refusal() {
+  local output finish_rc finish_err
+  set +e
+  output="$(megabrain_worktree_finish --json 2>"$work_dir/missing-target.err")"
+  finish_rc=$?
+  set -e
+  [ "$finish_rc" -eq "$MEGABRAIN_USAGE_ERROR" ] || fail 'a missing target returned the wrong status'
+  printf '%s' "$output" | jq -e '.deleted == false and .refusal.code == "invalid-arguments" and (.refusal.message | contains("worktree finish"))' >/dev/null ||
+    fail "missing target did not return a JSON refusal: $output"
+  finish_err="$(cat "$work_dir/missing-target.err")"
+  assert_contains "$finish_err" 'Usage: megabrain worktree finish'
+  printf 'a missing target returns a JSON refusal\n'
+}
+
+scenario_unknown_option_returns_json_refusal() {
+  local output finish_rc finish_err
+  set +e
+  output="$(megabrain_worktree_finish --json --unexpected 2>"$work_dir/unknown-option.err")"
+  finish_rc=$?
+  set -e
+  [ "$finish_rc" -eq "$MEGABRAIN_USAGE_ERROR" ] || fail 'an unknown option returned the wrong status'
+  printf '%s' "$output" | jq -e '.deleted == false and .refusal.code == "invalid-arguments" and (.refusal.message | contains("unknown worktree finish option"))' >/dev/null ||
+    fail "unknown option did not return a JSON refusal: $output"
+  finish_err="$(cat "$work_dir/unknown-option.err")"
+  assert_contains "$finish_err" 'unknown worktree finish option: --unexpected'
+  printf 'an unknown option returns a JSON refusal\n'
 }
 
 scenario_root_branch_uses_repository_default() {
@@ -207,8 +254,16 @@ scenario_branch_delete_failure_returns_json() {
   printf 'branch deletion failure returns a partial JSON outcome\n'
 }
 
+if [ -n "${FINISH_SCENARIO:-}" ]; then
+  "$FINISH_SCENARIO"
+  exit $?
+fi
+
 scenario_stacked_branch_uses_recorded_parent
 scenario_unmerged_branch_is_still_refused
+scenario_worktree_not_found_returns_json_refusal
+scenario_missing_target_returns_json_refusal
+scenario_unknown_option_returns_json_refusal
 scenario_root_branch_uses_repository_default
 scenario_missing_parent_falls_back_loudly
 scenario_explicit_base_overrides_recorded_parent
