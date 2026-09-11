@@ -853,7 +853,6 @@ ${prompt}"
       return 1
     }
     MEGABRAIN_LAST_DISPATCH="$dispatch_id"
-    megabrain_notice "dispatch $dispatch_id prompt awaiting receipt; run megabrain orchestrate reconcile $dispatch_id"
     printf '%s\n' "$response"
     return 0
   fi
