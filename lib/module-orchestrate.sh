@@ -15,6 +15,7 @@ MEGABRAIN_DISPATCH_CLOSE_OUTCOME=unknown
 MEGABRAIN_DISPATCH_CLOSE_ERROR=""
 MEGABRAIN_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS=60
 MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS=7
+MEGABRAIN_TRANSCRIPT_MAX_BYTES="${MEGABRAIN_TRANSCRIPT_MAX_BYTES:-10485760}"
 
 megabrain_dispatch_prune_states() {
   printf 'closed,done,failed,orphaned,circuit_broken\n'
@@ -385,6 +386,46 @@ megabrain_dispatch_transcript_path() {
   printf '%s/transcript\n' "$(megabrain_dispatch_dir "$1")"
 }
 
+# Streams path capped to at most max_bytes, keeping the END of the file
+# (front truncation). A file at or under max_bytes passes through unchanged.
+# When truncation happens, the first (possibly partial) line of the kept
+# slice is dropped, since a byte-boundary cut can land inside a line or an
+# escape sequence.
+megabrain_transcript_capped_stream() {
+  local path="$1" max_bytes="$2" size
+  size="$(wc -c <"$path" 2>/dev/null | tr -d ' ')"
+  case "$size" in
+    ''|*[!0-9]*)
+      cat "$path"
+      return $?
+      ;;
+  esac
+  if [ "$size" -gt "$max_bytes" ]; then
+    tail -c "$max_bytes" "$path" | tail -n +2
+  else
+    cat "$path"
+  fi
+}
+
+# Truncates path in place to at most max_bytes, front-truncating (keeping
+# the tail) via megabrain_transcript_capped_stream. A no-op when the file
+# is missing or already at or under max_bytes.
+megabrain_transcript_truncate_file() {
+  local path="$1" max_bytes="$2" size tmp
+  [ -f "$path" ] || return 0
+  size="$(wc -c <"$path" 2>/dev/null | tr -d ' ')"
+  case "$size" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$size" -gt "$max_bytes" ] || return 0
+  tmp="$(mktemp "${path}.XXXXXX")" || return 1
+  if ! megabrain_transcript_capped_stream "$path" "$max_bytes" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$path"
+}
+
 megabrain_dispatch_render_transcript() {
   local path="$1" lines="$2" render_dir='' replay_path='' socket='' session='' marker='' start_marker='' history_limit=0 raw_line_count=0 attempts=0
   local command_text="" rendered="" trimmed=""
@@ -394,7 +435,11 @@ megabrain_dispatch_render_transcript() {
   session="megabrain-render-$$-${RANDOM:-0}"
   marker="$render_dir/complete"
   start_marker="$render_dir/start"
-  if ! awk -v esc="$(printf '\033')" '{ gsub(esc "\\[3J", ""); print }' "$path" >"$replay_path"; then
+  # Never load more than MEGABRAIN_TRANSCRIPT_MAX_BYTES of the source file: this is
+  # the bound that actually holds regardless of whether a lifecycle path ever
+  # truncated the persisted transcript on disk.
+  if ! megabrain_transcript_capped_stream "$path" "$MEGABRAIN_TRANSCRIPT_MAX_BYTES" |
+    awk -v esc="$(printf '\033')" '{ gsub(esc "\\[3J", ""); print }' >"$replay_path"; then
     rm -rf "$render_dir"
     return 1
   fi
@@ -541,13 +586,21 @@ megabrain_dispatch_start_transcript() {
 }
 
 megabrain_dispatch_stop_transcript() {
-  local meta="$1" runtime pane
+  local meta="$1" runtime pane dispatch_id transcript_path
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"' 2>/dev/null || true)"
   [ "$runtime" = tmux ] || return 0
   pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty' 2>/dev/null || true)"
   [ -n "$pane" ] || return 0
   declare -F megabrain_tmux_pipe_pane_stop >/dev/null 2>&1 || return 0
   megabrain_tmux_pipe_pane_stop "$pane" >/dev/null 2>&1 || true
+  # Housekeeping for disk: bounds the file once its writer has stopped. This is not
+  # the bound that protects the render path's memory use, which caps on every read
+  # regardless of whether this ever runs (a pane that just dies never reaches here).
+  dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty' 2>/dev/null || true)"
+  if [ -n "$dispatch_id" ]; then
+    transcript_path="$(megabrain_dispatch_transcript_path "$dispatch_id")" || return 0
+    megabrain_transcript_truncate_file "$transcript_path" "$MEGABRAIN_TRANSCRIPT_MAX_BYTES" || true
+  fi
   return 0
 }
 
