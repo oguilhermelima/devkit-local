@@ -1247,6 +1247,7 @@ megabrain_dispatch_message_append_locked() {
   fi
   mv -f "$tmp" "$path"
   MEGABRAIN_LAST_MESSAGE_SEQ="$seq"
+  MEGABRAIN_LAST_MESSAGE_NUDGE=""
   case "$from:$type" in
     parent:reply) recipient=child; notify=true ;;
     *)
@@ -1268,7 +1269,8 @@ megabrain_dispatch_message_append_locked() {
         type megabrain_parent_notify_dispatch >/dev/null 2>&1 &&
           megabrain_parent_notify_dispatch "$meta" >/dev/null 2>&1 || true
       else
-        megabrain_dispatch_native_send "$meta" "$(megabrain_dispatch_reply_pointer "$dispatch_id")" >/dev/null 2>&1 || true
+        megabrain_dispatch_native_send "$meta" "$(megabrain_dispatch_reply_pointer "$dispatch_id")" >/dev/null 2>&1
+        MEGABRAIN_LAST_MESSAGE_NUDGE="${MEGABRAIN_DISPATCH_NATIVE_SEND_STATUS:-not-typed}"
       fi
     fi
   fi
@@ -1562,7 +1564,8 @@ megabrain_dispatch_find_child() {
 }
 
 megabrain_dispatch_native_send() {
-  local meta="$1" text="$2" host workspace_id terminal_id runtime tmux_session tmux_pane agent
+  local meta="$1" text="$2" host workspace_id terminal_id runtime tmux_session tmux_pane agent rc
+  MEGABRAIN_DISPATCH_NATIVE_SEND_STATUS=not-typed
   host="$(printf '%s' "$meta" | jq -r '.childHost')"
   workspace_id="$(printf '%s' "$meta" | jq -r '.workspaceId // empty')"
   terminal_id="$(printf '%s' "$meta" | jq -r '.terminalId')"
@@ -1574,7 +1577,12 @@ megabrain_dispatch_native_send() {
     [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] || { megabrain_error "tmux dispatch metadata has no session or pane"; return 1; }
     megabrain_tmux_session_exists "$tmux_session" || { megabrain_error "tmux session is no longer available: $tmux_session"; return 1; }
     megabrain_tmux_send_nudge "$tmux_pane" "$text" "$agent"
-    return $?
+    rc=$?
+    # WHY: megabrain_tmux_send_text can return 0 after a failed type was merely
+    # cleaned up. MEGABRAIN_TMUX_SEND_STATUS is the only field that says whether
+    # the text actually reached the pane; the return code alone is not trustworthy.
+    [ "${MEGABRAIN_TMUX_SEND_STATUS:-not-typed}" = queued ] && MEGABRAIN_DISPATCH_NATIVE_SEND_STATUS=typed
+    return "$rc"
   fi
   case "$host" in
     superset)
@@ -1591,6 +1599,7 @@ megabrain_dispatch_native_send() {
       ;;
     *) megabrain_error "unsupported child host: $host"; return 1 ;;
   esac
+  MEGABRAIN_DISPATCH_NATIVE_SEND_STATUS=typed
 }
 
 megabrain_dispatch_reply_pointer() {
@@ -2079,7 +2088,7 @@ megabrain_dispatch_child_ack() {
 }
 
 megabrain_dispatch_reply() {
-  local dispatch_id="${1:-}" answer="" json=false arg meta state status
+  local dispatch_id="${1:-}" answer="" json=false arg meta state status nudge
   case "$dispatch_id" in
     -h|--help) megabrain_usage_show orchestrate-reply; return 0 ;;
   esac
@@ -2111,13 +2120,19 @@ megabrain_dispatch_reply() {
   fi
   megabrain_dispatch_message_append "$dispatch_id" parent reply "$answer" "$MEGABRAIN_SESSION_ID" >/dev/null || return 1
   status=queued
+  # The reply is durable either way; the nudge is only a best-effort pointer into the
+  # pane. Report status=queued always, and say separately whether the nudge was typed,
+  # so a failed keystroke is never mistaken for a lost reply.
+  nudge="${MEGABRAIN_LAST_MESSAGE_NUDGE:-not-typed}"
   if [ "$state" != done ]; then
     megabrain_dispatch_meta_update_state "$dispatch_id" running || return 1
   fi
   if [ "$json" = true ]; then
-    jq -n --arg dispatchId "$dispatch_id" --arg status "$status" '{dispatchId: $dispatchId, status: $status}'
+    jq -n --arg dispatchId "$dispatch_id" --arg status "$status" --arg nudge "$nudge" \
+      '{dispatchId: $dispatchId, status: $status, nudge: $nudge}'
   else
     printf '%s: %s\n' "$status" "$dispatch_id"
+    [ "$nudge" = typed ] || printf 'nudge not typed; the child will still find this reply with megabrain check\n'
   fi
 }
 
