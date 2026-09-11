@@ -214,9 +214,10 @@ megabrain fact list|add|edit|remove ...
 out of the JSON. Install `orchestration-hooks` to get the child turn-end safety hook, which
 reports a child whose turn ended without `ask` or `done`.
 
-The installable module ids include `tv-adb` and `skill-sync`. `skill-sync` compares the shipped
-skill with each registered agent copy on every invocation and repairs drift; a per-target stamp
-makes unchanged copies nearly free. `megabrain doctor skill-sync` reports drift as `skill-sync`.
+The installable module ids include `tv-adb` and `skill-sync`. During normal command invocations,
+`skill-sync` compares the shipped skill with each registered agent copy and repairs drift; `--help`
+and `doctor` skip that runtime repair. A per-target stamp makes unchanged copies nearly free.
+`megabrain doctor skill-sync` reports drift as `skill-sync`.
 
 `doctor` also counts `leakedDispatchSessions`: tmux sessions still held by finished dispatches.
 `orchestrate prune` can release those sessions while archiving or deleting eligible dispatch

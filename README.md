@@ -350,10 +350,10 @@ megabrain tv disconnect
 megabrain doctor simulator-native           # what is missing and how to get it
 ```
 
-`megabrain doctor skill-sync` checks the installed copies of this skill. On every invocation,
-megabrain compares and repairs registered agent copies when needed; a per-target stamp makes an
-unchanged copy a no-op. Drift is reported as `skill-sync` rather than being hidden behind another
-module's status.
+`megabrain doctor skill-sync` checks the installed copies of this skill. During normal command
+invocations, megabrain compares and repairs registered agent copies when needed; `--help` and
+`doctor` skip that runtime repair. A per-target stamp makes an unchanged copy a no-op. Drift is
+reported as `skill-sync` rather than being hidden behind another module's status.
 
 `native sim ensure` waits until `simctl` reports the selected device as `Booted`, bounded by
 `--timeout`; a boot failure and a wait timeout are reported separately. The optional
