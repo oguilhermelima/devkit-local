@@ -28,10 +28,20 @@ version="$(jq -r '.version' "$release_source_root/.claude-plugin/plugin.json")"
 archive="$work/release.tar.gz"
 install_root="$work/install"
 home="$work/home"
+formula="$work/megabrain.rb"
 mkdir -p "$install_root" "$home"
 
-"$release_source_root/scripts/release.sh" "v$version" --output "$archive" >/dev/null ||
+before_git_status="$(git -C "$release_source_root" status --porcelain=v1 --untracked-files=all)"
+before_formula_identity="$(ls -di "$release_source_root/Formula/megabrain.rb" | awk '{print $1}')"
+
+"$release_source_root/scripts/release.sh" "v$version" --output "$archive" --formula-output "$formula" >/dev/null ||
   fail 'could not create release tarball for clean-install proof'
+after_git_status="$(git -C "$release_source_root" status --porcelain=v1 --untracked-files=all)"
+[ "$after_git_status" = "$before_git_status" ] ||
+  fail 'clean-install test changed the source git working tree'
+after_formula_identity="$(ls -di "$release_source_root/Formula/megabrain.rb" | awk '{print $1}')"
+[ "$after_formula_identity" = "$before_formula_identity" ] ||
+  fail 'clean-install test rewrote the source formula'
 tar -xzf "$archive" -C "$install_root"
 release_root="$install_root/megabrain-$version"
 [ -x "$release_root/megabrain" ] || fail 'release tarball did not produce an executable install'

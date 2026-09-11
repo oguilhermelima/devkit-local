@@ -3,6 +3,8 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+source_state_dir="${MEGABRAIN_STATE_DIR:-${HOME:-/tmp}/.megabrain}"
+real_transcript=''
 state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-dispatch-transcript.XXXXXX")"
 live_sessions="$state_dir/live-sessions"
 capture_log="$state_dir/capture.log"
@@ -14,6 +16,16 @@ cleanup() {
   rm -rf "$state_dir"
 }
 trap cleanup EXIT
+
+for candidate in "$source_state_dir"/dispatches/*/transcript; do
+  [ -f "$candidate" ] || continue
+  if LC_ALL=C grep -Fq 'Worktree:' "$candidate" &&
+    LC_ALL=C grep -Fq 'DEFECT A' "$candidate" &&
+    LC_ALL=C grep -Fq 'refusing to delete' "$candidate"; then
+    real_transcript="$candidate"
+    break
+  fi
+done
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -159,6 +171,82 @@ read_result="$(command_orchestrate read read-fallback --lines 20 --json)"
 assert_equal "$(printf '%s' "$read_result" | jq -r '.source')" file
 assert_equal "$(printf '%s' "$read_result" | jq -r '.text')" 'persisted read output'
 printf 'read falls back to the persisted transcript and reports file source\n'
+
+write_dispatch rendered-fallback done rendered-fallback
+printf 'old one\nold two\n\033[2A\033[2K\033]0;ignored title\007\033[?2026h\033[1mfinal one\033[0m\033[1B\033[1G\033[2Kfinal two\033[?2026l\nplain three\n' >"$(transcript_path rendered-fallback)"
+cp "$(transcript_path rendered-fallback)" "$state_dir/rendered-fallback.raw"
+scenario_failures=0
+scenario_equal() {
+  if [ "$1" != "$2" ]; then
+    printf 'SCENARIO FAIL: expected %s, got %s\n' "$2" "$1" >&2
+    scenario_failures=$((scenario_failures + 1))
+  fi
+}
+
+scenario_not_contains() {
+  case "$1" in
+    *"$2"*)
+      printf 'SCENARIO FAIL: did not expect %s in %s\n' "$2" "$1" >&2
+      scenario_failures=$((scenario_failures + 1))
+      ;;
+  esac
+}
+
+rendered_result="$(command_orchestrate read rendered-fallback --lines 3 --json)"
+assert_equal "$(printf '%s' "$rendered_result" | jq -r '.source')" file
+if ! cmp -s "$(transcript_path rendered-fallback)" "$state_dir/rendered-fallback.raw"; then
+  fail 'rendering changed the persisted transcript'
+fi
+scenario_equal "$(printf '%s' "$rendered_result" | jq -r '.text')" $'final one\nfinal two\nplain three'
+scenario_not_contains "$(printf '%s' "$rendered_result" | jq -r '.text')" 'old one'
+scenario_not_contains "$(printf '%s' "$rendered_result" | jq -r '.text')" 'ignored title'
+if [ "$scenario_failures" -ne 0 ]; then
+  printf 'observed %s rendering scenario failure(s) before implementation\n' "$scenario_failures"
+fi
+printf 'read renders terminal controls and keeps the final overwritten lines\n'
+
+limited_result="$(command_orchestrate read rendered-fallback --lines 2 --json)"
+scenario_equal "$(printf '%s' "$limited_result" | jq -r '.text')" $'final one\nfinal two\nplain three'
+scenario_equal "$(printf '%s' "$limited_result" | jq -r '.text | split("\n") | length')" 3
+if [ "$scenario_failures" -ne 0 ]; then
+  printf 'observed %s transcript scenario failure(s) before implementation\n' "$scenario_failures"
+  fail 'transcript rendering scenarios failed'
+fi
+printf 'read keeps complete rendered history\n'
+
+if [ -n "$real_transcript" ]; then
+  write_dispatch rendered-history done rendered-history
+  dd if="$real_transcript" of="$(transcript_path rendered-history)" bs=1 count=8500000 2>/dev/null ||
+    fail 'could not copy the real transcript slice'
+  history_result="$(command_orchestrate read rendered-history --lines 1000 --json)"
+  history_text="$(printf '%s' "$history_result" | jq -r '.text')"
+  assert_contains "$history_text" 'Worktree:'
+  assert_contains "$history_text" 'DEFECT A'
+  assert_contains "$history_text" 'refusing to delete'
+  history_worktree_line="$(printf '%s\n' "$history_text" | awk '/Worktree:/ && !found { print NR; found=1 }')"
+  history_defect_line="$(printf '%s\n' "$history_text" | awk '/DEFECT A/ && !found { print NR; found=1 }')"
+  history_refusal_line="$(printf '%s\n' "$history_text" | awk '/refusing to delete/ && !found { print NR; found=1 }')"
+  [ "$history_worktree_line" -lt "$history_defect_line" ] || fail 'rendered history reordered Worktree and DEFECT A'
+  [ "$history_defect_line" -lt "$history_refusal_line" ] || fail 'rendered history reordered DEFECT A and refusal'
+  printf 'read preserves scrolled history from a real transcript slice in order\n'
+else
+  printf 'read history scenario skipped because no suitable real transcript is available\n'
+fi
+
+capture_available=true
+capture_output='live pane already rendered'
+write_dispatch read-live done read-live
+live_result="$(command_orchestrate read read-live --lines 20 --json)"
+assert_equal "$(printf '%s' "$live_result" | jq -r '.source')" tmux
+assert_equal "$(printf '%s' "$live_result" | jq -r '.text')" 'live pane already rendered'
+printf 'read keeps the live pane rendering path\n'
+
+write_dispatch plain-fallback done plain-fallback
+printf '%s\n' 'plain transcript one' 'plain transcript two' >"$(transcript_path plain-fallback)"
+capture_available=false
+plain_result="$(command_orchestrate read plain-fallback --lines 20 --json)"
+assert_equal "$(printf '%s' "$plain_result" | jq -r '.text')" $'plain transcript one\nplain transcript two'
+printf 'read passes through an already plain transcript\n'
 capture_available=true
 
 printf '%s\n' 'doctor-leak' >"$live_sessions"

@@ -313,6 +313,76 @@ megabrain_dispatch_transcript_path() {
   printf '%s/transcript\n' "$(megabrain_dispatch_dir "$1")"
 }
 
+megabrain_dispatch_render_transcript() {
+  local path="$1" lines="$2" render_dir='' replay_path='' socket='' session='' marker='' start_marker='' history_limit=0 raw_line_count=0 attempts=0
+  local command_text="" rendered="" trimmed=""
+  render_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-transcript-render.XXXXXX")" || return 1
+  replay_path="$render_dir/replay"
+  socket="$render_dir/tmux"
+  session="megabrain-render-$$-${RANDOM:-0}"
+  marker="$render_dir/complete"
+  start_marker="$render_dir/start"
+  if ! awk -v esc="$(printf '\033')" '{ gsub(esc "\\[3J", ""); print }' "$path" >"$replay_path"; then
+    rm -rf "$render_dir"
+    return 1
+  fi
+  raw_line_count="$(wc -l <"$replay_path" | tr -d ' ')"
+  case "$raw_line_count" in
+    ''|*[!0-9]*)
+      rm -rf "$render_dir"
+      return 1
+      ;;
+  esac
+  history_limit=$((raw_line_count + lines + 100))
+
+  command_text="stty -echo; while [ ! -f $(printf '%q' "$start_marker") ]; do sleep 0.01; done; cat $(printf '%q' "$replay_path"); touch $(printf '%q' "$marker"); exec sleep 60"
+  if ! tmux -S "$socket" -f /dev/null new-session -d -x 240 -y 100 -s "$session" "$command_text" >/dev/null 2>&1; then
+    tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
+    rm -rf "$render_dir"
+    return 1
+  fi
+
+  if ! tmux -S "$socket" -f /dev/null set-option -g history-limit "$history_limit" >/dev/null 2>&1 ||
+    ! tmux -S "$socket" -f /dev/null set-option -g alternate-screen off >/dev/null 2>&1 ||
+    ! touch "$start_marker"; then
+    tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
+    rm -rf "$render_dir"
+    return 1
+  fi
+
+  while [ ! -f "$marker" ]; do
+    if ! tmux -S "$socket" -f /dev/null has-session -t "$session" >/dev/null 2>&1; then
+      tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
+      rm -rf "$render_dir"
+      return 1
+    fi
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 1200 ]; then
+      tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
+      rm -rf "$render_dir"
+      return 1
+    fi
+    sleep 0.05
+  done
+
+  if ! rendered="$(tmux -S "$socket" -f /dev/null capture-pane -J -p -t "$session":0.0 -S "-$history_limit" 2>/dev/null)"; then
+    tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
+    rm -rf "$render_dir"
+    return 1
+  fi
+  trimmed="$(printf '%s\n' "$rendered" | awk '
+    { lines[NR] = $0 }
+    END {
+      last = NR
+      while (last > 0 && lines[last] ~ /^[[:space:]]*$/) last--
+      for (i = 1; i <= last; i++) print lines[i]
+    }
+  ')"
+  tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
+  rm -rf "$render_dir"
+  printf '%s\n' "$trimmed"
+}
+
 megabrain_dispatch_start_transcript() {
   local dispatch_id="$1" pane="$2" path
   path="$(megabrain_dispatch_transcript_path "$dispatch_id")" || return 1
@@ -1391,7 +1461,10 @@ megabrain_dispatch_read() {
   if ! output="$(megabrain_tmux_capture_pane "$pane" "-$lines" 2>/dev/null)"; then
     transcript_path="$(megabrain_dispatch_transcript_path "$dispatch_id")"
     if [ -f "$transcript_path" ]; then
-      output="$(tail -n "$lines" "$transcript_path")" || { megabrain_error "could not read dispatch transcript $transcript_path"; return 1; }
+      output="$(megabrain_dispatch_render_transcript "$transcript_path" "$lines")" || {
+        megabrain_error "could not render dispatch transcript $transcript_path"
+        return 1
+      }
       source=file
     else
       megabrain_error "could not read tmux pane $pane and no persisted transcript exists"
