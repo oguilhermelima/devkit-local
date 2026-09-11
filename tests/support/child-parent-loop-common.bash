@@ -294,6 +294,35 @@ parent_ack() {
   megabrain_dispatch_ack "$dispatch_id" "$1" --json
 }
 
+assert_parent_receipt() {
+  local delivery="$1"
+  assert_equal "$(jq -r '.status' <<<"$delivery")" received
+  assert_equal "$(jq -r '.messages[0].type' <<<"$delivery")" received
+  assert_equal "$(jq -r '.messages[0].text' <<<"$delivery")" 'prompt received'
+}
+
+parent_watch_actionable() {
+  local delivery delivery_type delivery_id
+  while :; do
+    delivery="$(parent_watch 10)"
+    delivery_type="$(jq -r '.messages[0].type // empty' <<<"$delivery")"
+    case "$delivery_type" in
+      received)
+        assert_parent_receipt "$delivery"
+        delivery_id="$(jq -r '.deliveryId' <<<"$delivery")"
+        parent_ack "$delivery_id" >/dev/null
+        ;;
+      ask|done|stalled|usage)
+        printf '%s\n' "$delivery"
+        return 0
+        ;;
+      *)
+        fail "unexpected parent mail type: ${delivery_type:-none}"
+        ;;
+    esac
+  done
+}
+
 run_flow() {
   local runtime="$1" chain_output dispatch_meta dispatch_id delivery replay delivery_id reply_result push_check push_ack push_receipt push_receipt_id
   local question_delivery question_delivery_id pull_result pull_delivery_id pull_receipt pull_receipt_id done_delivery done_delivery_id
@@ -343,6 +372,7 @@ run_flow() {
   fi
   timing_mark 'spawn and prompt'
   receipt_delivery="$(parent_watch 10)"
+  assert_parent_receipt "$receipt_delivery"
   receipt_delivery_id="$(jq -r '.deliveryId' <<<"$receipt_delivery")"
   parent_ack "$receipt_delivery_id" >/dev/null
   timing_mark 'initial receipt'
@@ -352,7 +382,7 @@ run_flow() {
     ask_pointer="$(megabrain_tmux_nudge_text_for_pane "$parent_pane" "mail: megabrain orchestrate watch $dispatch_id")"
     assert_contains "$ask_capture" "$ask_pointer"
   fi
-  delivery="$(parent_watch)"
+  delivery="$(parent_watch_actionable)"
   replay="$(parent_watch)"
   delivery_id="$(jq -r '.deliveryId' <<<"$delivery")"
   assert_equal "$(jq -r '.messages[0].text' <<<"$delivery")" "$runtime-question"
