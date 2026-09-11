@@ -27,6 +27,22 @@ for candidate in "$source_state_dir"/dispatches/*/transcript; do
   fi
 done
 
+# A stable (archived, no longer growing), real transcript bigger than the
+# default byte cap. Used to prove the render path bounds its input instead
+# of merely trusting the byte-count math.
+transcript_cap_default=10485760
+real_capped_transcript=''
+for candidate in "$source_state_dir"/dispatches/archive/*/*/transcript; do
+  [ -f "$candidate" ] || continue
+  candidate_size="$(wc -c <"$candidate" 2>/dev/null | tr -d ' ')"
+  case "$candidate_size" in
+    ''|*[!0-9]*) continue ;;
+  esac
+  [ "$candidate_size" -gt "$transcript_cap_default" ] || continue
+  real_capped_transcript="$candidate"
+  break
+done
+
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
   exit 1
@@ -244,6 +260,92 @@ if [ -n "$real_transcript" ]; then
   printf 'read preserves scrolled history from a real transcript slice in order\n'
 else
   printf 'read history scenario skipped because no suitable real transcript is available\n'
+fi
+
+if [ -n "$real_capped_transcript" ]; then
+  small_slice="$state_dir/small.transcript"
+  big_slice="$state_dir/big.transcript"
+  dd if="$real_capped_transcript" of="$small_slice" bs=1 count=2048 2>/dev/null ||
+    fail 'could not copy the small real transcript slice'
+  cp "$real_capped_transcript" "$big_slice" || fail 'could not copy the big real transcript slice'
+  mechanism_cap=4096
+
+  megabrain_transcript_capped_stream "$small_slice" 1000000 >"$state_dir/out-passthrough"
+  cmp -s "$state_dir/out-passthrough" "$small_slice" ||
+    fail 'capped stream altered a file under the cap'
+  printf 'capped stream passes an under-cap file through unchanged\n'
+
+  megabrain_transcript_capped_stream "$big_slice" "$mechanism_cap" >"$state_dir/out-capped"
+  tail -c "$mechanism_cap" "$big_slice" | tail -n +2 >"$state_dir/expected-capped"
+  cmp -s "$state_dir/out-capped" "$state_dir/expected-capped" ||
+    fail 'capped stream did not match the expected tail slice'
+  out_capped_size="$(wc -c <"$state_dir/out-capped" | tr -d ' ')"
+  [ "$out_capped_size" -le "$mechanism_cap" ] || fail 'capped stream exceeded the byte cap'
+  printf 'capped stream truncates an over-cap file to the tail, dropping the partial first line\n'
+
+  cp "$small_slice" "$state_dir/trunc-small"
+  megabrain_transcript_truncate_file "$state_dir/trunc-small" 1000000
+  cmp -s "$state_dir/trunc-small" "$small_slice" ||
+    fail 'truncate_file modified a file under the cap'
+  printf 'truncate_file leaves an under-cap transcript untouched\n'
+
+  cp "$big_slice" "$state_dir/trunc-big"
+  megabrain_transcript_truncate_file "$state_dir/trunc-big" "$mechanism_cap"
+  trunc_big_size="$(wc -c <"$state_dir/trunc-big" | tr -d ' ')"
+  [ "$trunc_big_size" -le "$mechanism_cap" ] || fail 'truncate_file left the transcript over the cap'
+  cmp -s "$state_dir/trunc-big" "$state_dir/expected-capped" ||
+    fail 'truncate_file result did not match the expected tail slice'
+  printf 'truncate_file shrinks an over-cap transcript in place to the capped tail\n'
+
+  printf '%s\n' 'stop-cap-session' >"$live_sessions"
+  write_dispatch stop-cap-session running stop-cap-session
+  megabrain_dispatch_start_transcript stop-cap-session %99
+  cp "$big_slice" "$(transcript_path stop-cap-session)"
+  pre_stop_size="$(wc -c <"$(transcript_path stop-cap-session)" | tr -d ' ')"
+  [ "$pre_stop_size" -gt "$MEGABRAIN_TRANSCRIPT_MAX_BYTES" ] ||
+    fail 'fixture too small to exercise the default cap at stop'
+  stop_meta="$(jq -c . "$MEGABRAIN_DISPATCH_DIR/stop-cap-session/meta.json")"
+  megabrain_dispatch_stop_transcript "$stop_meta"
+  post_stop_size="$(wc -c <"$(transcript_path stop-cap-session)" | tr -d ' ')"
+  [ "$post_stop_size" -le "$MEGABRAIN_TRANSCRIPT_MAX_BYTES" ] ||
+    fail 'stop did not bound the persisted transcript to the cap'
+  assert_contains "$(cat "$pipe_log")" 'stop'
+  printf 'stopping a dispatch bounds its persisted transcript to the byte cap\n'
+
+  write_dispatch capped-render done capped-render
+  cp "$real_capped_transcript" "$(transcript_path capped-render)"
+  capped_render_src_size="$(wc -c <"$(transcript_path capped-render)" | tr -d ' ')"
+  [ "$capped_render_src_size" -gt "$MEGABRAIN_TRANSCRIPT_MAX_BYTES" ] ||
+    fail 'fixture transcript no longer exceeds the default cap'
+
+  # Calls the render function directly rather than through command_orchestrate
+  # read: the uncapped baseline call below is tens of megabytes, and routing that
+  # through the --json/jq --arg path exceeds the OS argv limit. That is a real
+  # ceiling this scenario's own baseline hits, not something under test here.
+  MEGABRAIN_TRANSCRIPT_MAX_BYTES=$((capped_render_src_size + 1))
+  baseline_render_text="$(megabrain_dispatch_render_transcript "$(transcript_path capped-render)" 100000)"
+  [ -n "$baseline_render_text" ] || fail 'baseline (uncapped) render produced no output'
+
+  MEGABRAIN_TRANSCRIPT_MAX_BYTES=10485760
+  capped_render_text="$(megabrain_dispatch_render_transcript "$(transcript_path capped-render)" 100000)"
+  [ -n "$capped_render_text" ] || fail 'capped render produced no output'
+
+  # The cap must actually engage: with far less scrollback fed into the replay,
+  # the capped render has to come out smaller than the uncapped baseline, not
+  # merely equal to it.
+  [ "${#capped_render_text}" -lt "${#baseline_render_text}" ] ||
+    fail 'capped render was not smaller than the uncapped baseline; the cap did not engage'
+
+  baseline_render_tail="$(printf '%s\n' "$baseline_render_text" | tail -n 5)"
+  capped_render_tail="$(printf '%s\n' "$capped_render_text" | tail -n 5)"
+  assert_equal "$capped_render_tail" "$baseline_render_tail"
+
+  if ! cmp -s "$(transcript_path capped-render)" "$real_capped_transcript"; then
+    fail 'rendering mutated the persisted transcript'
+  fi
+  printf 'render caps a real over-limit transcript to the tail and keeps the final frame stable\n'
+else
+  printf 'transcript cap scenarios skipped because no suitable real over-cap transcript is available\n'
 fi
 
 capture_available=true
