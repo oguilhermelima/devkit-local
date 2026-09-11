@@ -113,20 +113,33 @@ megabrain_parent_notify_delivery_contains_seq() {
 }
 
 megabrain_parent_notify_nudge_claim() {
-  local dispatch_id="$1" message_seq="$2" state_path="" lock="" state_status="" state_seq="" tmp=""
+  local dispatch_id="$1" message_seq="$2" state_path="" lock="" state_status="" state_seq="" cursor="" tmp=""
   MEGABRAIN_PARENT_NOTIFY_NUDGE_REASON=nudge-outstanding
   state_path="$(megabrain_parent_notify_nudge_state_path "$dispatch_id")" || return 1
   lock="$(megabrain_parent_notify_nudge_state_lock_path "$dispatch_id")" || return 1
   while ! mkdir "$lock" 2>/dev/null; do sleep 0.02; done
+  # WHY: the cursor is parent-side read evidence, regardless of whether watch
+  # created a delivery. Keep delivery as a fallback for the watch path, where
+  # the parent may have consumed mail without advancing its turn-end cursor.
+  cursor="$(megabrain_dispatch_cursor_read "$dispatch_id" 2>/dev/null || true)"
   if [ -f "$state_path" ]; then
     state_status="$(jq -r '.status // empty' "$state_path" 2>/dev/null || true)"
     state_seq="$(jq -r '.messageSeq // empty' "$state_path" 2>/dev/null || true)"
-    if [ "$state_status" = outstanding ] && {
-      [ -z "$state_seq" ] || ! megabrain_parent_notify_delivery_contains_seq "$dispatch_id" "$state_seq"
-    }; then
-      rmdir "$lock"
-      return 1
+    if [ "$state_status" = outstanding ]; then
+      if [[ "$cursor" =~ ^[0-9]+$ && "$state_seq" =~ ^[1-9][0-9]*$ ]] && [ "$cursor" -ge "$state_seq" ]; then
+        rm -f "$state_path"
+      elif megabrain_parent_notify_delivery_contains_seq "$dispatch_id" "$state_seq"; then
+        rm -f "$state_path"
+      else
+        rmdir "$lock"
+        return 1
+      fi
     fi
+  fi
+  if [[ "$cursor" =~ ^[0-9]+$ && "$message_seq" =~ ^[1-9][0-9]*$ ]] && [ "$cursor" -ge "$message_seq" ]; then
+    MEGABRAIN_PARENT_NOTIFY_NUDGE_REASON=message-seen
+    rmdir "$lock"
+    return 1
   fi
   if megabrain_parent_notify_delivery_contains_seq "$dispatch_id" "$message_seq"; then
     MEGABRAIN_PARENT_NOTIFY_NUDGE_REASON=message-delivered
