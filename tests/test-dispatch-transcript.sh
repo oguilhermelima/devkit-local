@@ -162,6 +162,7 @@ printf 'read falls back to the persisted transcript and reports file source\n'
 
 write_dispatch rendered-fallback done rendered-fallback
 printf 'old one\nold two\n\033[2A\033[2K\033]0;ignored title\007\033[?2026h\033[1mfinal one\033[0m\033[1B\033[1G\033[2Kfinal two\033[?2026l\nplain three\n' >"$(transcript_path rendered-fallback)"
+cp "$(transcript_path rendered-fallback)" "$state_dir/rendered-fallback.raw"
 scenario_failures=0
 scenario_equal() {
   if [ "$1" != "$2" ]; then
@@ -181,6 +182,9 @@ scenario_not_contains() {
 
 rendered_result="$(command_orchestrate read rendered-fallback --lines 3 --json)"
 assert_equal "$(printf '%s' "$rendered_result" | jq -r '.source')" file
+if ! cmp -s "$(transcript_path rendered-fallback)" "$state_dir/rendered-fallback.raw"; then
+  fail 'rendering changed the persisted transcript'
+fi
 scenario_equal "$(printf '%s' "$rendered_result" | jq -r '.text')" $'final one\nfinal two\nplain three'
 scenario_not_contains "$(printf '%s' "$rendered_result" | jq -r '.text')" 'old one'
 scenario_not_contains "$(printf '%s' "$rendered_result" | jq -r '.text')" 'ignored title'
