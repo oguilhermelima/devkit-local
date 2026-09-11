@@ -427,10 +427,11 @@ megabrain_transcript_truncate_file() {
 }
 
 megabrain_dispatch_render_transcript() {
-  local path="$1" lines="$2" render_dir='' replay_path='' socket='' session='' marker='' start_marker='' history_limit=0 raw_line_count=0 attempts=0
-  local command_text="" rendered="" trimmed=""
+  local path="$1" lines="$2" render_dir='' replay_path='' captured_path='' socket='' session='' marker='' start_marker='' history_limit=0 raw_line_count=0 attempts=0
+  local command_text=""
   render_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-transcript-render.XXXXXX")" || return 1
   replay_path="$render_dir/replay"
+  captured_path="$render_dir/captured"
   socket="$render_dir/tmux"
   session="megabrain-render-$$-${RANDOM:-0}"
   marker="$render_dir/complete"
@@ -482,22 +483,20 @@ megabrain_dispatch_render_transcript() {
     sleep 0.05
   done
 
-  if ! rendered="$(tmux -S "$socket" -f /dev/null capture-pane -J -p -t "$session":0.0 -S "-$history_limit" 2>/dev/null)"; then
+  if ! tmux -S "$socket" -f /dev/null capture-pane -J -p -t "$session":0.0 -S "-$history_limit" >"$captured_path" 2>/dev/null; then
     tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
     rm -rf "$render_dir"
     return 1
   fi
-  trimmed="$(printf '%s\n' "$rendered" | awk '
-    { lines[NR] = $0 }
-    END {
-      last = NR
-      while (last > 0 && lines[last] ~ /^[[:space:]]*$/) last--
-      for (i = 1; i <= last; i++) print lines[i]
-    }
-  ')"
   tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
+  # Streams the trailing-blank-line trim instead of loading the capture into an
+  # array: buffer only a run of blank lines, flush it once a non-blank line
+  # shows it wasn't trailing, and drop whatever is still buffered at EOF.
+  awk '
+    /^[[:space:]]*$/ { blank = blank $0 "\n"; next }
+    { if (blank != "") { printf "%s", blank; blank = "" } print }
+  ' "$captured_path"
   rm -rf "$render_dir"
-  printf '%s\n' "$trimmed"
 }
 
 MEGABRAIN_DISPATCH_LIVENESS_STATUS=unknown
