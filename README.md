@@ -310,7 +310,10 @@ repository default and reports both the missing parent and the base it judged.
 `worktree finish` performs every refusal check, including branch merge status, before removing
 anything. A refusal leaves the worktree and branch intact. Under `--json`, output from the
 orchestrator or Git remover is captured and converted into megabrain's own error instead of being
-printed as if it were megabrain's JSON.
+printed as if it were megabrain's JSON. Every non-help refusal also returns a JSON object with
+`deleted: false` and a `refusal` code/message; the command keeps a non-zero status so callers can
+distinguish an incomplete finish without parsing stderr. Remover failures use `error` instead of
+`refusal`.
 
 `megabrain worktree list` shows the stack as a tree and includes pull-request state when gh can
 answer cheaply. Use `--flat` for the original path/branch table; JSON remains a flat, scriptable

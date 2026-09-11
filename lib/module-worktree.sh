@@ -2068,10 +2068,23 @@ megabrain_find_worktree_path() {
   return 1
 }
 
+megabrain_worktree_finish_json() {
+  local deleted="$1" branch="$2" path="$3" base="$4" base_source="$5" base_warning="$6"
+  local branch_deleted="$7" error="$8" refusal_code="$9" refusal_message="${10}"
+  jq -cn --argjson deleted "$deleted" --arg branch "$branch" --arg path "$path" --arg base "$base" \
+    --arg baseSource "$base_source" --arg baseWarning "$base_warning" --arg branchDeleted "$branch_deleted" \
+    --arg error "$error" --arg refusalCode "$refusal_code" --arg refusalMessage "$refusal_message" \
+    '{deleted: $deleted, branch: (if $branch|length > 0 then $branch else null end), path: (if $path|length > 0 then $path else null end), base: (if $base|length > 0 then $base else null end), baseSource: (if $baseSource|length > 0 then $baseSource else null end), baseWarning: (if $baseWarning|length > 0 then $baseWarning else null end), branchDeleted: (if $branchDeleted == "" then null else ($branchDeleted == "true") end), error: (if $error|length > 0 then $error else null end), refusal: (if $refusalCode|length > 0 then {code: $refusalCode, message: $refusalMessage} else null end)}'
+}
+
 megabrain_worktree_finish() {
   local target="" delete_branch=false force=false json=false arg="" shared_root="" path="" workspace_id="" repo_path="" branch="" base="" merged=""
   local parent_branch="" base_source="" base_warning="" branch_delete_status=0 branch_delete_output="" branch_delete_error=""
-  local removal_output="" removal_status=0 removal_error="" branch_deleted=""
+  local removal_output="" removal_status=0 removal_error="" branch_deleted="" usage_message="" refusal_message=""
+  local scan_arg=""
+  for scan_arg in "$@"; do
+    [ "$scan_arg" = --json ] && json=true
+  done
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -2079,20 +2092,41 @@ megabrain_worktree_finish() {
       --delete-branch) delete_branch=true; shift ;;
       --force) force=true; shift ;;
       --base)
-        [ "$#" -ge 2 ] && [ -n "${2:-}" ] || { megabrain_error '--base requires a non-empty ref'; return "$MEGABRAIN_USAGE_ERROR"; }
+        if [ "$#" -lt 2 ] || [ -z "${2:-}" ]; then
+          usage_message='--base requires a non-empty ref'
+          megabrain_error "$usage_message"
+          if [ "$json" = true ]; then
+            megabrain_worktree_finish_json false "" "" "" "" "" "" "" invalid-arguments "$usage_message"
+          fi
+          return "$MEGABRAIN_USAGE_ERROR"
+        fi
         base="$2"
         base_source="explicit"
         shift 2
         ;;
       -h|--help) megabrain_usage_show worktree-finish; return 0 ;;
       *)
-        [ -z "$target" ] || { megabrain_error "unknown worktree finish option: $arg"; return "$MEGABRAIN_USAGE_ERROR"; }
+        if [ "${arg#-}" != "$arg" ] || [ -n "$target" ]; then
+          usage_message="unknown worktree finish option: $arg"
+          megabrain_error "$usage_message"
+          if [ "$json" = true ]; then
+            megabrain_worktree_finish_json false "" "" "" "" "" "" "" invalid-arguments "$usage_message"
+          fi
+          return "$MEGABRAIN_USAGE_ERROR"
+        fi
         target="$arg"
         shift
         ;;
     esac
   done
-  [ -n "$target" ] || { megabrain_usage_fail worktree-finish; return "$MEGABRAIN_USAGE_ERROR"; }
+  if [ -z "$target" ]; then
+    usage_message="Usage: megabrain $(megabrain_usage_line worktree-finish)"
+    megabrain_error "$usage_message"
+    if [ "$json" = true ]; then
+      megabrain_worktree_finish_json false "" "" "" "" "" "" "" invalid-arguments "$usage_message"
+    fi
+    return "$MEGABRAIN_USAGE_ERROR"
+  fi
   shared_root="$(megabrain_worktree_root 2>/dev/null || true)"
   path=""
   if megabrain_superset_available; then
@@ -2103,7 +2137,11 @@ megabrain_worktree_finish() {
     path="$(megabrain_find_worktree_path "$target" "$shared_root" 2>/dev/null || true)"
   fi
   if [ -z "$path" ]; then
-    megabrain_error "worktree not found: $target"
+    refusal_message="worktree not found: $target"
+    megabrain_error "$refusal_message"
+    if [ "$json" = true ]; then
+      megabrain_worktree_finish_json false "" "" "" "" "" "" "" worktree-not-found "$refusal_message"
+    fi
     return 1
   fi
   repo_path="$(git -C "$path" rev-parse --git-common-dir)"
@@ -2135,7 +2173,11 @@ megabrain_worktree_finish() {
     if [ "$force" != true ]; then
       merged="$(git -C "$repo_path" branch --merged "$base" 2>/dev/null || true)"
       if ! printf '%s\n' "$merged" | sed 's/^..//' | awk '{print $1}' | grep -Fx "$branch" >/dev/null; then
-        megabrain_error "refusing to delete unmerged branch: $branch against base $base (use --force to override)"
+        refusal_message="refusing to delete unmerged branch: $branch against base $base (use --force to override)"
+        megabrain_error "$refusal_message"
+        if [ "$json" = true ]; then
+          megabrain_worktree_finish_json false "$branch" "$path" "$base" "$base_source" "$base_warning" "" "" unmerged-branch "$refusal_message"
+        fi
         return 1
       fi
     fi
@@ -2164,8 +2206,7 @@ megabrain_worktree_finish() {
     removal_error="$(megabrain_worktree_removal_reason "$removal_output")"
     megabrain_error "could not remove worktree $path: $removal_error"
     if [ "$json" = true ]; then
-      jq -cn --arg branch "$branch" --arg path "$path" --arg base "$base" --arg baseSource "$base_source" --arg baseWarning "$base_warning" --arg error "$removal_error" \
-        '{deleted: false, branch: (if $branch|length > 0 then $branch else null end), path: $path, base: (if $base|length > 0 then $base else null end), baseSource: (if $baseSource|length > 0 then $baseSource else null end), baseWarning: (if $baseWarning|length > 0 then $baseWarning else null end), branchDeleted: null, error: $error}'
+      megabrain_worktree_finish_json false "$branch" "$path" "$base" "$base_source" "$base_warning" "" "$removal_error" "" ""
     fi
     return 1
   fi
@@ -2176,8 +2217,7 @@ megabrain_worktree_finish() {
     if [ "$branch_delete_status" -ne 0 ]; then
       branch_delete_error="$(megabrain_worktree_removal_reason "$branch_delete_output")"
       if [ "$json" = true ]; then
-        jq -cn --arg branch "$branch" --arg path "$path" --arg base "$base" --arg baseSource "$base_source" --arg baseWarning "$base_warning" --arg error "$branch_delete_error" \
-          '{deleted: true, branch: $branch, path: $path, base: (if $base|length > 0 then $base else null end), baseSource: (if $baseSource|length > 0 then $baseSource else null end), baseWarning: (if $baseWarning|length > 0 then $baseWarning else null end), branchDeleted: false, error: $error}'
+        megabrain_worktree_finish_json true "$branch" "$path" "$base" "$base_source" "$base_warning" false "$branch_delete_error" "" ""
       else
         [ -n "$branch_delete_output" ] && printf '%s\n' "$branch_delete_output"
       fi
@@ -2188,8 +2228,7 @@ megabrain_worktree_finish() {
     branch_deleted=true
   fi
   if [ "$json" = true ]; then
-    jq -cn --arg branch "$branch" --arg path "$path" --arg base "$base" --arg baseSource "$base_source" --arg baseWarning "$base_warning" --arg branchDeleted "$branch_deleted" \
-      '{deleted: true, branch: (if $branch|length > 0 then $branch else null end), path: $path, base: (if $base|length > 0 then $base else null end), baseSource: (if $baseSource|length > 0 then $baseSource else null end), baseWarning: (if $baseWarning|length > 0 then $baseWarning else null end), branchDeleted: (if $branchDeleted == "" then null else ($branchDeleted == "true") end), error: null}'
+    megabrain_worktree_finish_json true "$branch" "$path" "$base" "$base_source" "$base_warning" "$branch_deleted" "" "" ""
   fi
 }
 
