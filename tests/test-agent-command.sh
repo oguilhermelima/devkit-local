@@ -59,6 +59,16 @@ agy_low_command="$(megabrain_agent_command agy gemini-3.8-flash-high low)"
 assert_contains "$agy_low_command" gemini-3.8-flash-low
 assert_not_contains "$agy_low_command" --effort
 
+browser_disabled_command="$(megabrain_agent_command codex gpt-5 high false)"
+assert_contains "$browser_disabled_command" 'mcp_servers.playwright.enabled=false'
+browser_enabled_command="$(megabrain_agent_command codex gpt-5 high true)"
+assert_contains "$browser_enabled_command" 'mcp_servers.playwright.enabled=true'
+assert_not_contains "$browser_enabled_command" 'mcp_servers.playwright.enabled=false'
+browser_notice="$(megabrain_dispatch_browser_notice false)"
+assert_contains "$browser_notice" 'browser MCP is unavailable'
+assert_contains "$browser_notice" '--browser'
+printf 'browser MCP is layered per dispatch and unavailable workers report the opt-in\n'
+
 assert_failure megabrain_agent_command agy claude-sonnet-4-6 high
 invalid_agy_error="$(megabrain_agent_command agy claude-sonnet-4-6 high 2>&1 >/dev/null || true)"
 assert_contains "$invalid_agy_error" 'gemini-3.8-flash-high'
