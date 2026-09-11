@@ -387,7 +387,7 @@ MEGABRAIN_DISPATCH_LIVENESS_REASON=''
 MEGABRAIN_DISPATCH_LIVENESS_SOURCE=unknown
 
 megabrain_dispatch_liveness_read() {
-  local dispatch_id="$1" json=false arg meta runtime pane agent output transcript_path source
+  local dispatch_id="$1" json=false arg meta runtime pane agent output source state terminal_status
   MEGABRAIN_DISPATCH_LIVENESS_STATUS=unknown
   MEGABRAIN_DISPATCH_LIVENESS_REASON=''
   MEGABRAIN_DISPATCH_LIVENESS_SOURCE=unknown
@@ -403,25 +403,37 @@ megabrain_dispatch_liveness_read() {
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
   agent="$(printf '%s' "$meta" | jq -r '.agent // empty')"
-  if [ "$runtime" = tmux ] && [ -n "$pane" ]; then
-    agent="$(megabrain_tmux_agent_for_pane "$pane" 2>/dev/null || printf '%s' "$agent")"
-    if output="$(megabrain_tmux_capture_pane "$pane" -200 2>/dev/null)" && [ -n "$output" ]; then
-      source=tmux
-    else
-      transcript_path="$(megabrain_dispatch_transcript_path "$dispatch_id")"
-      if [ -f "$transcript_path" ]; then
-        output="$(megabrain_dispatch_render_transcript "$transcript_path" 200 2>/dev/null || true)"
-        source=file
-      else
-        output=''
-      fi
-    fi
-    MEGABRAIN_DISPATCH_LIVENESS_SOURCE="$source"
-    if [ -n "$output" ] && [ -n "$agent" ]; then
-      megabrain_tmux_liveness_classify "$agent" "$output"
-      MEGABRAIN_DISPATCH_LIVENESS_STATUS="${MEGABRAIN_TMUX_LIVENESS_STATUS:-unknown}"
-      MEGABRAIN_DISPATCH_LIVENESS_REASON="${MEGABRAIN_TMUX_LIVENESS_REASON:-}"
-    fi
+  state="$(printf '%s' "$meta" | jq -r '.state // "unknown"')"
+  if [ "$runtime" = tmux ]; then
+    # WHY: a pane id can be recycled; classify only after the terminal helper proves ownership.
+    megabrain_dispatch_terminal_status "$meta"
+    terminal_status="$MEGABRAIN_TERMINAL_STATUS"
+    case "$state:$terminal_status" in
+      closed:*)
+        # WHY: a closed dispatch has no current agent, even if stale tmux state remains.
+        MEGABRAIN_DISPATCH_LIVENESS_STATUS=missing
+        MEGABRAIN_DISPATCH_LIVENESS_REASON='dispatch is closed'
+        ;;
+      *:missing)
+        MEGABRAIN_DISPATCH_LIVENESS_STATUS=missing
+        MEGABRAIN_DISPATCH_LIVENESS_REASON='terminal is no longer available'
+        ;;
+      *:unknown)
+        MEGABRAIN_DISPATCH_LIVENESS_STATUS=unknown
+        MEGABRAIN_DISPATCH_LIVENESS_REASON='terminal identity is unproven'
+        ;;
+      *:proven)
+        agent="$(megabrain_tmux_agent_for_pane "$pane" 2>/dev/null || printf '%s' "$agent")"
+        if output="$(megabrain_tmux_capture_pane "$pane" -200 2>/dev/null)" && [ -n "$output" ]; then
+          MEGABRAIN_DISPATCH_LIVENESS_SOURCE=tmux
+          if [ -n "$agent" ]; then
+            megabrain_tmux_liveness_classify "$agent" "$output"
+            MEGABRAIN_DISPATCH_LIVENESS_STATUS="${MEGABRAIN_TMUX_LIVENESS_STATUS:-unknown}"
+            MEGABRAIN_DISPATCH_LIVENESS_REASON="${MEGABRAIN_TMUX_LIVENESS_REASON:-}"
+          fi
+        fi
+        ;;
+    esac
   fi
   if [ "$json" = true ]; then
     jq -n --arg dispatchId "$dispatch_id" --arg dispatchState "$(printf '%s' "$meta" | jq -r '.state // "unknown"')" \
