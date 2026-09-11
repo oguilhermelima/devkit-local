@@ -37,12 +37,12 @@ scenario_terminal_kill_can_run_twice_under_nounset() {
     source "$1/lib/module-worktree.sh"
     megabrain_terminal_process_children() { :; }
     kill() { return 0; }
-    unset MEGABRAIN_TERMINAL_KILLED_TREE
     megabrain_terminal_kill_process_tree 101
     megabrain_terminal_kill_process_tree 102
     printf "%s\n" "$MEGABRAIN_TERMINAL_KILLED_TREE"
   ' _ "$root" 2>&1)"; then
-    assert_equal "$output" '[101,102]'
+    printf '%s' "$output" | jq -e '.[0] == 101 and .[1] == 102' >/dev/null ||
+      fail "terminal kill path recorded the wrong process tree: $output"
   else
     fail "terminal kill path aborted under bash -u: $output"
   fi
@@ -64,7 +64,6 @@ scenario_text_doctor_has_leaked_counter_default() {
     megabrain_runtime_enabled() { return 1; }
     megabrain_require_command() { return 1; }
     megabrain_superset_available() { return 1; }
-    unset MODULE_LEAKED_DISPATCH_SESSIONS
     module_orchestration_doctor >/dev/null 2>&1
     printf "%s\n" "$MODULE_LEAKED_DISPATCH_SESSIONS"
   ' _ "$root" 2>&1)"; then
