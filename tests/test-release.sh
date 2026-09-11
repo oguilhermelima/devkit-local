@@ -11,21 +11,6 @@ fail() {
   exit 1
 }
 
-archive_head_tree() {
-  local help_output=''
-  help_output="$(git -C "$root" archive -h 2>&1 || true)"
-  case "$help_output" in
-    *--mtime*)
-      git -C "$root" archive --format=tar --mtime='1970-01-01 00:00:00' \
-        --prefix="megabrain-$version/" HEAD^{tree} -- . ':(exclude)Formula'
-      ;;
-    *)
-      git -C "$root" archive --format=tar --prefix="megabrain-$version/" \
-        HEAD^{tree} -- . ':(exclude)Formula'
-      ;;
-  esac
-}
-
 release_script="$root/scripts/release.sh"
 version="$(jq -r '.version' "$root/.claude-plugin/plugin.json")"
 archive="$work/megabrain-$version.tar.gz"
@@ -95,16 +80,48 @@ tracked_formula_hash_after="$(shasum -a 256 "$root/Formula/megabrain.rb" | awk '
   fail 'release test changed the tracked formula'
 printf 'scenario 3: matching release tag creates the formula tarball and instructions\n'
 
+committed_root="$work/formula-change"
+git clone -q "$root" "$committed_root" || fail 'could not clone the release tree'
 committed_archive="$work/committed.tar.gz"
-archive_head_tree | gzip -n >"$committed_archive" || fail 'could not archive the committed release tree'
-if tar -tzf "$committed_archive" | grep -F '/Formula/' >/dev/null; then
+committed_formula="$work/committed-formula.rb"
+matching_output="$($release_script "v$version" --output "$committed_archive" --formula-output "$committed_formula" 2>&1)" ||
+  fail "release script refused the committed release tree: $matching_output"
+committed_hash="$(shasum -a 256 "$committed_archive" | awk '{print $1}')"
+printf '\n# Formula-only release invariant test\n' >>"$committed_root/Formula/megabrain.rb"
+git -C "$committed_root" -c user.name=megabrain-test -c user.email=megabrain-test@example.com \
+  add Formula/megabrain.rb || fail 'could not stage the Formula-only change'
+git -C "$committed_root" -c user.name=megabrain-test -c user.email=megabrain-test@example.com \
+  commit -m 'test release formula-only change' >/dev/null || fail 'could not commit the Formula-only change'
+changed_archive="$work/changed.tar.gz"
+changed_formula="$work/changed-formula.rb"
+matching_output="$("$committed_root/scripts/release.sh" "v$version" --output "$changed_archive" --formula-output "$changed_formula" 2>&1)" ||
+  fail "release script refused the Formula-only commit: $matching_output"
+cmp -s "$committed_archive" "$changed_archive" ||
+  fail 'Formula-only commit changed the release archive'
+if tar -tzf "$changed_archive" | grep -F '/Formula/' >/dev/null; then
   fail 'release archive includes Formula files'
 fi
-committed_hash="$(shasum -a 256 "$committed_archive" | awk '{print $1}')"
 formula_hash="$(sed -n 's/^  sha256 "\([0-9a-f]*\)"$/\1/p' "$root/Formula/megabrain.rb")"
 [ -n "$formula_hash" ] || fail 'committed formula has no sha256'
 [ "$formula_hash" = "$committed_hash" ] ||
   fail "committed formula hash $formula_hash does not match HEAD archive $committed_hash"
-printf 'scenario 4: committed formula hash matches the Formula-excluded HEAD archive\n'
+printf 'scenario 4: Formula-only commit preserves the release.sh archive\n'
+
+manifest_mismatch_root="$work/manifest-mismatch"
+git clone -q "$root" "$manifest_mismatch_root" || fail 'could not clone the manifest tree'
+jq --arg version '9.9.9' \
+  '(.plugins[] | select(.name == "megabrain") | .version) = $version' \
+  "$manifest_mismatch_root/.claude-plugin/marketplace.json" >"$work/marketplace.json" ||
+  fail 'could not create a mismatched marketplace manifest'
+mv "$work/marketplace.json" "$manifest_mismatch_root/.claude-plugin/marketplace.json"
+if mismatch_output="$("$manifest_mismatch_root/scripts/release.sh" "v$version" \
+  --output "$work/mismatch-release.tar.gz" --formula-output "$work/mismatch-release.rb" 2>&1)"; then
+  fail 'release script accepted mismatched release versions'
+fi
+case "$mismatch_output" in
+  *'version mismatch'*'.claude-plugin/marketplace.json'*) ;;
+  *) fail "version mismatch error was not actionable: $mismatch_output" ;;
+esac
+printf 'scenario 5: release refuses mismatched JSON release versions\n'
 
 printf 'ok: release guard scenarios\n'
