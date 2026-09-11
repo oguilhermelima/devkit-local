@@ -96,6 +96,36 @@ assert_contains "$(cat "$state_dir/dispatches/queueing-parent/nudge.log")" 'outc
 assert_equal "$(wc -l <"$state_dir/dispatches/queueing-parent/nudge.log" | tr -d ' ')" 1
 printf 'busy parent receives a notice without liveness probing\n'
 
+# A repeated notification for the same unread child message must not type a second
+# pointer. Once that message has a durable delivery, a later notification is still
+# suppressed; a genuinely new child message may wake the parent again.
+notify_calls=0
+megabrain_parent_notify_channel() { printf 'orca\n'; }
+megabrain_parent_notify() {
+  notify_calls=$((notify_calls + 1))
+}
+megabrain_dispatch_meta_write nudge-once parent-terminal orca orca '' nudge-once-terminal \
+  "$root" main codex label running gpt-5 true codex '' '' host ide '' '' >/dev/null
+megabrain_dispatch_message_append nudge-once child ask 'first unread child message' child-terminal >/dev/null
+nudge_once_meta="$(megabrain_dispatch_meta_read nudge-once)"
+megabrain_parent_notify_dispatch "$nudge_once_meta"
+megabrain_parent_notify_dispatch "$nudge_once_meta"
+assert_equal "$notify_calls" 1
+assert_contains "$(sed -n '2p' "$state_dir/dispatches/nudge-once/nudge.log")" \
+  'outcome=suppressed reason=nudge-outstanding'
+megabrain_dispatch_delivery_write nudge-once delivery-consumed parent-terminal 1 '[1]'
+jq '.status = "acknowledged"' "$state_dir/dispatches/nudge-once/deliveries/delivery-consumed.json" \
+  >"$state_dir/dispatches/nudge-once/deliveries/.delivery-consumed.tmp"
+mv -f "$state_dir/dispatches/nudge-once/deliveries/.delivery-consumed.tmp" \
+  "$state_dir/dispatches/nudge-once/deliveries/delivery-consumed.json"
+megabrain_parent_notify_dispatch "$nudge_once_meta"
+assert_equal "$notify_calls" 1
+megabrain_dispatch_message_append nudge-once child done 'new unread child message' child-terminal >/dev/null
+nudge_once_meta="$(megabrain_dispatch_meta_read nudge-once)"
+megabrain_parent_notify_dispatch "$nudge_once_meta"
+assert_equal "$notify_calls" 2
+printf 'parent nudge: one outstanding pointer, then one new pointer after consumption\n'
+
 tmux_cmd new-session -d -s "$unknown_session" "printf '%s' 'Working · esc to interrupt'; sleep 5"
 unknown_pane="$(tmux_cmd display-message -p -t "$unknown_session" '#{pane_id}')"
 create_meta unrecognised-parent "$unknown_session" "$unknown_pane" "$unknown_session" "$unknown_pane" agy

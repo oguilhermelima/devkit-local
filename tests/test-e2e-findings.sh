@@ -182,12 +182,13 @@ assert_equal "$(jq -r '.terminalState' "$MEGABRAIN_DISPATCH_DIR/queued-unproven/
 printf 'unproven terminal without child queue evidence remains retained\n'
 
 megabrain_dispatch_meta_write late-reply parent-terminal superset superset workspace-test late-reply-terminal "$root" main codex label done gpt-5 true codex '' '' host ide >/dev/null
-late_reply_output="$(megabrain_dispatch_reply late-reply --text 'late answer' --json)"
-assert_equal "$(printf '%s' "$late_reply_output" | jq -r '.status')" queued
+if late_reply_output="$(megabrain_dispatch_reply late-reply --text 'late answer' --json 2>&1)"; then
+  fail 'a reply to a settled dispatch was accepted'
+fi
+assert_contains "$late_reply_output" 'open a new dispatch'
 assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/late-reply/meta.json")" done
-late_reply_message="$MEGABRAIN_DISPATCH_DIR/late-reply/messages/0001-parent-reply.json"
-assert_equal "$(jq -r '.text' "$late_reply_message")" 'late answer'
-printf 'reply to a done dispatch stays queued and keeps done state\n'
+assert_equal "$(find "$MEGABRAIN_DISPATCH_DIR/late-reply/messages" -name '*.json' | wc -l | tr -d ' ')" 0
+printf 'reply to a settled dispatch is refused and keeps the queue empty\n'
 
 stalled_reply_send_mode=success
 megabrain_dispatch_native_send() {
