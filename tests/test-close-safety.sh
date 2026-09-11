@@ -28,6 +28,7 @@ outside_tmux_before="$(find "$default_tmux_dir" -mindepth 1 -maxdepth 1 -type s 
 
 source "$root/lib/common.sh"
 source "$root/lib/module-tmux-runtime.sh"
+source "$root/lib/module-context.sh"
 source "$root/lib/module-orchestrate.sh"
 
 fail() {
@@ -105,6 +106,10 @@ assert_session_alive() {
   tmux_cmd has-session -t "$1" >/dev/null 2>&1 || fail "session is not alive: $1"
 }
 
+assert_file() {
+  [ -f "$1" ] || fail "expected file to exist: $1"
+}
+
 tmux_cmd new-session -d -s "$session_name" bash
 parent_pane="$(tmux_cmd display-message -p -t "$session_name" '#{pane_id}')"
 parent_tmux="$(tmux_cmd display-message -p -t "$parent_pane" '#{socket_path},#{pid},#{session_id}')"
@@ -149,6 +154,55 @@ assert_session_alive "$session_name"
 assert_contains "$(cat "$close_log")" 'close:dedicated-child-terminal'
 assert_equal "$(jq -r '.state' "$state_dir/dispatches/dedicated-child/meta.json")" closed
 printf 'dedicated-session child close still closes its host terminal\n'
+
+automatic_session_name="megabrain-close-automatic-$$"
+automatic_dispatch_id="automatic-release"
+tmux_cmd new-session -d -s "$automatic_session_name" bash
+automatic_pane="$(tmux_cmd display-message -p -t "$automatic_session_name" '#{pane_id}')"
+automatic_transcript="$state_dir/dispatches/$automatic_dispatch_id/transcript"
+mkdir -p "$(dirname "$automatic_transcript")"
+printf '%s\n' 'automatic release transcript' >"$automatic_transcript"
+tmux_cmd send-keys -t "$automatic_pane" -l \
+  "export MEGABRAIN_DISPATCH_ID=$automatic_dispatch_id; (exec -a MEGABRAIN_DISPATCH_ID=$automatic_dispatch_id sleep 60)"
+tmux_cmd send-keys -t "$automatic_pane" Enter
+automatic_child_pid=""
+automatic_pane_pid="$(tmux_cmd display-message -p -t "$automatic_pane" '#{pane_pid}')"
+for attempt in $(seq 1 100); do
+  automatic_child_pid="$(pgrep -P "$automatic_pane_pid" 2>/dev/null | head -n 1 || true)"
+  [ -n "$automatic_child_pid" ] && break
+  sleep 0.05
+done
+[ -n "$automatic_child_pid" ] || fail 'timed out waiting for automatic-release process'
+megabrain_dispatch_meta_write "$automatic_dispatch_id" parent-terminal orca orca workspace-test automatic-terminal \
+  "$root" fix/dispatch-process-lifetime codex label running gpt-5 true codex "$automatic_session_name" "$automatic_pane" tmux tmux \
+  "$session_name" "$parent_pane" workspace-test >/dev/null
+megabrain_dispatch_meta_update_state "$automatic_dispatch_id" done
+if tmux_cmd has-session -t "$automatic_session_name" >/dev/null 2>&1; then
+  fail 'terminal dispatch did not release its dedicated tmux session after reaching done'
+fi
+assert_file "$automatic_transcript"
+assert_contains "$(cat "$automatic_transcript")" 'automatic release transcript'
+automatic_read="$(command_orchestrate read "$automatic_dispatch_id" --json)"
+assert_equal "$(printf '%s' "$automatic_read" | jq -r '.source')" file
+assert_equal "$(printf '%s' "$automatic_read" | jq -r '.text')" 'automatic release transcript'
+assert_equal "$(jq -r '.processState' "$state_dir/dispatches/$automatic_dispatch_id/meta.json")" stopped
+assert_equal "$(jq -r '.terminalState' "$state_dir/dispatches/$automatic_dispatch_id/meta.json")" released
+printf 'terminal dispatch release keeps the transcript and read fallback\n'
+
+unproven_session_name="megabrain-close-unproven-$$"
+unproven_dispatch_id="unproven-release"
+tmux_cmd new-session -d -s "$unproven_session_name" bash
+unproven_pane="$(tmux_cmd display-message -p -t "$unproven_session_name" '#{pane_id}')"
+unproven_transcript="$state_dir/dispatches/$unproven_dispatch_id/transcript"
+mkdir -p "$(dirname "$unproven_transcript")"
+touch "$unproven_transcript"
+megabrain_dispatch_meta_write "$unproven_dispatch_id" parent-terminal orca orca workspace-test unproven-terminal \
+  "$root" fix/dispatch-process-lifetime codex label running gpt-5 true codex "$unproven_session_name" "$unproven_pane" tmux tmux \
+  "$session_name" "$parent_pane" workspace-test >/dev/null
+megabrain_dispatch_meta_update_state "$unproven_dispatch_id" done
+assert_session_alive "$unproven_session_name"
+tmux_cmd kill-session -t "$unproven_session_name"
+printf 'unproven terminal identity is not touched by automatic release\n'
 
 unset TMUX TMUX_PANE ORCA_TERMINAL_HANDLE
 export SUPERSET_TERMINAL_ID=parent-terminal

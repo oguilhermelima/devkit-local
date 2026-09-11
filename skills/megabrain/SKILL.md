@@ -24,7 +24,7 @@ start empty, so add one with `megabrain chain add <name> ...` first. Use `chain 
 explicit chain runner when you want its ordered fallback across steps and usage-window checks.
 
 ```
-megabrain orchestrate spawn --repo <name|path> --branch <branch> [--agent <id>] [--chain <name>] [--model <id>] [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json]
+megabrain orchestrate spawn --repo <name|path> --branch <branch> [--agent <id>] [--chain <name>] [--model <id>] [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--browser] [--agent-arg <flag>] [--json]
 ```
 
 `--chain <name>` bypasses selector matching on both commands. An explicit `--agent` wins over
@@ -32,7 +32,7 @@ chain selection and works with no chain configured. Explicit `--model` and `--ef
 those fields when the chain supplies the agent:
 
 ```
-megabrain chain run [name] [--chain <name>] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name|path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]
+megabrain chain run [name] [--chain <name>] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name|path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--browser] [--agent-arg <flag>] [--json]
 ```
 
 Either way: pass `--worktree <path>` to reuse a checkout that already exists, or `--repo` plus

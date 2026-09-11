@@ -33,8 +33,9 @@ export SUPERSET_TERMINAL_ID=child-terminal
 unset TMUX TMUX_PANE
 
 source "$root/lib/common.sh"
-source "$root/lib/module-orchestrate.sh"
+source "$root/lib/module-tmux-runtime.sh"
 source "$root/lib/module-context.sh"
+source "$root/lib/module-orchestrate.sh"
 
 megabrain_dispatch_meta_write direct-dispatch parent-terminal superset superset workspace child-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
 mkdir -p "$MEGABRAIN_DISPATCH_DIR/unreadable"
