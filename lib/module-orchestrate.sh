@@ -314,16 +314,28 @@ megabrain_dispatch_transcript_path() {
 }
 
 megabrain_dispatch_render_transcript() {
-  local path="$1" lines="$2" render_dir socket session marker start_marker history_limit attempts=0
+  local path="$1" lines="$2" render_dir='' replay_path='' socket='' session='' marker='' start_marker='' history_limit=0 raw_line_count=0 attempts=0
   local command_text="" rendered="" trimmed=""
   render_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-transcript-render.XXXXXX")" || return 1
+  replay_path="$render_dir/replay"
   socket="$render_dir/tmux"
   session="megabrain-render-$$-${RANDOM:-0}"
   marker="$render_dir/complete"
   start_marker="$render_dir/start"
-  history_limit=$((lines + 100))
+  if ! awk -v esc="$(printf '\033')" '{ gsub(esc "\\[3J", ""); print }' "$path" >"$replay_path"; then
+    rm -rf "$render_dir"
+    return 1
+  fi
+  raw_line_count="$(wc -l <"$replay_path" | tr -d ' ')"
+  case "$raw_line_count" in
+    ''|*[!0-9]*)
+      rm -rf "$render_dir"
+      return 1
+      ;;
+  esac
+  history_limit=$((raw_line_count + lines + 100))
 
-  command_text="stty -echo; while [ ! -f $(printf '%q' "$start_marker") ]; do sleep 0.01; done; cat $(printf '%q' "$path"); touch $(printf '%q' "$marker"); exec sleep 60"
+  command_text="stty -echo; while [ ! -f $(printf '%q' "$start_marker") ]; do sleep 0.01; done; cat $(printf '%q' "$replay_path"); touch $(printf '%q' "$marker"); exec sleep 60"
   if ! tmux -S "$socket" -f /dev/null new-session -d -x 240 -y 100 -s "$session" "$command_text" >/dev/null 2>&1; then
     tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
     rm -rf "$render_dir"
@@ -368,7 +380,7 @@ megabrain_dispatch_render_transcript() {
   ')"
   tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
   rm -rf "$render_dir"
-  printf '%s\n' "$trimmed" | tail -n "$lines"
+  printf '%s\n' "$trimmed"
 }
 
 megabrain_dispatch_start_transcript() {
