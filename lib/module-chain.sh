@@ -1143,9 +1143,9 @@ megabrain_chain_select() {
 }
 
 megabrain_chain_run_spawn() {
-  local worktree="$1" repo="$2" branch="$3" base="$4" slug="$5" prompt="$6" label="$7" tmux_choice="$8" model="$9" effort="${10}" agent="${11}"
+  local worktree="$1" repo="$2" branch="$3" base="$4" slug="$5" prompt="$6" label="$7" tmux_choice="$8" model="$9" effort="${10}" agent="${11}" browser="${12:-false}"
   local -a agent_args=() spawn_args=() arg
-  shift 11
+  shift 12
   [ "$#" -eq 0 ] || agent_args=("$@")
   if [ -n "$worktree" ]; then
     spawn_args+=(--worktree "$worktree")
@@ -1159,6 +1159,7 @@ megabrain_chain_run_spawn() {
   spawn_args+=(--prompt "$prompt" --json)
   [ -n "$label" ] && spawn_args+=(--label "$label")
   [ -n "$tmux_choice" ] && spawn_args+=(--tmux "$tmux_choice")
+  [ "$browser" = true ] && spawn_args+=(--browser)
   if [ "${#agent_args[@]}" -gt 0 ]; then
     for arg in "${agent_args[@]}"; do
       spawn_args+=(--agent-arg "$arg")
@@ -1197,10 +1198,11 @@ MEGABRAIN_CHAIN_CODEX_ROLLOUT_SCAN_LIMIT=50
 megabrain_chain_walk() {
   local worktree="$1" repo="$2" branch="$3" base="$4" slug="$5" prompt="$6" label="$7" tmux_choice="$8"
   local model_override="$9" effort_override="${10}" model_explicit="${11}" effort_explicit="${12}"
+  local browser="${13:-false}"
   local step_count index step agent model effort until_json threshold window on_unknown limit_reason reason reset_text failure_reason final_reason report_chain start_index
   local spawn_output spawn_json spawn_error error_file dispatch_id spawn_succeeded
   local -a agent_args=()
-  shift 12
+  shift 13
   [ "$#" -gt 0 ] && agent_args=("$@")
   MEGABRAIN_CHAIN_WALK_OUTPUT=""
   MEGABRAIN_CHAIN_WALK_SPAWN_JSON=null
@@ -1287,11 +1289,11 @@ megabrain_chain_walk() {
     MEGABRAIN_CHAIN_DEFAULT="$MEGABRAIN_CHAIN_SELECTION_DEFAULT"
     spawn_succeeded=false
     if [ "${#agent_args[@]}" -gt 0 ]; then
-      if spawn_output="$(megabrain_chain_run_spawn "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$agent" "${agent_args[@]}" 2>"$error_file")"; then
+      if spawn_output="$(megabrain_chain_run_spawn "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$agent" "$browser" "${agent_args[@]}" 2>"$error_file")"; then
         spawn_succeeded=true
       fi
     else
-      if spawn_output="$(megabrain_chain_run_spawn "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$agent" 2>"$error_file")"; then
+      if spawn_output="$(megabrain_chain_run_spawn "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$agent" "$browser" 2>"$error_file")"; then
         spawn_succeeded=true
       fi
     fi
@@ -1371,12 +1373,12 @@ megabrain_chain_continue_refused() {
     tmux) runtime=tmux ;;
     *) runtime=host ;;
   esac
-  megabrain_chain_walk "$worktree" '' '' '' '' "$prompt" "$label" "$runtime" '' '' false false
+  megabrain_chain_walk "$worktree" '' '' '' '' "$prompt" "$label" "$runtime" '' '' false false false
 }
 
 command_chain_run() {
   local explicit_name="" chain_option="" selection_name="" selection_source=name parent_agent="${SUPERSET_AGENT_ID:-}" parent_model="${SUPERSET_AGENT_MODEL:-}" parent_effort="${SUPERSET_AGENT_EFFORT:-}"
-  local repo="" branch="" base="" slug="" worktree="" prompt="" label="" tmux_choice="" json=false arg config step_count index step agent model effort until_json threshold window
+  local repo="" branch="" base="" slug="" worktree="" prompt="" label="" tmux_choice="" json=false browser=false arg config step_count index step agent model effort until_json threshold window
   local spawn_output spawn_json spawn_error error_file reason limit_reason reset_text failure_reason final_reason report_chain reasons_json spawn_succeeded dispatch_id walk_status
   local -a agent_args=()
   if [ "$#" -gt 0 ] && [ "${1#--}" = "$1" ]; then
@@ -1404,6 +1406,7 @@ command_chain_run() {
       --prompt) prompt="${2:-}"; shift 2 ;;
       --label) label="${2:-}"; shift 2 ;;
       --tmux) tmux_choice="${2:-}"; shift 2 ;;
+      --browser) browser=true; shift ;;
       --agent-arg)
         [ "$#" -ge 2 ] && [ -n "${2:-}" ] || { megabrain_error '--agent-arg requires a non-empty value'; return "$MEGABRAIN_USAGE_ERROR"; }
         agent_args+=("$2")
@@ -1427,12 +1430,12 @@ command_chain_run() {
   fi
   megabrain_chain_select "$config" "$selection_name" "$parent_agent" "$parent_model" "$parent_effort" "$selection_source" || return 1
   if [ "${#agent_args[@]}" -gt 0 ]; then
-    if megabrain_chain_walk "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "" "" false false "${agent_args[@]}"; then
+      if megabrain_chain_walk "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "" "" false false "$browser" "${agent_args[@]}"; then
       walk_status=0
     else
       walk_status="$?"
     fi
-  elif megabrain_chain_walk "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "" "" false false; then
+  elif megabrain_chain_walk "$worktree" "$repo" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "" "" false false "$browser"; then
     walk_status=0
   else
     walk_status="$?"
