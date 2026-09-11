@@ -51,6 +51,12 @@ assert_false() {
   fi
 }
 
+assert_not_contains() {
+  case "$1" in
+    *"$2"*) fail_test "did not expect '$1' to contain '$2'" ;;
+  esac
+}
+
 reset_fixture() {
   rm -rf "$state_dir"
   mkdir -p "$state_dir"
@@ -119,11 +125,13 @@ run_child_message() (
 )
 
 reset_fixture
-if megabrain_launch_agent "$root" workspace-test codex gpt-5 medium slow-prompt test-label >/dev/null 2>&1; then
+launch_output_file="$state_dir/launch-output"
+if megabrain_launch_agent "$root" workspace-test codex gpt-5 medium slow-prompt test-label >"$launch_output_file" 2>&1; then
   launch_status=0
 else
   launch_status=$?
 fi
+launch_output="$(cat "$launch_output_file")"
 dispatch_dir="$(dispatch_path)"
 dispatch_id="${dispatch_dir##*/}"
 assert_equal "$launch_status" 0
@@ -138,6 +146,7 @@ assert_equal "$(jq -r '.promptReceipt' "$dispatch_dir/meta.json")" pending
 assert_equal "$(jq -r '.promptState' "$dispatch_dir/meta.json")" awaiting-receipt
 assert_equal "$(jq -r '.promptDelivery' "$dispatch_dir/meta.json")" pending
 assert_equal "$(jq -r '.promptDelivered' "$dispatch_dir/meta.json")" false
+assert_not_contains "$launch_output" 'prompt awaiting receipt; run megabrain orchestrate reconcile'
 [ -f "$dispatch_dir/messages/0001-parent-prompt.json" ] || fail_test 'published prompt was not persisted'
 printf 'missing receipt leaves pane and dispatch intact\n'
 
