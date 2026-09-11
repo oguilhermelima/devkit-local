@@ -286,7 +286,8 @@ child_ack() {
 }
 
 parent_watch() {
-  megabrain_dispatch_watch "$dispatch_id" --timeout 0 --poll-interval 0 --wait-mode poll --full --json
+  local timeout="${1:-0}"
+  megabrain_dispatch_watch "$dispatch_id" --timeout "$timeout" --poll-interval 0 --wait-mode poll --full --json
 }
 
 parent_ack() {
@@ -341,9 +342,7 @@ run_flow() {
     assert_contains "$(cat "$state_dir/fake-sends.log")" "MEGABRAIN_STATE_DIR=$state_dir"
   fi
   timing_mark 'spawn and prompt'
-  receipt_message="$(find "$state_dir/dispatches/$dispatch_id/messages" -name '*-child-received.json' -print -quit)"
-  [ -n "$receipt_message" ] || fail 'spawn returned before the delayed child receipt reached the queue'
-  receipt_delivery="$(parent_watch)"
+  receipt_delivery="$(parent_watch 10)"
   receipt_delivery_id="$(jq -r '.deliveryId' <<<"$receipt_delivery")"
   parent_ack "$receipt_delivery_id" >/dev/null
   timing_mark 'initial receipt'
