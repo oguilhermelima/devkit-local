@@ -572,7 +572,30 @@ megabrain_dispatch_meta_update_state() {
   current_state="$(jq -r '.state // empty' "$path" 2>/dev/null || true)"
   [ -n "$current_state" ] || { megabrain_error "dispatch state is missing: $dispatch_id"; return 1; }
   megabrain_dispatch_validate_transition dispatch "$current_state" "$state" || return 1
-  megabrain_dispatch_meta_update_fields "$dispatch_id" "$state" "__keep__" "__keep__" "__keep__" "__keep__" "__keep__" "__keep__" "__keep__"
+  megabrain_dispatch_meta_update_fields "$dispatch_id" "$state" "__keep__" "__keep__" "__keep__" "__keep__" "__keep__" "__keep__" "__keep__" || return 1
+  case "$state" in
+    done|failed|circuit_broken) megabrain_dispatch_release_terminal_process "$dispatch_id" || return 1 ;;
+  esac
+}
+
+megabrain_dispatch_release_terminal_process() {
+  local dispatch_id="$1" meta runtime transcript_path process_state terminal_state
+  transcript_path="$(megabrain_dispatch_transcript_path "$dispatch_id")" || return 1
+  # WHY: the transcript is the durable record that makes releasing the live pane safe.
+  [ -f "$transcript_path" ] || return 0
+  meta="$(megabrain_dispatch_meta_read "$dispatch_id")" || return 1
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  [ "$runtime" = tmux ] || return 0
+  terminal_state="$(printf '%s' "$meta" | jq -r '.terminalState // "owned"')"
+  [ "$terminal_state" != released ] || return 0
+  megabrain_dispatch_release_tmux_process "$meta" || return 1
+  if [ "$MEGABRAIN_DISPATCH_RELEASED_TERMINAL" = true ]; then
+    process_state="$(printf '%s' "$meta" | jq -r '.processState // empty')"
+    case "$process_state" in
+      starting|start-unproven|running|stopping|stop-unproven) megabrain_dispatch_meta_update_process_state "$dispatch_id" stopped || return 1 ;;
+    esac
+    megabrain_dispatch_meta_update_terminal_state "$dispatch_id" released || return 1
+  fi
 }
 
 megabrain_dispatch_meta_update_fields() {
@@ -1597,7 +1620,7 @@ megabrain_dispatch_close_result() {
 }
 
 megabrain_dispatch_native_close() {
-  local meta="$1" host workspace_id terminal_id runtime tmux_session tmux_pane pane_count close_rc=0 close_output=""
+  local meta="$1" allow_caller="${2:-false}" host workspace_id terminal_id runtime tmux_session tmux_pane pane_count close_rc=0 close_output=""
   local parent_tmux_session caller_tmux_session shared_session=false
   MEGABRAIN_DISPATCH_CLOSE_LAST_PANE=false
   MEGABRAIN_DISPATCH_CLOSE_OUTCOME=unknown
@@ -1612,7 +1635,9 @@ megabrain_dispatch_native_close() {
     parent_tmux_session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
     [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] || { megabrain_error "tmux dispatch metadata has no session or pane"; return 1; }
     caller_tmux_session="$(megabrain_dispatch_tmux_caller_session || true)"
-    if [ "$tmux_session" = "$parent_tmux_session" ] || [ "$tmux_session" = "$caller_tmux_session" ]; then
+    if [ "$tmux_session" = "$parent_tmux_session" ] || {
+      [ "$allow_caller" != true ] && [ "$tmux_session" = "$caller_tmux_session" ];
+    }; then
       shared_session=true
     fi
     if [ "$shared_session" = true ]; then
@@ -1653,29 +1678,64 @@ megabrain_dispatch_native_close() {
 }
 
 megabrain_dispatch_tmux_session_owned() {
-  local meta="$1" tmux_session parent_tmux_session caller_tmux_session
+  local meta="$1" allow_caller="${2:-false}" tmux_session parent_tmux_session caller_tmux_session
   tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
   parent_tmux_session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
   [ -n "$tmux_session" ] || return 1
   # A split dispatch records the parent's session, which owns the session and
   # only lends the child its pane. It is never safe for prune to release it.
   [ "$tmux_session" != "$parent_tmux_session" ] || return 1
+  [ "$allow_caller" = true ] && return 0
   caller_tmux_session="$(megabrain_dispatch_tmux_caller_session 2>/dev/null || true)"
   [ -z "$caller_tmux_session" ] || [ "$tmux_session" != "$caller_tmux_session" ]
 }
 
 megabrain_dispatch_release_tmux_session() {
-  local meta="$1" runtime tmux_session
+  local meta="$1" allow_caller="${2:-false}" runtime tmux_session terminal_status
+  MEGABRAIN_DISPATCH_RELEASED_TERMINAL=false
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   [ "$runtime" = tmux ] || return 0
   tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
   [ -n "$tmux_session" ] || return 0
-  megabrain_dispatch_tmux_session_owned "$meta" || return 0
+  megabrain_dispatch_terminal_status "$meta"
+  terminal_status="${MEGABRAIN_TERMINAL_STATUS:-unknown}"
+  # WHY: tmux pane ids are recycled; never kill a session until its process tree
+  # proves that the pane still belongs to this dispatch.
+  [ "$terminal_status" = proven ] || return 0
+  megabrain_dispatch_tmux_session_owned "$meta" "$allow_caller" || return 0
   declare -F megabrain_tmux_session_exists >/dev/null 2>&1 || return 0
   megabrain_tmux_session_exists "$tmux_session" || return 0
-  megabrain_dispatch_close_refuse_caller "$meta" || return 1
+  if [ "$allow_caller" != true ]; then
+    megabrain_dispatch_close_refuse_caller "$meta" || return 1
+  fi
   megabrain_dispatch_stop_transcript "$meta"
-  megabrain_dispatch_native_close "$meta"
+  megabrain_dispatch_native_close "$meta" "$allow_caller"
+  MEGABRAIN_DISPATCH_RELEASED_TERMINAL=true
+}
+
+megabrain_dispatch_release_tmux_process() {
+  local meta="$1" runtime tmux_session tmux_pane pane_count terminal_status
+  MEGABRAIN_DISPATCH_RELEASED_TERMINAL=false
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  [ "$runtime" = tmux ] || return 0
+  tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
+  tmux_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
+  [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] || return 0
+  megabrain_dispatch_terminal_status "$meta"
+  terminal_status="${MEGABRAIN_TERMINAL_STATUS:-unknown}"
+  # WHY: tmux pane ids are recycled; never kill a process tree without proof
+  # that its current pane still belongs to this dispatch.
+  [ "$terminal_status" = proven ] || return 0
+  megabrain_dispatch_tmux_session_owned "$meta" true || return 0
+  declare -F megabrain_tmux_session_exists >/dev/null 2>&1 || return 0
+  megabrain_tmux_session_exists "$tmux_session" || return 0
+  megabrain_dispatch_stop_transcript "$meta"
+  if pane_count="$(tmux list-panes -t "$tmux_session" 2>/dev/null | wc -l | tr -d ' ')" && [ "$pane_count" -gt 1 ]; then
+    tmux kill-pane -t "$tmux_pane" || return 1
+  else
+    tmux kill-session -t "$tmux_session" >/dev/null 2>&1 || return 1
+  fi
+  MEGABRAIN_DISPATCH_RELEASED_TERMINAL=true
 }
 
 megabrain_dispatch_read() {
