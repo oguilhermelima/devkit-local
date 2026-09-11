@@ -201,7 +201,7 @@ megabrain_parent_notify_wait_for_wake() {
     result=1
   fi
   kill "$tail_pid" 2>/dev/null
-  wait "$tail_pid" 2>/dev/null
+  wait "$tail_pid" 2>/dev/null || true
   rm -rf "$fifo_dir"
   return "$result"
 }
