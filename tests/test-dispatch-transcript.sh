@@ -94,6 +94,15 @@ megabrain_dispatch_terminal_status() {
   MEGABRAIN_TERMINAL_STATUS=proven
 }
 
+megabrain_dispatch_release_tmux_process() {
+  local meta="$1" session
+  session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
+  printf '%s\n' "$session" >>"$release_log"
+  grep -Fvx "$session" "$live_sessions" >"$live_sessions.tmp" || true
+  mv -f "$live_sessions.tmp" "$live_sessions"
+  MEGABRAIN_DISPATCH_RELEASED_TERMINAL=true
+}
+
 megabrain_dispatch_close_refuse_caller() {
   return 0
 }
