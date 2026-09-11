@@ -1202,7 +1202,14 @@ megabrain_chain_walk() {
   local step_count index step agent model effort until_json threshold window on_unknown limit_reason reason reset_text failure_reason final_reason report_chain start_index
   local spawn_output spawn_json spawn_error error_file dispatch_id spawn_succeeded
   local -a agent_args=()
-  shift 13
+  # WHY: callers from before --browser supplied twelve positional arguments; keep that
+  # private helper compatible while recognizing the new boolean slot when present.
+  if [ "$#" -ge 13 ] && { [ "${13:-}" = true ] || [ "${13:-}" = false ]; }; then
+    shift 13
+  else
+    browser=false
+    shift 12
+  fi
   [ "$#" -gt 0 ] && agent_args=("$@")
   MEGABRAIN_CHAIN_WALK_OUTPUT=""
   MEGABRAIN_CHAIN_WALK_SPAWN_JSON=null
