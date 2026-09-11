@@ -30,6 +30,7 @@ release_script="$root/scripts/release.sh"
 version="$(jq -r '.version' "$root/.claude-plugin/plugin.json")"
 archive="$work/megabrain-$version.tar.gz"
 formula="$work/megabrain.rb"
+tracked_formula_hash_before="$(shasum -a 256 "$root/Formula/megabrain.rb" | awk '{print $1}')"
 
 if help_output="$("$release_script" --help 2>&1)"; then
   help_status=0
@@ -59,7 +60,8 @@ case "$help_output" in
 esac
 printf 'scenario 1: release help describes arguments and operator commands\n'
 
-if mismatch_output="$("$release_script" v0.2.0 --output "$archive" 2>&1)"; then
+mismatch_tag="v\${version}-mismatch"
+if mismatch_output="$("$release_script" "$mismatch_tag" --output "$archive" --formula-output "$work/mismatch-formula.rb" 2>&1)"; then
   mismatch_status=0
 else
   mismatch_status=$?
@@ -88,6 +90,9 @@ tar -tzf "$archive" | grep -F "megabrain-$version/megabrain" >/dev/null ||
 grep -F "releases/download/v$version/megabrain-$version.tar.gz" "$formula" >/dev/null || fail 'rendered formula has the wrong version'
 grep -Eq '^  sha256 "[0-9a-f]{64}"$' "$formula" || fail 'rendered formula has no concrete sha256'
 grep -F '__VERSION__' "$formula" >/dev/null && fail 'rendered formula retained a version placeholder'
+tracked_formula_hash_after="$(shasum -a 256 "$root/Formula/megabrain.rb" | awk '{print $1}')"
+[ "$tracked_formula_hash_before" = "$tracked_formula_hash_after" ] ||
+  fail 'release test changed the tracked formula'
 printf 'scenario 3: matching release tag creates the formula tarball and instructions\n'
 
 committed_archive="$work/committed.tar.gz"
