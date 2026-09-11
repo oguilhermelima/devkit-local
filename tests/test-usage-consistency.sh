@@ -182,6 +182,14 @@ while IFS= read -r top_level; do
   esac
 done < <(usage_top_level_commands)
 
+while IFS= read -r module_id; do
+  [ -n "$module_id" ] || continue
+  case "$readme_md" in
+    *"$module_id"*) ;;
+    *) record_coverage_failure "README.md never names module id '$module_id'" ;;
+  esac
+done < <(megabrain_module_ids)
+
 # Homebrew is an installation method rather than a command or module, so this
 # is the one deliberately manual anchor in the otherwise derived checks.
 case "$readme_md" in
