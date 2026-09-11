@@ -428,7 +428,7 @@ megabrain_transcript_truncate_file() {
 
 megabrain_dispatch_render_transcript() {
   local path="$1" lines="$2" render_dir='' replay_path='' captured_path='' socket='' session='' marker='' start_marker='' history_limit=0 raw_line_count=0 attempts=0
-  local command_text=""
+  local command_text="" tmux_config=''
   render_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-transcript-render.XXXXXX")" || return 1
   replay_path="$render_dir/replay"
   captured_path="$render_dir/captured"
@@ -436,6 +436,7 @@ megabrain_dispatch_render_transcript() {
   session="megabrain-render-$$-${RANDOM:-0}"
   marker="$render_dir/complete"
   start_marker="$render_dir/start"
+  tmux_config="$render_dir/tmux.conf"
   # Never load more than MEGABRAIN_TRANSCRIPT_MAX_BYTES of the source file: this is
   # the bound that actually holds regardless of whether a lifecycle path ever
   # truncated the persisted transcript on disk.
@@ -453,15 +454,26 @@ megabrain_dispatch_render_transcript() {
   esac
   history_limit=$((raw_line_count + lines + 100))
 
+  # history-limit became a per-window option in tmux 3.2+: setting it with
+  # set-option after the window already exists is a no-op on some tmux builds
+  # (measured: tmux 3.3a silently keeps the compiled-in 2000-line default,
+  # while tmux 3.7c happens to grow the existing window anyway). It must be
+  # in place before new-session creates the window, so it goes in a minimal
+  # config file passed via -f instead of /dev/null. alternate-screen is a
+  # session option, applied dynamically regardless of when it is set
+  # (measured: setting it off after creation still suppresses an alternate-
+  # screen switch that arrives afterward), so it stays a post-creation
+  # set-option below rather than moving into this file.
+  printf 'set-option -g history-limit %s\n' "$history_limit" >"$tmux_config"
+
   command_text="stty -echo; while [ ! -f $(printf '%q' "$start_marker") ]; do sleep 0.01; done; cat $(printf '%q' "$replay_path"); touch $(printf '%q' "$marker"); exec sleep 60"
-  if ! tmux -S "$socket" -f /dev/null new-session -d -x 240 -y 100 -s "$session" "$command_text" >/dev/null 2>&1; then
+  if ! tmux -S "$socket" -f "$tmux_config" new-session -d -x 240 -y 100 -s "$session" "$command_text" >/dev/null 2>&1; then
     tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
     rm -rf "$render_dir"
     return 1
   fi
 
-  if ! tmux -S "$socket" -f /dev/null set-option -g history-limit "$history_limit" >/dev/null 2>&1 ||
-    ! tmux -S "$socket" -f /dev/null set-option -g alternate-screen off >/dev/null 2>&1 ||
+  if ! tmux -S "$socket" -f /dev/null set-option -g alternate-screen off >/dev/null 2>&1 ||
     ! touch "$start_marker"; then
     tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
     rm -rf "$render_dir"
