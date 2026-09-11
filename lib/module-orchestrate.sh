@@ -19,7 +19,7 @@ MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS=7
 # Single source of truth for mail visibility, keyed "from:type". actionable mail
 # is surfaced by default and triggers a notify; protocol mail is durable evidence
 # surfaced only with --full. Every site that routes or filters mail consults this.
-MEGABRAIN_DISPATCH_MAIL_ACTIONABLE_KEYS=(child:ask child:done child:stalled)
+MEGABRAIN_DISPATCH_MAIL_ACTIONABLE_KEYS=(child:ask child:done child:stalled megabrain:usage)
 MEGABRAIN_DISPATCH_MAIL_PROTOCOL_KEYS=(child:received child:ack)
 
 megabrain_dispatch_prune_states() {
@@ -1450,8 +1450,8 @@ megabrain_dispatch_delivery_matches_mailbox() {
       '$seqs | index($seq) != null' >/dev/null 2>&1 || continue
     from="$(jq -r '.from // empty' "$path" 2>/dev/null || true)"
     type="$(jq -r '.type // empty' "$path" 2>/dev/null || true)"
-    if [ "$mailbox" = parent ] && [ "$from" = child ]; then
-      class="$(megabrain_dispatch_mail_class "child:$type" 2>/dev/null || true)"
+    if [ "$mailbox" = parent ] && { [ "$from" = child ] || [ "$from" = megabrain ]; }; then
+      class="$(megabrain_dispatch_mail_class "$from:$type" 2>/dev/null || true)"
       if [ "$full" = true ]; then
         [ -n "$class" ] && return 0
       else

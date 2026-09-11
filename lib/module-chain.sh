@@ -754,8 +754,9 @@ megabrain_chain_usage_notice_maybe() {
   report="$(megabrain_chain_usage_notice_report)" || return 0
   meta="$(megabrain_dispatch_meta_read "$dispatch_id" 2>/dev/null || true)"
   [ -n "$meta" ] || return 0
+  # megabrain:usage is actionable mail, so message_append itself creates the parent
+  # delivery and fires the pointer; a second notify here would just double-nudge the pane.
   megabrain_dispatch_message_append "$dispatch_id" megabrain usage "$report" "${MEGABRAIN_SESSION_ID:-megabrain}" >/dev/null 2>&1 || return 0
-  megabrain_parent_notify_dispatch "$meta" >/dev/null 2>&1 || true
   megabrain_chain_usage_notice_mark >/dev/null 2>&1 || true
 }
 
