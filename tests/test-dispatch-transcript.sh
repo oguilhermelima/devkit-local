@@ -3,6 +3,8 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+source_state_dir="${MEGABRAIN_STATE_DIR:-${HOME:-/tmp}/.megabrain}"
+real_transcript=''
 state_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-dispatch-transcript.XXXXXX")"
 live_sessions="$state_dir/live-sessions"
 capture_log="$state_dir/capture.log"
@@ -14,6 +16,16 @@ cleanup() {
   rm -rf "$state_dir"
 }
 trap cleanup EXIT
+
+for candidate in "$source_state_dir"/dispatches/*/transcript; do
+  [ -f "$candidate" ] || continue
+  if LC_ALL=C grep -Fq 'Worktree:' "$candidate" &&
+    LC_ALL=C grep -Fq 'DEFECT A' "$candidate" &&
+    LC_ALL=C grep -Fq 'refusing to delete' "$candidate"; then
+    real_transcript="$candidate"
+    break
+  fi
+done
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -201,6 +213,25 @@ if [ "$scenario_failures" -ne 0 ]; then
   fail 'transcript rendering scenarios failed'
 fi
 printf 'read lines counts rendered lines\n'
+
+if [ -n "$real_transcript" ]; then
+  write_dispatch rendered-history done rendered-history
+  dd if="$real_transcript" of="$(transcript_path rendered-history)" bs=1 count=8500000 2>/dev/null ||
+    fail 'could not copy the real transcript slice'
+  history_result="$(command_orchestrate read rendered-history --lines 1000 --json)"
+  history_text="$(printf '%s' "$history_result" | jq -r '.text')"
+  assert_contains "$history_text" 'Worktree:'
+  assert_contains "$history_text" 'DEFECT A'
+  assert_contains "$history_text" 'refusing to delete'
+  history_worktree_line="$(printf '%s\n' "$history_text" | grep -n -m1 -F 'Worktree:' | cut -d: -f1)"
+  history_defect_line="$(printf '%s\n' "$history_text" | grep -n -m1 -F 'DEFECT A' | cut -d: -f1)"
+  history_refusal_line="$(printf '%s\n' "$history_text" | grep -n -m1 -F 'refusing to delete' | cut -d: -f1)"
+  [ "$history_worktree_line" -lt "$history_defect_line" ] || fail 'rendered history reordered Worktree and DEFECT A'
+  [ "$history_defect_line" -lt "$history_refusal_line" ] || fail 'rendered history reordered DEFECT A and refusal'
+  printf 'read preserves scrolled history from a real transcript slice in order\n'
+else
+  printf 'read history scenario skipped because no suitable real transcript is available\n'
+fi
 
 capture_available=true
 capture_output='live pane already rendered'
