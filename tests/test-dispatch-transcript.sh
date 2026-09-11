@@ -223,9 +223,9 @@ if [ -n "$real_transcript" ]; then
   assert_contains "$history_text" 'Worktree:'
   assert_contains "$history_text" 'DEFECT A'
   assert_contains "$history_text" 'refusing to delete'
-  history_worktree_line="$(printf '%s\n' "$history_text" | grep -n -m1 -F 'Worktree:' | cut -d: -f1)"
-  history_defect_line="$(printf '%s\n' "$history_text" | grep -n -m1 -F 'DEFECT A' | cut -d: -f1)"
-  history_refusal_line="$(printf '%s\n' "$history_text" | grep -n -m1 -F 'refusing to delete' | cut -d: -f1)"
+  history_worktree_line="$(printf '%s\n' "$history_text" | awk '/Worktree:/ && !found { print NR; found=1 }')"
+  history_defect_line="$(printf '%s\n' "$history_text" | awk '/DEFECT A/ && !found { print NR; found=1 }')"
+  history_refusal_line="$(printf '%s\n' "$history_text" | awk '/refusing to delete/ && !found { print NR; found=1 }')"
   [ "$history_worktree_line" -lt "$history_defect_line" ] || fail 'rendered history reordered Worktree and DEFECT A'
   [ "$history_defect_line" -lt "$history_refusal_line" ] || fail 'rendered history reordered DEFECT A and refusal'
   printf 'read preserves scrolled history from a real transcript slice in order\n'
