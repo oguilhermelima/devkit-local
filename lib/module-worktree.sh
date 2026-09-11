@@ -2125,11 +2125,23 @@ megabrain_worktree_finish() {
       fi
     fi
   fi
-  # WHY: under --json the remover's own stdout goes to /dev/null so it cannot corrupt the
-  # JSON, which used to leave a refusal with an empty stdout, an empty stderr and only an
-  # exit code. The output is captured instead, and reported as megabrain's own error when
-  # the removal fails, so the caller learns whether the branch was unmerged or the install
-  # was broken.
+  if [ "$delete_branch" = true ] && [ -n "$branch" ]; then
+    [ -n "$base" ] || {
+      base="$(megabrain_repo_default_base "$repo_path")"
+      base_source="repository-default"
+    }
+    [ -z "$base_warning" ] || megabrain_notice "$base_warning"
+    if [ "$force" != true ]; then
+      merged="$(git -C "$repo_path" branch --merged "$base" 2>/dev/null || true)"
+      if ! printf '%s\n' "$merged" | sed 's/^..//' | awk '{print $1}' | grep -Fx "$branch" >/dev/null; then
+        megabrain_error "refusing to delete unmerged branch: $branch against base $base (use --force to override)"
+        return 1
+      fi
+    fi
+  fi
+  # WHY: under --json the remover's own stdout is captured so it cannot corrupt the
+  # JSON. On failure its message is reported as megabrain's own error; on success it is
+  # deliberately discarded so another tool cannot masquerade as megabrain's answer.
   megabrain_worktree_removal_failed() {
     local output="$1" reason
     # The orchestrators answer in JSON, so lift their own message out of it when there is
@@ -2152,20 +2164,8 @@ megabrain_worktree_finish() {
     megabrain_worktree_removal_failed "$removal_output"
     return 1
   fi
-  [ "$json" = true ] || [ -z "$removal_output" ] || printf '%s\n' "$removal_output"
+  [ "$json" = true ] || printf 'removed: %s\n' "$path"
   if [ "$delete_branch" = true ] && [ -n "$branch" ]; then
-    [ -n "$base" ] || {
-      base="$(megabrain_repo_default_base "$repo_path")"
-      base_source="repository-default"
-    }
-    [ -z "$base_warning" ] || megabrain_notice "$base_warning"
-    if [ "$force" != true ]; then
-      merged="$(git -C "$repo_path" branch --merged "$base" 2>/dev/null || true)"
-      if ! printf '%s\n' "$merged" | sed 's/^..//' | awk '{print $1}' | grep -Fx "$branch" >/dev/null; then
-        megabrain_error "refusing to delete unmerged branch: $branch against base $base (use --force to override)"
-        return 1
-      fi
-    fi
     [ "$json" = true ] || printf 'judged branch %s against base %s (%s)\n' "$branch" "$base" "$base_source"
     if [ "$json" = true ]; then
       git -C "$repo_path" branch -D "$branch" >/dev/null 2>&1 || branch_delete_status=$?
