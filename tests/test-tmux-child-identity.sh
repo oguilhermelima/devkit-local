@@ -46,6 +46,12 @@ assert_contains() {
   esac
 }
 
+assert_not_contains() {
+  case "$1" in
+    *"$2"*) fail "did not expect '$1' to contain '$2'" ;;
+  esac
+}
+
 wait_for_file() {
   local path="$1" attempt
   for ((attempt = 1; attempt <= 100; attempt++)); do
@@ -197,7 +203,9 @@ megabrain_dispatch_send_prompt_with_receipt() { return 0; }
 megabrain_tmux_agent_output_clean() { return 0; }
 megabrain_agent_command() { printf 'true\n'; }
 
-SUPERSET_TERMINAL_ID="$parent_id" megabrain_launch_agent "$root" "$workspace_id" codex gpt-5 medium prompt label >/dev/null
+success_launch_output="$state_dir/success-launch-output"
+SUPERSET_TERMINAL_ID="$parent_id" megabrain_launch_agent "$root" "$workspace_id" codex gpt-5 medium prompt label >"$success_launch_output" 2>&1
+assert_not_contains "$(cat "$success_launch_output")" 'prompt awaiting receipt; run megabrain orchestrate reconcile'
 reused_dispatch="$MEGABRAIN_LAST_DISPATCH"
 assert_equal "$(jq -r '.terminalId' "$state_dir/dispatches/$reused_dispatch/meta.json")" "$parent_id"
 assert_equal "$(jq -r '.promptDelivered' "$state_dir/dispatches/$reused_dispatch/meta.json")" true
