@@ -38,7 +38,13 @@ usage_keys() {
 }
 
 agents_md="$(cat "$root/AGENTS.md")"
+readme_md="$(cat "$root/README.md")"
 checked=0
+coverage_failures=()
+
+record_coverage_failure() {
+  coverage_failures+=("$1")
+}
 
 while IFS= read -r key; do
   [ -n "$key" ] || continue
@@ -90,6 +96,35 @@ skill_key() {
   fi
 }
 
+usage_top_level_commands() {
+  local key line
+  while IFS= read -r key; do
+    [ -n "$key" ] || continue
+    line="$(megabrain_usage_line "$key")" || fail "no usage line for key: $key"
+    printf '%s\n' "$line" | awk '{print $1}'
+  done < <(usage_keys) | sort -u
+}
+
+skill_covers_usage_key() {
+  local key="$1" words parent group_line
+  words="$(printf '%s' "$key" | tr '-' ' ')"
+  case "$skill_text" in
+    *"megabrain $words"*) return 0 ;;
+  esac
+
+  parent="${key%%-*}"
+  [ "$parent" != "$key" ] || return 1
+  group_line="$(megabrain_usage_line "$parent" 2>/dev/null || true)"
+  case "$group_line" in
+    *'|'*) ;;
+    *) return 1 ;;
+  esac
+  case "$skill_text" in
+    *"megabrain $group_line"*) return 0 ;;
+  esac
+  return 1
+}
+
 skill_checked=0
 while IFS= read -r line; do
   set -- $line
@@ -109,22 +144,58 @@ done < <(grep -oE '^megabrain [a-z][a-z-]*( [a-z][a-z-]*)?[^|]*' "$skill")
 [ "$skill_checked" -ge 25 ] || fail "expected at least 25 skill command lines, checked $skill_checked"
 
 # A command the skill never names does not exist as far as a fresh session is
-# concerned. This started as one hardcoded check for chain run, which is exactly why
-# orchestrate prune shipped and went undocumented on the same day: a rule that names
-# one command cannot notice the next one. Every key must appear.
-skill_group_covered=' model-add model-refresh fact-add fact-edit fact-remove '
+# concerned. A documented group invocation covers its children only when that
+# group syntax is itself present in the usage table and the skill.
 skill_text="$(cat "$skill")"
 while IFS= read -r key; do
   [ -n "$key" ] || continue
-  case "$skill_group_covered" in
-    *" $key "*) continue ;;
-  esac
-  words="$(printf '%s' "$key" | tr '-' ' ')"
-  case "$skill_text" in
-    *"megabrain $words"*) ;;
-    *) fail "the skill never names 'megabrain $words', so a session has no way to learn it exists" ;;
-  esac
+  skill_covers_usage_key "$key" || record_coverage_failure \
+    "SKILL.md never names usage key '$key'"
 done < <(usage_keys)
+
+while IFS= read -r module_id; do
+  [ -n "$module_id" ] || continue
+  case "$skill_text" in
+    *"$module_id"*) ;;
+    *) record_coverage_failure "SKILL.md never names module id '$module_id'" ;;
+  esac
+done < <(megabrain_module_ids)
+
+until_keys_line="$(awk '/\(\$until \| keys\) - \[/ { print; exit }' "$root/lib/chain-validation.jq")"
+[ -n "$until_keys_line" ] || fail "could not find until key schema in chain-validation.jq"
+until_keys="$(printf '%s\n' "$until_keys_line" | awk -F '[' '{print $2}' | awk -F ']' '{print $1}' | tr -d '"' | tr ',' '\n' | sed 's/^ *//;s/ *$//')"
+while IFS= read -r until_key; do
+  [ -n "$until_key" ] || continue
+  case "$skill_text" in
+    *"$until_key"*) ;;
+    *) record_coverage_failure "SKILL.md never names until key '$until_key'" ;;
+  esac
+done <<EOF
+$until_keys
+EOF
+
+while IFS= read -r top_level; do
+  [ -n "$top_level" ] || continue
+  case "$readme_md" in
+    *"megabrain $top_level"*) ;;
+    *) record_coverage_failure "README.md never names top-level command '$top_level'" ;;
+  esac
+done < <(usage_top_level_commands)
+
+# Homebrew is an installation method rather than a command or module, so this
+# is the one deliberately manual anchor in the otherwise derived checks.
+case "$readme_md" in
+  *Homebrew*) ;;
+  *) record_coverage_failure "README.md never names the Homebrew installation method" ;;
+esac
+
+if [ "${#coverage_failures[@]}" -gt 0 ]; then
+  printf 'documentation coverage failures:\n' >&2
+  for coverage_failure in "${coverage_failures[@]}"; do
+    printf '%s\n' "$coverage_failure" >&2
+  done
+  exit 1
+fi
 
 printf 'ok: the skill names %s commands and invents no flags\n' "$skill_checked"
 
