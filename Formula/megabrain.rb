@@ -3,7 +3,7 @@ class Megabrain < Formula
   desc "Tooling for Git worktrees, agent orchestration, and device testing"
   homepage "https://github.com/oguilhermelima/megabrain"
   url "https://github.com/oguilhermelima/megabrain/releases/download/v0.2.0/megabrain-0.2.0.tar.gz"
-  sha256 "4c0efecadc7e77c4b2fe3d68c0a6f62e921ce762b249a369cb737c19e605a96d"
+  sha256 "543b259ebaefef8b124fd047d34d5e3fb474cc6f33985ccc877cd70e2d407e16"
   license "MIT"
 
   depends_on "jq"
