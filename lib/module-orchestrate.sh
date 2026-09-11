@@ -16,6 +16,12 @@ MEGABRAIN_DISPATCH_CLOSE_ERROR=""
 MEGABRAIN_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS=60
 MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS=7
 
+# Single source of truth for mail visibility, keyed "from:type". actionable mail
+# is surfaced by default and triggers a notify; protocol mail is durable evidence
+# surfaced only with --full. Every site that routes or filters mail consults this.
+MEGABRAIN_DISPATCH_MAIL_ACTIONABLE_KEYS=(child:ask child:done child:stalled megabrain:usage)
+MEGABRAIN_DISPATCH_MAIL_PROTOCOL_KEYS=(child:received child:ack)
+
 megabrain_dispatch_prune_states() {
   printf 'closed,done,failed,orphaned,circuit_broken\n'
 }
@@ -240,7 +246,7 @@ megabrain_dispatch_delivery_has_seq() {
 }
 
 megabrain_dispatch_migrate_legacy_deliveries() {
-  local dispatch_id="$1" messages_dir deliveries_dir lock path from type seq recipient
+  local dispatch_id="$1" messages_dir deliveries_dir lock path from type seq recipient class
   messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
   [ -d "$messages_dir" ] || return 0
   deliveries_dir="$(megabrain_dispatch_deliveries_dir "$dispatch_id")"
@@ -251,9 +257,11 @@ megabrain_dispatch_migrate_legacy_deliveries() {
     from="$(jq -r '.from // empty' "$path" 2>/dev/null || true)"
     type="$(jq -r '.type // empty' "$path" 2>/dev/null || true)"
     case "$from:$type" in
-      child:received|child:ask|child:done|child:stalled|child:ack) recipient=parent ;;
       parent:reply) recipient=child ;;
-      *) continue ;;
+      *)
+        class="$(megabrain_dispatch_mail_class "$from:$type" 2>/dev/null || true)"
+        [ -n "$class" ] && recipient=parent || continue
+        ;;
     esac
     megabrain_dispatch_delivery_has_seq "$deliveries_dir" "$seq" && continue
     megabrain_dispatch_delivery_create "$dispatch_id" "$recipient" "[$seq]" >/dev/null || {
@@ -697,6 +705,24 @@ megabrain_dispatch_has_recent_child_activity() {
   [ "$latest" -gt 0 ] || return 1
   now="$(date +%s)"
   [ $((now - latest)) -le "$MEGABRAIN_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS" ]
+}
+
+# A proven terminal only tells us the process is alive, not that it is still
+# generating; the turn-end hook only runs once a turn has actually ended. So
+# proven gets the same recent-activity debounce as unknown, instead of an
+# unconditional skip: a live child that just spoke stays silent, but a live
+# child sitting idle after its turn ended is still reported stalled. missing
+# always reports, because there is nothing left to debounce against.
+megabrain_dispatch_stalled_is_due() {
+  local meta="$1" dispatch_id
+  dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty' 2>/dev/null)"
+  [ -n "$dispatch_id" ] || return 1
+  megabrain_dispatch_terminal_status "$meta"
+  case "${MEGABRAIN_TERMINAL_STATUS:-unknown}" in
+    missing) return 0 ;;
+    *) megabrain_dispatch_has_recent_child_activity "$dispatch_id" && return 1 ;;
+  esac
+  return 0
 }
 
 megabrain_dispatch_has_child_identity_proof() {
@@ -1205,7 +1231,7 @@ megabrain_dispatch_path_age_seconds() {
 
 megabrain_dispatch_message_append_locked() {
   local dispatch_id="$1" from="$2" type="$3" text="$4" session_id="$5"
-  local messages_dir path tmp seq file_name recipient meta notify=false
+  local messages_dir path tmp seq file_name recipient meta notify=false class
   messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
   seq="$(find "$messages_dir" -maxdepth 1 -type f -name '*.json' -print 2>/dev/null | sed 's|.*/||; s|-.*||' | sort -n | tail -n 1)"
   [ -n "$seq" ] || seq=0
@@ -1221,11 +1247,17 @@ megabrain_dispatch_message_append_locked() {
   fi
   mv -f "$tmp" "$path"
   MEGABRAIN_LAST_MESSAGE_SEQ="$seq"
+  MEGABRAIN_LAST_MESSAGE_NUDGE=""
   case "$from:$type" in
-    child:received|child:ack) recipient=parent ;;
-    child:ask|child:done|child:stalled) recipient=parent; notify=true ;;
     parent:reply) recipient=child; notify=true ;;
-    *) recipient='' ;;
+    *)
+      class="$(megabrain_dispatch_mail_class "$from:$type" 2>/dev/null || true)"
+      case "$class" in
+        actionable) recipient=parent; notify=true ;;
+        protocol) recipient=parent ;;
+        *) recipient='' ;;
+      esac
+      ;;
   esac
   if [ -n "$recipient" ]; then
     # WHY: the message write is the event. Addressing is durable before either side reads it;
@@ -1237,7 +1269,8 @@ megabrain_dispatch_message_append_locked() {
         type megabrain_parent_notify_dispatch >/dev/null 2>&1 &&
           megabrain_parent_notify_dispatch "$meta" >/dev/null 2>&1 || true
       else
-        megabrain_dispatch_native_send "$meta" "$(megabrain_dispatch_reply_pointer "$dispatch_id")" >/dev/null 2>&1 || true
+        megabrain_dispatch_native_send "$meta" "$(megabrain_dispatch_reply_pointer "$dispatch_id")" >/dev/null 2>&1
+        MEGABRAIN_LAST_MESSAGE_NUDGE="${MEGABRAIN_DISPATCH_NATIVE_SEND_STATUS:-not-typed}"
       fi
     fi
   fi
@@ -1277,18 +1310,15 @@ megabrain_dispatch_last_child_message() {
   jq -r '.text // empty' "$latest_path"
 }
 
-megabrain_dispatch_last_child_mail_seq() {
-  local dispatch_id="$1" messages_dir path seq latest=0
-  messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
-  while IFS=$'\t' read -r seq path; do
-    [ -n "$path" ] || continue
-    # received and ack are durable protocol evidence, but do not require a human
-    # decision. Keep them in the queue; only actionable child mail advances the
-    # interruption cursor used by the parent turn-end hook.
-    jq -e '.from == "child" and (.type == "ask" or .type == "done" or .type == "stalled")' "$path" >/dev/null 2>&1 || continue
-    [ "$seq" -gt "$latest" ] && latest="$seq"
-  done < <(megabrain_dispatch_message_paths "$messages_dir")
-  printf '%s\n' "$latest"
+megabrain_dispatch_mail_class() {
+  local key="$1" candidate
+  for candidate in "${MEGABRAIN_DISPATCH_MAIL_ACTIONABLE_KEYS[@]}"; do
+    [ "$candidate" = "$key" ] && { printf 'actionable\n'; return 0; }
+  done
+  for candidate in "${MEGABRAIN_DISPATCH_MAIL_PROTOCOL_KEYS[@]}"; do
+    [ "$candidate" = "$key" ] && { printf 'protocol\n'; return 0; }
+  done
+  return 1
 }
 
 megabrain_dispatch_delivery_is_reply() {
@@ -1406,7 +1436,7 @@ megabrain_dispatch_child_consumer() {
 
 megabrain_dispatch_delivery_matches_mailbox() {
   local dispatch_id="$1" delivery_path="$2" mailbox="$3" full="$4"
-  local recipient messages_dir message_seqs seq path from type
+  local recipient messages_dir message_seqs seq path from type class
   recipient="$(jq -r '.recipient // empty' "$delivery_path" 2>/dev/null || true)"
   if [ -n "$recipient" ]; then
     [ "$recipient" = "$mailbox" ] || return 1
@@ -1422,11 +1452,12 @@ megabrain_dispatch_delivery_matches_mailbox() {
       '$seqs | index($seq) != null' >/dev/null 2>&1 || continue
     from="$(jq -r '.from // empty' "$path" 2>/dev/null || true)"
     type="$(jq -r '.type // empty' "$path" 2>/dev/null || true)"
-    if [ "$mailbox" = parent ] && [ "$from" = child ]; then
+    if [ "$mailbox" = parent ] && { [ "$from" = child ] || [ "$from" = megabrain ]; }; then
+      class="$(megabrain_dispatch_mail_class "$from:$type" 2>/dev/null || true)"
       if [ "$full" = true ]; then
-        case "$type" in received|ask|done|stalled|ack) return 0 ;; esac
+        [ -n "$class" ] && return 0
       else
-        case "$type" in ask|done|stalled) return 0 ;; esac
+        [ "$class" = actionable ] && return 0
       fi
     elif [ "$mailbox" = child ] && [ "$from" = parent ]; then
       if [ "$full" = true ]; then
@@ -1533,7 +1564,8 @@ megabrain_dispatch_find_child() {
 }
 
 megabrain_dispatch_native_send() {
-  local meta="$1" text="$2" host workspace_id terminal_id runtime tmux_session tmux_pane agent
+  local meta="$1" text="$2" host workspace_id terminal_id runtime tmux_session tmux_pane agent rc
+  MEGABRAIN_DISPATCH_NATIVE_SEND_STATUS=not-typed
   host="$(printf '%s' "$meta" | jq -r '.childHost')"
   workspace_id="$(printf '%s' "$meta" | jq -r '.workspaceId // empty')"
   terminal_id="$(printf '%s' "$meta" | jq -r '.terminalId')"
@@ -1545,7 +1577,12 @@ megabrain_dispatch_native_send() {
     [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] || { megabrain_error "tmux dispatch metadata has no session or pane"; return 1; }
     megabrain_tmux_session_exists "$tmux_session" || { megabrain_error "tmux session is no longer available: $tmux_session"; return 1; }
     megabrain_tmux_send_nudge "$tmux_pane" "$text" "$agent"
-    return $?
+    rc=$?
+    # WHY: megabrain_tmux_send_text can return 0 after a failed type was merely
+    # cleaned up. MEGABRAIN_TMUX_SEND_STATUS is the only field that says whether
+    # the text actually reached the pane; the return code alone is not trustworthy.
+    [ "${MEGABRAIN_TMUX_SEND_STATUS:-not-typed}" = queued ] && MEGABRAIN_DISPATCH_NATIVE_SEND_STATUS=typed
+    return "$rc"
   fi
   case "$host" in
     superset)
@@ -1562,6 +1599,7 @@ megabrain_dispatch_native_send() {
       ;;
     *) megabrain_error "unsupported child host: $host"; return 1 ;;
   esac
+  MEGABRAIN_DISPATCH_NATIVE_SEND_STATUS=typed
 }
 
 megabrain_dispatch_reply_pointer() {
@@ -2050,7 +2088,7 @@ megabrain_dispatch_child_ack() {
 }
 
 megabrain_dispatch_reply() {
-  local dispatch_id="${1:-}" answer="" json=false arg meta state status
+  local dispatch_id="${1:-}" answer="" json=false arg meta state status nudge
   case "$dispatch_id" in
     -h|--help) megabrain_usage_show orchestrate-reply; return 0 ;;
   esac
@@ -2082,13 +2120,19 @@ megabrain_dispatch_reply() {
   fi
   megabrain_dispatch_message_append "$dispatch_id" parent reply "$answer" "$MEGABRAIN_SESSION_ID" >/dev/null || return 1
   status=queued
+  # The reply is durable either way; the nudge is only a best-effort pointer into the
+  # pane. Report status=queued always, and say separately whether the nudge was typed,
+  # so a failed keystroke is never mistaken for a lost reply.
+  nudge="${MEGABRAIN_LAST_MESSAGE_NUDGE:-not-typed}"
   if [ "$state" != done ]; then
     megabrain_dispatch_meta_update_state "$dispatch_id" running || return 1
   fi
   if [ "$json" = true ]; then
-    jq -n --arg dispatchId "$dispatch_id" --arg status "$status" '{dispatchId: $dispatchId, status: $status}'
+    jq -n --arg dispatchId "$dispatch_id" --arg status "$status" --arg nudge "$nudge" \
+      '{dispatchId: $dispatchId, status: $status, nudge: $nudge}'
   else
     printf '%s: %s\n' "$status" "$dispatch_id"
+    [ "$nudge" = typed ] || printf 'nudge not typed; the child will still find this reply with megabrain check\n'
   fi
 }
 

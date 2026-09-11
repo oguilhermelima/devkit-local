@@ -92,12 +92,7 @@ case "$MEGABRAIN_HOOK_STATE" in
   waiting_for_reply|done|closed|orphaned) megabrain_hook_finish ;;
 esac
 
-megabrain_dispatch_terminal_status "$MEGABRAIN_HOOK_META"
-case "${MEGABRAIN_TERMINAL_STATUS:-unknown}" in
-  proven) megabrain_hook_finish ;;
-  missing) ;;
-  *) megabrain_dispatch_has_recent_child_activity "$MEGABRAIN_HOOK_DISPATCH" && megabrain_hook_finish ;;
-esac
+megabrain_dispatch_stalled_is_due "$MEGABRAIN_HOOK_META" || megabrain_hook_finish
 
 if [ -n "${1:-}" ]; then
   MEGABRAIN_HOOK_PAYLOAD="$1"
