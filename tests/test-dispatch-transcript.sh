@@ -344,6 +344,36 @@ if [ -n "$real_capped_transcript" ]; then
     fail 'rendering mutated the persisted transcript'
   fi
   printf 'render caps a real over-limit transcript to the tail and keeps the final frame stable\n'
+
+  capture_available=false
+  write_dispatch truncated-report done truncated-report
+  cp "$big_slice" "$(transcript_path truncated-report)"
+  truncated_json="$(command_orchestrate read truncated-report --lines 50 --json)"
+  scenario_equal "$(printf '%s' "$truncated_json" | jq -r '.truncated')" true
+  truncated_plain="$(command_orchestrate read truncated-report --lines 50)"
+  case "$truncated_plain" in
+    *truncated:*) ;;
+    *)
+      printf 'SCENARIO FAIL: expected plain output to report truncation\n' >&2
+      scenario_failures=$((scenario_failures + 1))
+      ;;
+  esac
+  if [ "$scenario_failures" -ne 0 ]; then
+    fail 'over-cap truncation reporting scenario failed'
+  fi
+  printf 'read reports truncation when the persisted transcript exceeds the cap\n'
+
+  write_dispatch untruncated-report done untruncated-report
+  cp "$small_slice" "$(transcript_path untruncated-report)"
+  untruncated_json="$(command_orchestrate read untruncated-report --lines 50 --json)"
+  scenario_equal "$(printf '%s' "$untruncated_json" | jq -r '.truncated')" false
+  untruncated_plain="$(command_orchestrate read untruncated-report --lines 50)"
+  scenario_not_contains "$untruncated_plain" 'truncated:'
+  if [ "$scenario_failures" -ne 0 ]; then
+    fail 'under-cap truncation reporting scenario failed'
+  fi
+  printf 'read does not report truncation for a transcript under the cap\n'
+  capture_available=true
 else
   printf 'transcript cap scenarios skipped because no suitable real over-cap transcript is available\n'
 fi

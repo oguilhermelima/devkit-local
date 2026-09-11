@@ -1793,6 +1793,7 @@ megabrain_dispatch_release_tmux_process() {
 
 megabrain_dispatch_read() {
   local dispatch_id="${1:-}" lines=200 json=false arg meta runtime pane output source transcript_path
+  local truncated=false transcript_bytes
   case "$dispatch_id" in
     -h|--help) megabrain_usage_show orchestrate-read; return 0 ;;
   esac
@@ -1821,6 +1822,15 @@ megabrain_dispatch_read() {
         return 1
       }
       source=file
+      # The render path never loads more than MEGABRAIN_TRANSCRIPT_MAX_BYTES of the
+      # source file, so a transcript over that bound loses content the caller asked
+      # for; that fact must reach the caller rather than being promoted to a
+      # complete answer.
+      transcript_bytes="$(wc -c <"$transcript_path" 2>/dev/null | tr -d ' ')"
+      case "$transcript_bytes" in
+        ''|*[!0-9]*) ;;
+        *) [ "$transcript_bytes" -gt "$MEGABRAIN_TRANSCRIPT_MAX_BYTES" ] && truncated=true ;;
+      esac
     else
       megabrain_error "could not read tmux pane $pane and no persisted transcript exists"
       return 1
@@ -1828,9 +1838,11 @@ megabrain_dispatch_read() {
   fi
   if [ "$json" = true ]; then
     jq -n --arg dispatchId "$dispatch_id" --arg pane "$pane" --arg source "$source" --arg output "$output" \
-      '{dispatchId: $dispatchId, pane: $pane, source: $source, text: $output}'
+      --argjson truncated "$truncated" \
+      '{dispatchId: $dispatchId, pane: $pane, source: $source, truncated: $truncated, text: $output}'
   else
     printf 'source: %s\n' "$source"
+    [ "$truncated" = true ] && printf 'truncated: transcript exceeds %s bytes, oldest lines dropped\n' "$MEGABRAIN_TRANSCRIPT_MAX_BYTES"
     printf '%s\n' "$output"
   fi
 }
