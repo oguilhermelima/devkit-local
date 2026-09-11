@@ -69,6 +69,27 @@ orca() {
   return 1
 }
 
+host_close_mode=success
+megabrain_superset() {
+  if [ "${1:-}" = terminals ] && [ "${2:-}" = close ]; then
+    case "$host_close_mode" in
+      absent)
+        printf '%s\n' '{"error":{"code":"WORKSPACE_NOT_FOUND","message":"workspace not found"}}'
+        return 1
+        ;;
+      failure)
+        printf '%s\n' '{"error":{"code":"PERMISSION_DENIED","message":"terminal close denied by host"}}'
+        return 1
+        ;;
+      *)
+        printf '%s\n' '{"ok":true}'
+        return 0
+        ;;
+    esac
+  fi
+  return 1
+}
+
 create_meta() {
   local dispatch_id="$1" tmux_session="$2" tmux_pane="$3" parent_session="$4" parent_pane="$5"
   megabrain_dispatch_meta_write "$dispatch_id" parent-terminal orca orca workspace-test "$dispatch_id-terminal" \
@@ -128,6 +149,35 @@ assert_session_alive "$session_name"
 assert_contains "$(cat "$close_log")" 'close:dedicated-child-terminal'
 assert_equal "$(jq -r '.state' "$state_dir/dispatches/dedicated-child/meta.json")" closed
 printf 'dedicated-session child close still closes its host terminal\n'
+
+unset TMUX TMUX_PANE ORCA_TERMINAL_HANDLE
+export SUPERSET_TERMINAL_ID=parent-terminal
+
+create_host_meta() {
+  local dispatch_id="$1"
+  megabrain_dispatch_meta_write "$dispatch_id" parent-terminal superset superset workspace-test "$dispatch_id-terminal" \
+    "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
+}
+
+host_close_mode=absent
+create_host_meta host-terminal-absent
+if absent_output="$(megabrain_dispatch_close host-terminal-absent --json 2>&1)"; then
+  :
+else
+  fail "a missing host terminal was treated as a close failure: $absent_output"
+fi
+assert_equal "$(jq -r '.state' "$state_dir/dispatches/host-terminal-absent/meta.json")" closed
+assert_equal "$(jq -r '.terminalState' "$state_dir/dispatches/host-terminal-absent/meta.json")" released
+printf 'host terminal already absent is an idempotent close\n'
+
+host_close_mode=failure
+create_host_meta host-terminal-failure
+if failure_output="$(megabrain_dispatch_close host-terminal-failure --json 2>&1)"; then
+  fail 'a genuine host close failure unexpectedly succeeded'
+fi
+assert_contains "$failure_output" 'terminal close denied by host'
+assert_equal "$(jq -r '.state' "$state_dir/dispatches/host-terminal-failure/meta.json")" running
+printf 'genuine host close failure preserves its reason\n'
 
 trap - EXIT
 cleanup

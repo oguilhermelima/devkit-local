@@ -76,6 +76,19 @@ assert_contains "$reconcile_output" 'skill target is not writable'
 chmod 0755 "$(dirname "$cached_skill")"
 printf 'scenario 5: an unwritable target reports clearly\n'
 
+chmod 0555 "$(dirname "$cached_skill")"
+if context_output="$(HOME="$HOME" MEGABRAIN_STATE_DIR="$work/context-state" "$root/megabrain" context --json 2>"$work/context.err")"; then
+  context_rc=0
+else
+  context_rc=$?
+fi
+assert_equal "$context_rc" 0
+printf '%s' "$context_output" | jq -e '.host != null' >/dev/null ||
+  fail "an unrelated context command did not return JSON: $context_output"
+assert_contains "$(cat "$work/context.err")" 'skill target is not writable'
+chmod 0755 "$(dirname "$cached_skill")"
+printf 'scenario 5b: skill-sync failure does not fail an unrelated command\n'
+
 cp "$source_skill" "$cached_skill"
 rm -rf "$MEGABRAIN_STATE_DIR"
 mkdir -p "$MEGABRAIN_STATE_DIR"

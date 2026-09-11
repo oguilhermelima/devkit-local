@@ -189,9 +189,10 @@ Human `worktree list` prints the stack as a tree; `--flat` preserves the path/br
 remains flat with parent and optional pull-request fields. Pull-request state is best-effort and does
 not make listing depend on gh or Orca.
 `finish` performs all refusal checks before removing the worktree. An unmerged branch is refused
-unless `--force` is given, and a refusal leaves the worktree and branch intact. Under `--json`, the
-remover's output is captured and reported as megabrain's own error on failure; successful remover
-JSON is not passed through as megabrain output. `terminal create` with no
+unless `--force` is given, and a refusal leaves the worktree and branch intact. Under `--json`, every
+non-help refusal returns `deleted: false` with a `refusal` code/message and keeps a non-zero status;
+remover failures use `error` instead. The remover's output is captured and reported as megabrain's
+own error on failure; successful remover JSON is not passed through as megabrain output. `terminal create` with no
 `--command` runs the worktree's `.superset/config.json` run script. Superset tabs come back
 untitled; only Orca tabs carry a title. Terminal identities, commands and creation times are
 recorded under `$MEGABRAIN_STATE_DIR/terminals/`, so `terminal list` reports `alive` or `dead`,

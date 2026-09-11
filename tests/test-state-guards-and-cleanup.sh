@@ -30,6 +30,50 @@ assert_missing() {
   [ ! -e "$1" ] || fail "expected path to be absent: $1"
 }
 
+scenario_terminal_kill_can_run_twice_under_nounset() {
+  local output
+  if output="$(bash -u -c '
+    source "$1/lib/common.sh"
+    source "$1/lib/module-worktree.sh"
+    megabrain_terminal_process_children() { :; }
+    kill() { return 0; }
+    megabrain_terminal_kill_process_tree 101
+    megabrain_terminal_kill_process_tree 102
+    printf "%s\n" "$MEGABRAIN_TERMINAL_KILLED_TREE"
+  ' _ "$root" 2>&1)"; then
+    printf '%s' "$output" | jq -e '.[0] == 101 and .[1] == 102' >/dev/null ||
+      fail "terminal kill path recorded the wrong process tree: $output"
+  else
+    fail "terminal kill path aborted under bash -u: $output"
+  fi
+  printf 'terminal kill path can run twice under nounset\n'
+}
+
+scenario_text_doctor_has_leaked_counter_default() {
+  local output
+  if output="$(bash -u -c '
+    source "$1/lib/common.sh"
+    source "$1/lib/module-install.sh"
+    megabrain_dispatch_health_counts() {
+      MODULE_UNCERTAIN_DISPATCHES=0
+      MODULE_RETAINED_TERMINALS=0
+      MODULE_PRUNABLE_DISPATCHES=0
+      MODULE_UNCERTAIN_REASONS="[]"
+      MODULE_RETAINED_REASONS="[]"
+    }
+    megabrain_runtime_enabled() { return 1; }
+    megabrain_require_command() { return 1; }
+    megabrain_superset_available() { return 1; }
+    module_orchestration_doctor >/dev/null 2>&1
+    printf "%s\n" "$MODULE_LEAKED_DISPATCH_SESSIONS"
+  ' _ "$root" 2>&1)"; then
+    assert_equal "$output" 0
+  else
+    fail "text doctor path aborted under bash -u: $output"
+  fi
+  printf 'text doctor path has a leaked-session counter default\n'
+}
+
 export HOME="$state_root/home"
 export MEGABRAIN_STATE_DIR="$state_root/state"
 export SUPERSET_TERMINAL_ID=parent-terminal
@@ -206,12 +250,16 @@ scenario_launch_failure_rolls_back_owned_objects() {
 }
 
 case "${SCENARIO:-all}" in
+  6) scenario_terminal_kill_can_run_twice_under_nounset ;;
+  7) scenario_text_doctor_has_leaked_counter_default ;;
   1) scenario_reply_uses_transition_table ;;
   2) scenario_timeout_is_prunable ;;
   3) scenario_mark_running_uses_transition_table ;;
   4) scenario_missing_meta_is_reported ;;
   5) scenario_launch_failure_rolls_back_owned_objects ;;
   all)
+    scenario_terminal_kill_can_run_twice_under_nounset
+    scenario_text_doctor_has_leaked_counter_default
     scenario_reply_uses_transition_table
     scenario_timeout_is_prunable
     scenario_mark_running_uses_transition_table

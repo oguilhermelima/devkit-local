@@ -12,6 +12,7 @@ MEGABRAIN_PROMPT_RECEIPT_WAITING_STATUS=2
 MEGABRAIN_PROMPT_BUDGET_ARGV_BYTES=262144
 MEGABRAIN_PROMPT_BUDGET_TMUX_BYTES=12000
 MEGABRAIN_DISPATCH_CLOSE_OUTCOME=unknown
+MEGABRAIN_DISPATCH_CLOSE_ERROR=""
 MEGABRAIN_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS=60
 MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS=7
 
@@ -1357,11 +1358,44 @@ megabrain_dispatch_close_refuse_caller() {
   return 0
 }
 
+megabrain_dispatch_close_reason() {
+  local output="$1" reason
+  reason="$(printf '%s' "$output" | jq -r 'if (.error | type) == "object" then (.error.message // .error.code // empty) else (.error // .message // empty) end' 2>/dev/null || true)"
+  [ -n "$reason" ] || reason="$output"
+  reason="$(printf '%s' "$reason" | tr '\r\n' '  ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')"
+  [ -n "$reason" ] || reason='the host gave no reason'
+  printf '%s\n' "$reason"
+}
+
+megabrain_dispatch_close_output_is_absent() {
+  local output="$1" reason normalized
+  reason="$(megabrain_dispatch_close_reason "$output")"
+  normalized="$(printf '%s' "$reason" | tr '[:upper:]_' '[:lower:] ' | tr '-' ' ')"
+  case "$normalized" in
+    *'not found'*|*'does not exist'*|*'no such'*|*'already closed'*|*'already gone'*|*'already deleted'*|*'404'*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+megabrain_dispatch_close_result() {
+  local output="$1" close_rc="$2"
+  [ "$close_rc" -eq 0 ] && return 0
+  # WHY: deleting a workspace before its terminal is an expected teardown order;
+  # a host-side not-found response means the resource already has the desired state.
+  if megabrain_dispatch_close_output_is_absent "$output"; then
+    MEGABRAIN_DISPATCH_CLOSE_OUTCOME=host-terminal-absent
+    return 0
+  fi
+  MEGABRAIN_DISPATCH_CLOSE_ERROR="$(megabrain_dispatch_close_reason "$output")"
+  return "$close_rc"
+}
+
 megabrain_dispatch_native_close() {
-  local meta="$1" host workspace_id terminal_id runtime tmux_session tmux_pane pane_count close_rc=0
+  local meta="$1" host workspace_id terminal_id runtime tmux_session tmux_pane pane_count close_rc=0 close_output=""
   local parent_tmux_session caller_tmux_session shared_session=false
   MEGABRAIN_DISPATCH_CLOSE_LAST_PANE=false
   MEGABRAIN_DISPATCH_CLOSE_OUTCOME=unknown
+  MEGABRAIN_DISPATCH_CLOSE_ERROR=""
   host="$(printf '%s' "$meta" | jq -r '.childHost')"
   workspace_id="$(printf '%s' "$meta" | jq -r '.workspaceId // empty')"
   terminal_id="$(printf '%s' "$meta" | jq -r '.terminalId')"
@@ -1397,17 +1431,19 @@ megabrain_dispatch_native_close() {
     MEGABRAIN_DISPATCH_CLOSE_LAST_PANE=true
     tmux kill-session -t "$tmux_session" >/dev/null 2>&1 || true
     case "$host" in
-      superset) megabrain_superset terminals close --workspace "$workspace_id" --terminal "$terminal_id" --json >/dev/null 2>&1 || close_rc=$? ;;
-      orca) orca terminal close --terminal "$terminal_id" --json >/dev/null 2>&1 || close_rc=$? ;;
+      superset) close_output="$(megabrain_superset terminals close --workspace "$workspace_id" --terminal "$terminal_id" --json 2>&1)" || close_rc=$? ;;
+      orca) close_output="$(orca terminal close --terminal "$terminal_id" --json 2>&1)" || close_rc=$? ;;
       *) megabrain_error "unsupported child host: $host"; return 1 ;;
     esac
-    return "$close_rc"
+    megabrain_dispatch_close_result "$close_output" "$close_rc"
+    return $?
   fi
   case "$host" in
-    superset) megabrain_superset terminals close --workspace "$workspace_id" --terminal "$terminal_id" --json >/dev/null ;;
-    orca) orca terminal close --terminal "$terminal_id" --json >/dev/null ;;
+    superset) close_output="$(megabrain_superset terminals close --workspace "$workspace_id" --terminal "$terminal_id" --json 2>&1)" || close_rc=$? ;;
+    orca) close_output="$(orca terminal close --terminal "$terminal_id" --json 2>&1)" || close_rc=$? ;;
     *) megabrain_error "unsupported child host: $host"; return 1 ;;
   esac
+  megabrain_dispatch_close_result "$close_output" "$close_rc"
 }
 
 megabrain_dispatch_tmux_session_owned() {
@@ -1827,7 +1863,14 @@ megabrain_dispatch_close() {
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   child_host="$(printf '%s' "$meta" | jq -r '.childHost')"
   megabrain_dispatch_stop_transcript "$meta"
-  megabrain_dispatch_native_close "$meta" || { megabrain_error "could not close dispatch $dispatch_id"; return 1; }
+  if ! megabrain_dispatch_native_close "$meta"; then
+    if [ -n "$MEGABRAIN_DISPATCH_CLOSE_ERROR" ]; then
+      megabrain_error "could not close dispatch $dispatch_id: $MEGABRAIN_DISPATCH_CLOSE_ERROR"
+    else
+      megabrain_error "could not close dispatch $dispatch_id"
+    fi
+    return 1
+  fi
   megabrain_dispatch_meta_update_state "$dispatch_id" closed || return 1
   process_state="$(printf '%s' "$meta" | jq -r '.processState // empty')"
   case "$process_state" in
