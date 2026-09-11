@@ -14,6 +14,22 @@ fail() {
   exit 1
 }
 
+print_help() {
+  cat <<EOF
+Usage: scripts/release.sh v<version> [--output <path>] [--formula-output <path>]
+
+Build a release archive and render the Homebrew formula.
+  v<version>                 release tag; must match the manifest version
+  --output <path>            archive destination
+  --formula-output <path>    rendered formula destination
+  -h, --help                 show this help
+
+The script prints the commands for the operator to run. It does not tag,
+push, or create a GitHub release itself.
+The rendered formula commit must be the last commit before tagging.
+EOF
+}
+
 sha256_file() {
   local path="$1" output=''
   if command -v shasum >/dev/null 2>&1; then
@@ -45,6 +61,12 @@ archive_release_tree() {
 [ -f "$template" ] || fail "formula template is missing: $template"
 version="$(jq -er '.version | strings | select(length > 0)' "$manifest")" ||
   fail "could not read a version from $manifest"
+case "$tag" in
+  -h|--help)
+    print_help
+    exit 0
+    ;;
+esac
 [ -n "$tag" ] || fail "usage: scripts/release.sh v$version [--output <path>]"
 expected_tag="v$version"
 [ "$tag" = "$expected_tag" ] ||
