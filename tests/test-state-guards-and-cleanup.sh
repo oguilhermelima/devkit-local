@@ -119,15 +119,14 @@ scenario_reply_uses_transition_table() {
   printf 'orphaned reply follows the table and failed reply is rejected\n'
 }
 
-scenario_timeout_is_prunable() {
-  local output archive_path
+scenario_retired_timeout_is_readable() {
+  local output
   write_dispatch timeout-prunable timeout
   write_old_timestamp timeout-prunable
   output="$(command_orchestrate prune --json)"
-  assert_equal "$(printf '%s' "$output" | jq -r '.archived')" 1
-  archive_path="$(printf '%s' "$output" | jq -r '.archivedDispatches[0].path')"
-  [ -f "$archive_path/meta.json" ] || fail 'timeout dispatch was not archived'
-  printf 'timeout is counted and archived by default prune\n'
+  assert_equal "$(printf '%s' "$output" | jq -r '.archived')" 0
+  assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/timeout-prunable/meta.json")" running
+  printf 'retired timeout is normalised and remains open\n'
 }
 
 scenario_mark_running_uses_transition_table() {
@@ -135,10 +134,10 @@ scenario_mark_running_uses_transition_table() {
   megabrain_spawn_mark_running_if_spawning orphaned-running
   assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/orphaned-running/meta.json")" running
 
-  write_dispatch stalled-running stalled
+  write_dispatch stalled-running running
   megabrain_spawn_mark_running_if_spawning stalled-running
   assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-running/meta.json")" running
-  printf 'orphaned and stalled can return to running\n'
+  printf 'orphaned can return to running\n'
 }
 
 scenario_missing_meta_is_reported() {
@@ -253,7 +252,7 @@ case "${SCENARIO:-all}" in
   6) scenario_terminal_kill_can_run_twice_under_nounset ;;
   7) scenario_text_doctor_has_leaked_counter_default ;;
   1) scenario_reply_uses_transition_table ;;
-  2) scenario_timeout_is_prunable ;;
+  2) scenario_retired_timeout_is_readable ;;
   3) scenario_mark_running_uses_transition_table ;;
   4) scenario_missing_meta_is_reported ;;
   5) scenario_launch_failure_rolls_back_owned_objects ;;
@@ -261,7 +260,7 @@ case "${SCENARIO:-all}" in
     scenario_terminal_kill_can_run_twice_under_nounset
     scenario_text_doctor_has_leaked_counter_default
     scenario_reply_uses_transition_table
-    scenario_timeout_is_prunable
+    scenario_retired_timeout_is_readable
     scenario_mark_running_uses_transition_table
     scenario_missing_meta_is_reported
     scenario_launch_failure_rolls_back_owned_objects

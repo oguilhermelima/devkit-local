@@ -45,6 +45,7 @@ command_orchestrate() {
     list) command_orchestrate_list "$@" ;;
     prune) megabrain_dispatch_prune "$@" ;;
     reconcile) megabrain_dispatch_reconcile "$@" ;;
+    liveness) megabrain_dispatch_liveness "$@" ;;
     watch) megabrain_dispatch_watch "$@" ;;
     read) megabrain_dispatch_read "$@" ;;
     ack|acknowledge) megabrain_dispatch_ack "$@" ;;
@@ -167,6 +168,42 @@ megabrain_dispatch_terminal_identity_matches() {
   ' >/dev/null 2>&1
 }
 
+megabrain_dispatch_process_has_identity() {
+  local pid="$1" dispatch_id="$2" marker tty
+  marker="MEGABRAIN_DISPATCH_ID=$dispatch_id"
+  tty="$(ps -p "$pid" -o tty= 2>/dev/null | tr -d '[:space:]')"
+  [ -n "$tty" ] || return 1
+  if ps eww -t "$tty" -o pid=,ppid=,command= 2>/dev/null | awk -v root="$pid" -v marker="$marker" '
+    {
+      parent[$1] = $2
+      command[$1] = $0
+    }
+    END {
+      seen[root] = 1
+      count = 1
+      node[1] = root
+      for (i = 1; i <= count; i++) {
+        for (candidate in parent) {
+          if (parent[candidate] == node[i] && !seen[candidate]++) {
+            count++
+            node[count] = candidate
+          }
+        }
+      }
+      for (i = 1; i <= count; i++) {
+        fields = split(command[node[i]], words)
+        for (field = 1; field <= fields; field++) {
+          if (words[field] == marker) found = 1
+        }
+      }
+      exit(found ? 0 : 1)
+    }
+  '; then
+    return 0
+  fi
+  return 1
+}
+
 megabrain_dispatch_parent_status() {
   local meta="$1" host parent workspace_json workspace_id terminals queried=false
   MEGABRAIN_PARENT_STATUS=unknown
@@ -248,7 +285,7 @@ megabrain_dispatch_terminal_status() {
       return 0
     fi
     pane_pid="$(tmux display-message -p -t "$tmux_pane" '#{pane_pid}' 2>/dev/null || true)"
-    if [ -n "$pane_pid" ] && ps eww -p "$pane_pid" 2>/dev/null | grep -F "MEGABRAIN_DISPATCH_ID=$dispatch_id" >/dev/null 2>&1; then
+    if [ -n "$pane_pid" ] && megabrain_dispatch_process_has_identity "$pane_pid" "$dispatch_id"; then
       MEGABRAIN_TERMINAL_STATUS=proven
     fi
     return 0

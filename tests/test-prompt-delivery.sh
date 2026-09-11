@@ -54,8 +54,8 @@ create_dispatch empty-turn running
 env -u SUPERSET_TERMINAL_ID -u TMUX -u TMUX_PANE ORCA_TERMINAL_HANDLE=child-terminal MEGABRAIN_DISPATCH_ID=empty-turn MEGABRAIN_HOOK_AGENT=codex \
   "$root/hooks/megabrain-turn-end.sh" '{"last_assistant_message":""}' >/dev/null
 assert_equal "$(jq -r '.promptDelivery' "$state_dir/dispatches/empty-turn/meta.json")" pending
-assert_equal "$(jq -r '.state' "$state_dir/dispatches/empty-turn/meta.json")" stalled
-printf 'empty child turn does not confirm prompt delivery\n'
+assert_equal "$(jq -r '.state' "$state_dir/dispatches/empty-turn/meta.json")" running
+printf 'empty child turn does not confirm prompt delivery or rewrite the contract\n'
 
 # The child receipt is the delivery fact. It is durable in the dispatch queue and must be
 # observed before the parent marks the prompt delivered.

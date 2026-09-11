@@ -383,8 +383,41 @@ megabrain_tmux_nudge_affordance() {
   esac
 }
 
+# Each row is agent|liveness|first marker (grep -E)|second marker (grep -E)|reason.
+# The first and second markers are separate because tmux also captures echoed prompts.
+MEGABRAIN_AGENT_LIVENESS_MARKERS="codex|working|Working \(|esc to interrupt|terminal shows the working indicator
+codex|idle|^[[:space:]]*› Ask Codex to do anything[[:space:]]*$||terminal shows an empty Codex composer
+codex|blocked|^[[:space:]]*You've hit your usage limit for|Switch to another model now,|terminal shows a usage limit refusal
+codex|blocked|Hook error:|socket connection was closed unexpectedly|terminal shows a socket connection transport error
+claude|working|Working|esc to interrupt|terminal shows the working indicator
+claude|idle|^[[:space:]]*❯[[:space:]]*$||terminal shows an empty Claude composer
+claude|blocked|API Error:|authentication|terminal shows an authentication error"
+
+MEGABRAIN_TMUX_LIVENESS_STATUS=unknown
+MEGABRAIN_TMUX_LIVENESS_REASON=''
+
+megabrain_tmux_liveness_classify() {
+  local agent="$1" output="$2" row_agent row_status first_marker second_marker reason
+  MEGABRAIN_TMUX_LIVENESS_STATUS=unknown
+  MEGABRAIN_TMUX_LIVENESS_REASON=''
+  while IFS='|' read -r row_agent row_status first_marker second_marker reason; do
+    [ "$row_agent" = "$agent" ] || continue
+    if [ -n "$first_marker" ] && ! printf '%s\n' "$output" | grep -E "$first_marker" >/dev/null 2>&1; then
+      continue
+    fi
+    if [ -n "$second_marker" ] && ! printf '%s\n' "$output" | grep -E "$second_marker" >/dev/null 2>&1; then
+      continue
+    fi
+    MEGABRAIN_TMUX_LIVENESS_STATUS="$row_status"
+    MEGABRAIN_TMUX_LIVENESS_REASON="$reason"
+    return 0
+  done <<EOF
+$MEGABRAIN_AGENT_LIVENESS_MARKERS
+EOF
+}
+
 megabrain_tmux_agent_for_pane() {
-  local pane="$1" session record_path record agent resolved_agent=""
+  local pane="$1" session="" record_path="" record="" agent="" record_match="" record_state="" record_agent="" resolved_agent=""
   session="$(tmux display-message -p -t "$pane" '#{session_name}' 2>/dev/null || true)"
   [ -n "$session" ] || return 1
   # A worker parent pane is owned by a dispatch, not necessarily by the tmux
@@ -393,10 +426,15 @@ megabrain_tmux_agent_for_pane() {
   for record_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
     [ -f "$record_path" ] || continue
     record="$(cat "$record_path" 2>/dev/null || true)"
-    agent="$(printf '%s' "$record" | jq -r --arg session "$session" --arg pane "$pane" '
-      select(.runtime == "tmux" and .tmuxSession == $session and .tmuxPane == $pane and
-        (.state == "spawning" or .state == "running" or .state == "waiting_for_reply" or .state == "stalled")) |
-      .agent // empty' 2>/dev/null || true)"
+    record_match="$(printf '%s' "$record" | jq -r --arg session "$session" --arg pane "$pane" '
+      select(.runtime == "tmux" and .tmuxSession == $session and .tmuxPane == $pane) |
+      [.state // empty, .agent // empty] | @tsv' 2>/dev/null || true)"
+    while IFS=$'\t' read -r record_state record_agent; do
+      megabrain_dispatch_state_is_open "$record_state" || continue
+      agent="$record_agent"
+    done <<EOF
+$record_match
+EOF
     [ -n "$agent" ] || continue
     if [ -n "$resolved_agent" ] && [ "$resolved_agent" != "$agent" ]; then
       return 1

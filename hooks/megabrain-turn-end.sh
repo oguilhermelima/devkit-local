@@ -23,22 +23,20 @@ megabrain_session_id >/dev/null 2>&1 || megabrain_hook_finish
 [ -n "${MEGABRAIN_SESSION_ID:-}" ] || megabrain_hook_finish
 
 megabrain_hook_parent_notify() {
-  local meta_path dispatch_id meta state max_seq cursor open_ids refusal_reason
-  local dispatch_ids="" dispatch_seq_pairs="" dispatch_count=0 first_meta="" pointer pair seq
+  local meta_path dispatch_id meta state open_ids refusal_reason
+  local open_states_json=""
   # WHY: this runs at the end of every turn of every agent, forever, and the dispatch
   # directory only grows. One jq per file cost 0.8s against the 83 dispatches on the
   # machine this was written on; one jq over all of them costs 0.007s. Fall back to the
   # per-file scan if the batch fails, because jq stops at the first unreadable file and
   # would silently skip every dispatch after it.
-  open_ids="$(jq -r 'select(.state == "spawning" or .state == "running" or .state == "waiting_for_reply" or .state == "stalled") | .dispatchId // empty' "$MEGABRAIN_DISPATCH_DIR"/*/meta.json 2>/dev/null)" || open_ids=""
+  open_states_json="$(megabrain_dispatch_open_states_json 2>/dev/null || printf '[]')"
+  open_ids="$(jq -r --argjson openStates "$open_states_json" '(.state // "") as $state | select(($openStates | index($state)) != null) | .dispatchId // empty' "$MEGABRAIN_DISPATCH_DIR"/*/meta.json 2>/dev/null)" || open_ids=""
   if [ -z "$open_ids" ] && [ -n "$(echo "$MEGABRAIN_DISPATCH_DIR"/*/meta.json)" ]; then
     for meta_path in "$MEGABRAIN_DISPATCH_DIR"/*/meta.json; do
       [ -f "$meta_path" ] || continue
       state="$(jq -r '.state // empty' "$meta_path" 2>/dev/null || true)"
-      case "$state" in
-        spawning|running|waiting_for_reply|stalled) ;;
-        *) continue ;;
-      esac
+      megabrain_dispatch_state_is_open "$state" || continue
       dispatch_id="$(jq -r '.dispatchId // empty' "$meta_path" 2>/dev/null || true)"
       [ -n "$dispatch_id" ] && open_ids="$open_ids$dispatch_id
 "
@@ -61,29 +59,6 @@ megabrain_hook_parent_notify() {
         continue
       fi
     fi
-    max_seq="$(megabrain_dispatch_last_child_mail_seq "$dispatch_id" 2>/dev/null || true)"
-    [[ "$max_seq" =~ ^[0-9]+$ ]] || continue
-    [ "$max_seq" -gt 0 ] || continue
-    cursor="$(megabrain_dispatch_cursor_read "$dispatch_id" 2>/dev/null || true)"
-    [[ "$cursor" =~ ^[0-9]+$ ]] || continue
-    [ "$max_seq" -gt "$cursor" ] || continue
-    [ -n "$first_meta" ] || first_meta="$meta"
-    dispatch_count=$((dispatch_count + 1))
-    if [ -n "$dispatch_ids" ]; then
-      dispatch_ids="$dispatch_ids, $dispatch_id"
-    else
-      dispatch_ids="$dispatch_id"
-    fi
-    dispatch_seq_pairs="$dispatch_seq_pairs $dispatch_id:$max_seq"
-  done
-
-  [ "$dispatch_count" -gt 0 ] || return 0
-  pointer="$(megabrain_parent_notify_pointer_many "$dispatch_count" "$dispatch_ids")"
-  megabrain_parent_notify "$first_meta" "$pointer" || return 0
-  for pair in $dispatch_seq_pairs; do
-    dispatch_id="${pair%:*}"
-    seq="${pair#*:}"
-    megabrain_dispatch_cursor_write "$dispatch_id" "$seq" >/dev/null 2>&1 || true
   done
 }
 
@@ -114,7 +89,7 @@ megabrain_hook_check_reply
 [ "$MEGABRAIN_HOOK_REPLY_AVAILABLE" = true ] && megabrain_hook_finish
 
 case "$MEGABRAIN_HOOK_STATE" in
-  waiting_for_reply|done|stalled|closed|orphaned) megabrain_hook_finish ;;
+  waiting_for_reply|done|closed|orphaned) megabrain_hook_finish ;;
 esac
 
 megabrain_dispatch_terminal_status "$MEGABRAIN_HOOK_META"
@@ -138,6 +113,4 @@ fi
 [ -n "$MEGABRAIN_HOOK_TEXT" ] || MEGABRAIN_HOOK_TEXT='child turn ended without ask or done'
 
 megabrain_dispatch_message_append "$MEGABRAIN_HOOK_DISPATCH" child stalled "$MEGABRAIN_HOOK_TEXT" "$MEGABRAIN_SESSION_ID" >/dev/null 2>&1 || megabrain_hook_finish
-megabrain_dispatch_meta_update_state "$MEGABRAIN_HOOK_DISPATCH" stalled >/dev/null 2>&1 || true
-megabrain_parent_notify_dispatch "$MEGABRAIN_HOOK_META" >/dev/null 2>&1 || true
 megabrain_hook_finish

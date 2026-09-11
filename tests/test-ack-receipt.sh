@@ -50,7 +50,7 @@ assert_equal "$(printf '%s' "$child_ack" | jq -r '.duplicate')" false
 
 parent_delivery="$(env -u TMUX -u TMUX_PANE MEGABRAIN_STATE_DIR="$state_dir" \
   SUPERSET_TERMINAL_ID=parent-terminal "$root/megabrain" orchestrate watch "$dispatch_id" \
-  --timeout 1 --poll-interval 1 --wait-mode poll --json)"
+  --timeout 1 --poll-interval 1 --wait-mode poll --full --json)"
 assert_equal "$(printf '%s' "$parent_delivery" | jq -r '.messages[0].type')" ack
 assert_equal "$(printf '%s' "$parent_delivery" | jq -r '.messages[0].text')" "$child_delivery_id"
 parent_delivery_id="$(printf '%s' "$parent_delivery" | jq -r '.deliveryId')"
