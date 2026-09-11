@@ -28,6 +28,7 @@ outside_tmux_before="$(find "$default_tmux_dir" -mindepth 1 -maxdepth 1 -type s 
 
 source "$root/lib/common.sh"
 source "$root/lib/module-tmux-runtime.sh"
+source "$root/lib/module-context.sh"
 source "$root/lib/module-orchestrate.sh"
 
 fail() {
