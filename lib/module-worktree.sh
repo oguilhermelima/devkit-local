@@ -697,8 +697,14 @@ megabrain_launch_agent() {
   local context="" command_text="" response="" session_id="" final_prompt="" dispatch_preamble="" browser_notice="" parent_id="" parent_host="" child_host="" branch="" meta=""
   local parent_tmux_session="" parent_tmux_pane="" parent_workspace_id="${SUPERSET_WORKSPACE_ID:-}"
   local agent_used="" model_honored=false substitution_report="" dispatch_id="" runtime="" tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false prompt_status=0
-  local -a passthrough_args=()
-  shift 8
+  local -a passthrough_args=() launch_args=()
+  shift 7
+  if [ "${1:-}" = true ]; then
+    browser=true
+    shift
+  elif [ "${1:-}" = false ]; then
+    shift
+  fi
   [ "$#" -eq 0 ] || passthrough_args=("$@")
   MEGABRAIN_LAST_DISPATCH=""
   megabrain_session_id >/dev/null
@@ -2020,18 +2026,23 @@ megabrain_worktree_create() {
     printf 'worktree: %s\nbranch: %s\nworkspace: %s\nreused: %s\n' "$worktree_path" "$branch" "$workspace_id" "$reused"
   fi
   if [ -n "$agent" ]; then
+    launch_args=("$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label")
+    [ "$browser" = true ] && launch_args+=(true)
+    if [ "${#agent_args[@]}" -gt 0 ]; then
+      launch_args+=("${agent_args[@]}")
+    fi
     # Bash 3.2 rejects empty array expansion under set -u.
     if [ "${#agent_args[@]}" -gt 0 ]; then
       if [ "$json" = true ]; then
-        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "$browser" "${agent_args[@]}" >/dev/null || launch_status=$?
+        megabrain_launch_agent "${launch_args[@]}" >/dev/null || launch_status=$?
       else
-        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "$browser" "${agent_args[@]}" || launch_status=$?
+        megabrain_launch_agent "${launch_args[@]}" || launch_status=$?
       fi
     else
       if [ "$json" = true ]; then
-        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "$browser" >/dev/null || launch_status=$?
+        megabrain_launch_agent "${launch_args[@]}" >/dev/null || launch_status=$?
       else
-        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "$browser" || launch_status=$?
+        megabrain_launch_agent "${launch_args[@]}" || launch_status=$?
       fi
     fi
     if [ "${launch_status:-0}" -ne 0 ]; then
