@@ -140,7 +140,7 @@ printf 'waiter removal: deferred mail delivered once\n'
 
 create_dispatch type-ask running
 create_dispatch type-done running
-create_dispatch type-stalled stalled
+create_dispatch type-stalled running
 create_dispatch type-received running
 create_dispatch type-ack running
 append_message type-ask ask 'ask needs a decision'
@@ -161,9 +161,11 @@ assert_equal "$(jq -r '.lastReadSeq' "$MEGABRAIN_DISPATCH_DIR/type-ack/cursor.js
 printf 'parent pointer: ask, done, and stalled interrupt; received and ack do not\n'
 
 ack_delivery="$("$root/megabrain" orchestrate watch type-ack --timeout 0 --poll-interval 0 --wait-mode poll --json)"
-assert_equal "$(jq -r '.messages | length' <<<"$ack_delivery")" 1
-assert_equal "$(jq -r '.messages[0].type' <<<"$ack_delivery")" ack
-printf 'ack-only queue: watcher still receives the recorded message\n'
+assert_equal "$(jq -r '.messages | length' <<<"$ack_delivery")" 0
+full_delivery="$("$root/megabrain" orchestrate watch type-ack --timeout 0 --poll-interval 0 --wait-mode poll --full --consumer protocol-trace --json)"
+assert_equal "$(jq -r '.messages | length' <<<"$full_delivery")" 1
+assert_equal "$(jq -r '.messages[0].type' <<<"$full_delivery")" ack
+printf 'ack-only queue: default view hides protocol evidence and full view reveals it\n'
 
 printf 'child branch: covered by tests/test-e2e-findings.sh\n'
 
