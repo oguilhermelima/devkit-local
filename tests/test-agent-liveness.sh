@@ -60,6 +60,7 @@ create_dispatch working
 write_pane_fixture working
 working_result="$(megabrain_dispatch_liveness_read working --json)"
 assert_equal "$(jq -r '.terminalLiveness' <<<"$working_result")" working
+assert_equal "$(jq -r '.source' <<<"$working_result")" tmux
 printf 'real transcript frame classifies a working agent\n'
 
 write_pane_fixture idle
