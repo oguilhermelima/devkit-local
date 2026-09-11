@@ -88,93 +88,6 @@ megabrain_parent_notify_wake_path() {
   printf '%s/nudge.log\n' "$(megabrain_dispatch_dir "$1")"
 }
 
-megabrain_parent_notify_nudge_state_path() {
-  printf '%s/nudge-state.json\n' "$(megabrain_dispatch_dir "$1")"
-}
-
-megabrain_parent_notify_nudge_state_lock_path() {
-  printf '%s/.nudge-state.lock\n' "$(megabrain_dispatch_dir "$1")"
-}
-
-megabrain_parent_notify_delivery_contains_seq() {
-  local dispatch_id="$1" message_seq="$2" deliveries_dir="" path="" status=""
-  deliveries_dir="$(megabrain_dispatch_deliveries_dir "$dispatch_id")" || return 1
-  for path in "$deliveries_dir"/*.json; do
-    [ -f "$path" ] || continue
-    status="$(jq -r '.status // empty' "$path" 2>/dev/null || true)"
-    case "$status" in
-      outstanding|acknowledged)
-        jq -e --argjson seq "$message_seq" '(.messageSeqs // []) | index($seq) != null' "$path" >/dev/null 2>&1 &&
-          return 0
-        ;;
-    esac
-  done
-  return 1
-}
-
-megabrain_parent_notify_nudge_claim() {
-  local dispatch_id="$1" message_seq="$2" state_path="" lock="" state_status="" state_seq="" cursor="" tmp=""
-  MEGABRAIN_PARENT_NOTIFY_NUDGE_REASON=nudge-outstanding
-  state_path="$(megabrain_parent_notify_nudge_state_path "$dispatch_id")" || return 1
-  lock="$(megabrain_parent_notify_nudge_state_lock_path "$dispatch_id")" || return 1
-  while ! mkdir "$lock" 2>/dev/null; do sleep 0.02; done
-  # WHY: the cursor is parent-side read evidence, regardless of whether watch
-  # created a delivery. Keep delivery as a fallback for the watch path, where
-  # the parent may have consumed mail without advancing its turn-end cursor.
-  cursor="$(megabrain_dispatch_cursor_read "$dispatch_id" 2>/dev/null || true)"
-  if [ -f "$state_path" ]; then
-    state_status="$(jq -r '.status // empty' "$state_path" 2>/dev/null || true)"
-    state_seq="$(jq -r '.messageSeq // empty' "$state_path" 2>/dev/null || true)"
-    if [ "$state_status" = outstanding ]; then
-      if [[ "$cursor" =~ ^[0-9]+$ && "$state_seq" =~ ^[1-9][0-9]*$ ]] && [ "$cursor" -ge "$state_seq" ]; then
-        rm -f "$state_path"
-      elif megabrain_parent_notify_delivery_contains_seq "$dispatch_id" "$state_seq"; then
-        rm -f "$state_path"
-      else
-        rmdir "$lock"
-        return 1
-      fi
-    fi
-  fi
-  if [[ "$cursor" =~ ^[0-9]+$ && "$message_seq" =~ ^[1-9][0-9]*$ ]] && [ "$cursor" -ge "$message_seq" ]; then
-    MEGABRAIN_PARENT_NOTIFY_NUDGE_REASON=message-seen
-    rmdir "$lock"
-    return 1
-  fi
-  if megabrain_parent_notify_delivery_contains_seq "$dispatch_id" "$message_seq"; then
-    MEGABRAIN_PARENT_NOTIFY_NUDGE_REASON=message-delivered
-    rmdir "$lock"
-    return 1
-  fi
-  tmp="$(mktemp "$(dirname "$state_path")/.nudge-state.XXXXXX")" || {
-    rmdir "$lock"
-    return 1
-  }
-  if ! jq -n --argjson messageSeq "$message_seq" --arg now "$(megabrain_iso_now)" \
-    '{messageSeq: $messageSeq, status: "outstanding", updatedAt: $now}' >"$tmp"; then
-    rm -f "$tmp"
-    rmdir "$lock"
-    return 1
-  fi
-  if ! mv -f "$tmp" "$state_path"; then
-    rm -f "$tmp"
-    rmdir "$lock"
-    return 1
-  fi
-  rmdir "$lock"
-  return 0
-}
-
-megabrain_parent_notify_nudge_release() {
-  local dispatch_id="$1" message_seq="$2" state_path="" lock="" state_seq=""
-  state_path="$(megabrain_parent_notify_nudge_state_path "$dispatch_id")" || return 1
-  lock="$(megabrain_parent_notify_nudge_state_lock_path "$dispatch_id")" || return 1
-  while ! mkdir "$lock" 2>/dev/null; do sleep 0.02; done
-  state_seq="$(jq -r '.messageSeq // empty' "$state_path" 2>/dev/null || true)"
-  [ "$state_seq" = "$message_seq" ] && rm -f "$state_path"
-  rmdir "$lock"
-}
-
 megabrain_parent_notify_wake() {
   local dispatch_id="$1" pointer="$2" outcome="${3:-}" reason="${4:-}" path lock line
   path="$(megabrain_parent_notify_wake_path "$dispatch_id")" || return 1
@@ -264,7 +177,7 @@ megabrain_parent_notify() {
 }
 
 megabrain_parent_notify_dispatch() {
-  local meta="$1" dispatch_id pointer notify_error notify_reason notify_error_path notify_status notify_outcome message_seq=""
+  local meta="$1" dispatch_id pointer notify_error notify_reason notify_error_path notify_status notify_outcome
   MEGABRAIN_PARENT_NOTIFY_RESULT=skipped
   dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty')"
   [ -n "$dispatch_id" ] || { MEGABRAIN_PARENT_NOTIFY_RESULT=failed; return 1; }
@@ -277,13 +190,6 @@ megabrain_parent_notify_dispatch() {
   if megabrain_parent_notify_waiter_active "$dispatch_id"; then
     MEGABRAIN_PARENT_NOTIFY_RESULT=suppressed
     megabrain_parent_notify_wake "$dispatch_id" "$pointer" suppressed active-waiter >/dev/null 2>&1 || true
-    return 0
-  fi
-  message_seq="$(megabrain_dispatch_last_child_mail_seq "$dispatch_id" 2>/dev/null || true)"
-  if [ -n "$message_seq" ] && ! megabrain_parent_notify_nudge_claim "$dispatch_id" "$message_seq"; then
-    MEGABRAIN_PARENT_NOTIFY_RESULT=suppressed
-    megabrain_parent_notify_wake "$dispatch_id" "$pointer" suppressed \
-      "${MEGABRAIN_PARENT_NOTIFY_NUDGE_REASON:-nudge-outstanding}" >/dev/null 2>&1 || true
     return 0
   fi
   notify_error_path="$(mktemp "$(megabrain_dispatch_dir "$dispatch_id")/.notify-error.XXXXXX" 2>/dev/null || true)"
@@ -304,14 +210,10 @@ megabrain_parent_notify_dispatch() {
       notify_outcome="${MEGABRAIN_TMUX_SEND_STATUS:-unknown}"
     fi
     MEGABRAIN_PARENT_NOTIFY_RESULT="$notify_outcome"
-    if [ "$notify_outcome" = not-typed ] && [ -n "$message_seq" ]; then
-      megabrain_parent_notify_nudge_release "$dispatch_id" "$message_seq" >/dev/null 2>&1 || true
-    fi
     megabrain_parent_notify_wake "$dispatch_id" "$pointer" "$notify_outcome" parent-notified >/dev/null 2>&1 || true
     return 0
   fi
   MEGABRAIN_PARENT_NOTIFY_RESULT=failed
-  [ -z "$message_seq" ] || megabrain_parent_notify_nudge_release "$dispatch_id" "$message_seq" >/dev/null 2>&1 || true
   notify_reason="$(printf '%s' "$notify_error" | tr '\r\n' '  ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')"
   [ -n "$notify_reason" ] || notify_reason=notify-failed
   megabrain_parent_notify_wake "$dispatch_id" "$pointer" failed "$notify_reason" >/dev/null 2>&1 || true

@@ -23,9 +23,8 @@ megabrain_session_id >/dev/null 2>&1 || megabrain_hook_finish
 [ -n "${MEGABRAIN_SESSION_ID:-}" ] || megabrain_hook_finish
 
 megabrain_hook_parent_notify() {
-  local meta_path dispatch_id meta state max_seq cursor open_ids refusal_reason
+  local meta_path dispatch_id meta state open_ids refusal_reason
   local open_states_json=""
-  local dispatch_ids="" dispatch_seq_pairs="" dispatch_count=0 first_meta="" pointer pair seq
   # WHY: this runs at the end of every turn of every agent, forever, and the dispatch
   # directory only grows. One jq per file cost 0.8s against the 83 dispatches on the
   # machine this was written on; one jq over all of them costs 0.007s. Fall back to the
@@ -60,29 +59,6 @@ megabrain_hook_parent_notify() {
         continue
       fi
     fi
-    max_seq="$(megabrain_dispatch_last_child_mail_seq "$dispatch_id" 2>/dev/null || true)"
-    [[ "$max_seq" =~ ^[0-9]+$ ]] || continue
-    [ "$max_seq" -gt 0 ] || continue
-    cursor="$(megabrain_dispatch_cursor_read "$dispatch_id" 2>/dev/null || true)"
-    [[ "$cursor" =~ ^[0-9]+$ ]] || continue
-    [ "$max_seq" -gt "$cursor" ] || continue
-    [ -n "$first_meta" ] || first_meta="$meta"
-    dispatch_count=$((dispatch_count + 1))
-    if [ -n "$dispatch_ids" ]; then
-      dispatch_ids="$dispatch_ids, $dispatch_id"
-    else
-      dispatch_ids="$dispatch_id"
-    fi
-    dispatch_seq_pairs="$dispatch_seq_pairs $dispatch_id:$max_seq"
-  done
-
-  [ "$dispatch_count" -gt 0 ] || return 0
-  pointer="$(megabrain_parent_notify_pointer_many "$dispatch_count" "$dispatch_ids")"
-  megabrain_parent_notify "$first_meta" "$pointer" || return 0
-  for pair in $dispatch_seq_pairs; do
-    dispatch_id="${pair%:*}"
-    seq="${pair#*:}"
-    megabrain_dispatch_cursor_write "$dispatch_id" "$seq" >/dev/null 2>&1 || true
   done
 }
 
@@ -137,5 +113,4 @@ fi
 [ -n "$MEGABRAIN_HOOK_TEXT" ] || MEGABRAIN_HOOK_TEXT='child turn ended without ask or done'
 
 megabrain_dispatch_message_append "$MEGABRAIN_HOOK_DISPATCH" child stalled "$MEGABRAIN_HOOK_TEXT" "$MEGABRAIN_SESSION_ID" >/dev/null 2>&1 || megabrain_hook_finish
-megabrain_parent_notify_dispatch "$MEGABRAIN_HOOK_META" >/dev/null 2>&1 || true
 megabrain_hook_finish
