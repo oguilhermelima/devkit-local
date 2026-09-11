@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-MEGABRAIN_AGENT_OPTION_TEMPLATES='codex|-c|model="%s"|-c|model_reasoning_effort="%s"
-claude|--model|%s|--effort|%s
-agy|--model|%s||'
+MEGABRAIN_AGENT_OPTION_TEMPLATES='codex|-c|model="%s"|-c|model_reasoning_effort="%s"|-c|mcp_servers.playwright.enabled=%s
+claude|--model|%s|--effort|%s|||
+agy|--model|%s|||||'
 # Codex has no --model or --effort flags, so its overrides use -c.
 MEGABRAIN_AGY_MODEL_IDS='gemini-3.8-flash-high
 gemini-3.8-flash-medium
@@ -384,10 +384,15 @@ megabrain_workspace_create() {
 
 megabrain_agent_command() {
   local agent="$1" model="$2" effort="$3"
-  local agent_lower model_flag model_format effort_flag effort_format model_value effort_value
-  local option_template known_agent known_model_flag known_model_format known_effort_flag known_effort_format
+  local browser=false agent_lower model_flag model_format effort_flag effort_format model_value effort_value
+  local browser_flag browser_format browser_value
+  local option_template known_agent known_model_flag known_model_format known_effort_flag known_effort_format known_browser_flag known_browser_format
   local launch_agent launch_arg
   shift 3
+  if [ "${1:-}" = true ] || [ "${1:-}" = false ]; then
+    browser="$1"
+    shift
+  fi
   local -a command_parts passthrough_args=()
   [ "$#" -eq 0 ] || passthrough_args=("$@")
   command_parts=("$agent")
@@ -405,9 +410,11 @@ megabrain_agent_command() {
 $MEGABRAIN_AGENT_LAUNCH_ARGS
 EOF
   option_template='--model|%s|--effort|%s'
-  while IFS='|' read -r known_agent known_model_flag known_model_format known_effort_flag known_effort_format; do
+  while IFS='|' read -r known_agent known_model_flag known_model_format known_effort_flag known_effort_format known_browser_flag known_browser_format; do
     if [ "$known_agent" = "$agent_lower" ]; then
       option_template="$known_model_flag|$known_model_format|$known_effort_flag|$known_effort_format"
+      browser_flag="$known_browser_flag"
+      browser_format="$known_browser_format"
       break
     fi
   done <<EOF
@@ -421,6 +428,10 @@ EOF
   if [ -n "$effort" ] && [ -n "$effort_flag" ]; then
     printf -v effort_value "$effort_format" "$effort"
     command_parts+=("$effort_flag" "$effort_value")
+  fi
+  if [ -n "$browser_flag" ]; then
+    printf -v browser_value "$browser_format" "$browser"
+    command_parts+=("$browser_flag" "$browser_value")
   fi
   if [ "${#passthrough_args[@]}" -gt 0 ]; then
     command_parts+=("${passthrough_args[@]}")
@@ -528,6 +539,21 @@ megabrain_host_cleanup_launch() {
   case "$context" in
     superset) megabrain_superset terminals close --workspace "$workspace_id" --terminal "$terminal_id" --json >/dev/null 2>&1 || true ;;
     orca) orca terminal close --terminal "$terminal_id" --json >/dev/null 2>&1 || true ;;
+  esac
+}
+
+megabrain_dispatch_browser_notice() {
+  case "${1:-false}" in
+    true)
+      printf 'browser MCP is enabled for this dispatch.\n'
+      ;;
+    false)
+      printf 'browser MCP is unavailable for this dispatch; if the task requires browser access, report that plainly and rerun with --browser.\n'
+      ;;
+    *)
+      megabrain_error "browser MCP setting must be true or false"
+      return "$MEGABRAIN_USAGE_ERROR"
+      ;;
   esac
 }
 
@@ -667,12 +693,18 @@ megabrain_spawn_mark_running_if_spawning() {
 }
 
 megabrain_launch_agent() {
-  local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}"
-  local context="" command_text="" response="" session_id="" final_prompt="" dispatch_preamble="" parent_id="" parent_host="" child_host="" branch="" meta=""
+  local worktree_path="$1" workspace_id="$2" agent="$3" model="$4" effort="$5" prompt="$6" label="${7:-}" browser="${8:-false}"
+  local context="" command_text="" response="" session_id="" final_prompt="" dispatch_preamble="" browser_notice="" parent_id="" parent_host="" child_host="" branch="" meta=""
   local parent_tmux_session="" parent_tmux_pane="" parent_workspace_id="${SUPERSET_WORKSPACE_ID:-}"
   local agent_used="" model_honored=false substitution_report="" dispatch_id="" runtime="" tmux_session="" tmux_pane="" existing_session="" tmux_command="" host_terminal_created=false prompt_status=0
-  local -a passthrough_args=()
+  local -a passthrough_args=() launch_args=()
   shift 7
+  if [ "${1:-}" = true ]; then
+    browser=true
+    shift
+  elif [ "${1:-}" = false ]; then
+    shift
+  fi
   [ "$#" -eq 0 ] || passthrough_args=("$@")
   MEGABRAIN_LAST_DISPATCH=""
   megabrain_session_id >/dev/null
@@ -700,8 +732,11 @@ megabrain_launch_agent() {
   case "$label" in
     *$'\n'*) megabrain_error "dispatch label cannot contain a newline"; return "$MEGABRAIN_USAGE_ERROR" ;;
   esac
+  browser_notice="$(megabrain_dispatch_browser_notice "$browser")" || return 1
   dispatch_preamble="$(megabrain_dispatch_preamble "$worktree_path")" || return 1
   final_prompt="[megabrain dispatch: ${label}]
+
+${browser_notice}
 
 ${dispatch_preamble}
 
@@ -776,12 +811,12 @@ ${prompt}"
       return 1
     }
     if [ "${#passthrough_args[@]}" -gt 0 ]; then
-      command_text="$(megabrain_agent_command "$agent_used" "$model" "$effort" "${passthrough_args[@]}")" || {
+      command_text="$(megabrain_agent_command "$agent_used" "$model" "$effort" "$browser" "${passthrough_args[@]}")" || {
         megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
         return 1
       }
     else
-      command_text="$(megabrain_agent_command "$agent_used" "$model" "$effort")" || {
+      command_text="$(megabrain_agent_command "$agent_used" "$model" "$effort" "$browser")" || {
         megabrain_tmux_cleanup_launch "$context" "$workspace_id" "$session_id" "$tmux_session" "$tmux_pane" "$host_terminal_created"
         return 1
       }
@@ -858,12 +893,12 @@ ${prompt}"
     return 0
   fi
   if [ "${#passthrough_args[@]}" -gt 0 ]; then
-    command_text="$(megabrain_agent_command "$agent" "$model" "$effort" "${passthrough_args[@]}")" || {
+    command_text="$(megabrain_agent_command "$agent" "$model" "$effort" "$browser" "${passthrough_args[@]}")" || {
       megabrain_error "could not build $agent launch command"
       return 1
     }
   else
-    command_text="$(megabrain_agent_command "$agent" "$model" "$effort")" || {
+    command_text="$(megabrain_agent_command "$agent" "$model" "$effort" "$browser")" || {
       megabrain_error "could not build $agent launch command"
       return 1
     }
@@ -1691,7 +1726,7 @@ megabrain_worktree_create_rollback() {
 }
 
 megabrain_worktree_create() {
-  local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" chain_name="" prompt="" label="" worktree_selector="" parent_selector="" issue="" linear_issue="" pr_number="" orchestrate=false json=false reused=false
+  local repo_selector="" branch="" base="" slug="" agent="" model="" effort="" chain_name="" prompt="" label="" worktree_selector="" parent_selector="" issue="" linear_issue="" pr_number="" orchestrate=false json=false reused=false browser=false
   local parent_requested=false no_parent=false parent_path="" parent_branch="" parent_tag=""
   local parent_metadata_set=false parent_metadata_error="" lineage_set=false grouping_set=false lineage_error="" grouping_error=""
   local links_set=false links_error=""
@@ -1745,6 +1780,7 @@ megabrain_worktree_create() {
       --label) label="${2:-}"; shift 2 ;;
       --worktree) worktree_selector="${2:-}"; shift 2 ;;
       --tmux) tmux_choice="${2:-}"; shift 2 ;;
+      --browser) browser=true; shift ;;
       --agent-arg)
         [ "$#" -ge 2 ] && [ -n "${2:-}" ] || { megabrain_error "--agent-arg requires a non-empty value"; return "$MEGABRAIN_USAGE_ERROR"; }
         agent_args+=("$2")
@@ -1802,14 +1838,14 @@ megabrain_worktree_create() {
         megabrain_chain_select "$chain_config" '' "${SUPERSET_AGENT_ID:-}" "${SUPERSET_AGENT_MODEL:-}" "${SUPERSET_AGENT_EFFORT:-}" selector || return 1
       fi
       if [ "${#agent_args[@]}" -gt 0 ]; then
-        if megabrain_chain_walk "$worktree_selector" "$repo_selector" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$model_explicit" "$effort_explicit" "${agent_args[@]}"; then
+        if megabrain_chain_walk "$worktree_selector" "$repo_selector" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$model_explicit" "$effort_explicit" "$browser" "${agent_args[@]}"; then
           printf '%s\n' "$MEGABRAIN_CHAIN_WALK_OUTPUT"
           return 0
         else
           walk_status="$?"
           return "$walk_status"
         fi
-      elif megabrain_chain_walk "$worktree_selector" "$repo_selector" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$model_explicit" "$effort_explicit"; then
+      elif megabrain_chain_walk "$worktree_selector" "$repo_selector" "$branch" "$base" "$slug" "$prompt" "$label" "$tmux_choice" "$model" "$effort" "$model_explicit" "$effort_explicit" "$browser"; then
         printf '%s\n' "$MEGABRAIN_CHAIN_WALK_OUTPUT"
         return 0
       else
@@ -1990,18 +2026,23 @@ megabrain_worktree_create() {
     printf 'worktree: %s\nbranch: %s\nworkspace: %s\nreused: %s\n' "$worktree_path" "$branch" "$workspace_id" "$reused"
   fi
   if [ -n "$agent" ]; then
+    launch_args=("$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label")
+    [ "$browser" = true ] && launch_args+=(true)
+    if [ "${#agent_args[@]}" -gt 0 ]; then
+      launch_args+=("${agent_args[@]}")
+    fi
     # Bash 3.2 rejects empty array expansion under set -u.
     if [ "${#agent_args[@]}" -gt 0 ]; then
       if [ "$json" = true ]; then
-        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "${agent_args[@]}" >/dev/null || launch_status=$?
+        megabrain_launch_agent "${launch_args[@]}" >/dev/null || launch_status=$?
       else
-        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" "${agent_args[@]}" || launch_status=$?
+        megabrain_launch_agent "${launch_args[@]}" || launch_status=$?
       fi
     else
       if [ "$json" = true ]; then
-        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" >/dev/null || launch_status=$?
+        megabrain_launch_agent "${launch_args[@]}" >/dev/null || launch_status=$?
       else
-        megabrain_launch_agent "$worktree_path" "$workspace_id" "$agent" "$model" "$effort" "$prompt" "$label" || launch_status=$?
+        megabrain_launch_agent "${launch_args[@]}" || launch_status=$?
       fi
     fi
     if [ "${launch_status:-0}" -ne 0 ]; then

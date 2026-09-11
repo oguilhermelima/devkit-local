@@ -135,18 +135,18 @@ megabrain_superset() {
 }
 megabrain_dispatch_meta_write stalled-missing child-terminal superset superset workspace-test missing-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
 env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=missing-terminal MEGABRAIN_HOOK_AGENT=codex "$root/hooks/megabrain-turn-end.sh" '{"last_assistant_message":"stuck"}' >/dev/null
-assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-missing/meta.json")" stalled
-printf 'missing terminal remains evidence for stalled\n'
+assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-missing/meta.json")" running
+printf 'missing terminal does not rewrite the dispatch contract\n'
 
-megabrain_dispatch_meta_write stalled-done done-terminal superset superset workspace-test done-terminal "$root" main codex label stalled gpt-5 true codex '' '' host ide >/dev/null
+megabrain_dispatch_meta_write stalled-done done-terminal superset superset workspace-test done-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
 env -u TMUX -u TMUX_PANE SUPERSET_TERMINAL_ID=done-terminal "$root/megabrain" done 'completed after recovery' >/dev/null
 assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-done/meta.json")" done
-printf 'done is accepted from stalled\n'
+printf 'done is accepted from the open dispatch contract\n'
 
-megabrain_dispatch_meta_write stalled-ask parent-terminal superset superset workspace-test stalled-ask-terminal "$root" main codex label stalled gpt-5 true codex '' '' host ide >/dev/null
+megabrain_dispatch_meta_write stalled-ask parent-terminal superset superset workspace-test stalled-ask-terminal "$root" main codex label running gpt-5 true codex '' '' host ide >/dev/null
 TMUX= TMUX_PANE= SUPERSET_TERMINAL_ID=stalled-ask-terminal megabrain_dispatch_child_message ask 'question after stall' >/dev/null
 assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/stalled-ask/meta.json")" waiting_for_reply
-printf 'ask is accepted from stalled\n'
+printf 'ask is accepted from the open dispatch contract\n'
 
 megabrain_dispatch_meta_write orphaned-ask parent-terminal superset superset workspace-test orphaned-ask-terminal "$root" main codex label orphaned gpt-5 true codex '' '' host ide >/dev/null
 TMUX= TMUX_PANE= SUPERSET_TERMINAL_ID=orphaned-ask-terminal megabrain_dispatch_child_message ask 'question after orphaning' >/dev/null

@@ -103,6 +103,12 @@ The result always says which step it took and why the earlier ones were skipped,
 is recorded in the dispatch. When your first choice is exhausted you get the second one with an
 explanation, instead of a failure you have to diagnose.
 
+Dispatch workers do not inherit the Playwright MCP by default. Use `--browser` on `orchestrate
+spawn` or `chain run` when the brief needs browser access; Codex receives a layered configuration
+override that disables or enables only `mcp_servers.playwright`. Interactive Codex keeps its
+global browser MCP unchanged. A worker without browser access is told to report that requirement
+and rerun with `--browser`.
+
 **Chains start empty and must be added.** A chain is named by the operator, not automatically
 after a parent or child agent. Add one with `chain add`, then `orchestrate spawn` prefers an
 explicit `--chain`, then the most specific selector matching `parentAgent`, `parentModel` and

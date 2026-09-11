@@ -286,11 +286,41 @@ child_ack() {
 }
 
 parent_watch() {
-  megabrain_dispatch_watch "$dispatch_id" --timeout 0 --poll-interval 0 --wait-mode poll --json
+  local timeout="${1:-0}"
+  megabrain_dispatch_watch "$dispatch_id" --timeout "$timeout" --poll-interval 0 --wait-mode poll --full --json
 }
 
 parent_ack() {
   megabrain_dispatch_ack "$dispatch_id" "$1" --json
+}
+
+assert_parent_receipt() {
+  local delivery="$1"
+  assert_equal "$(jq -r '.status' <<<"$delivery")" received
+  assert_equal "$(jq -r '.messages[0].type' <<<"$delivery")" received
+  assert_equal "$(jq -r '.messages[0].text' <<<"$delivery")" 'prompt received'
+}
+
+parent_watch_actionable() {
+  local delivery delivery_type delivery_id
+  while :; do
+    delivery="$(parent_watch 10)"
+    delivery_type="$(jq -r '.messages[0].type // empty' <<<"$delivery")"
+    case "$delivery_type" in
+      received)
+        assert_parent_receipt "$delivery"
+        delivery_id="$(jq -r '.deliveryId' <<<"$delivery")"
+        parent_ack "$delivery_id" >/dev/null
+        ;;
+      ask|done|stalled|usage)
+        printf '%s\n' "$delivery"
+        return 0
+        ;;
+      *)
+        fail "unexpected parent mail type: ${delivery_type:-none}"
+        ;;
+    esac
+  done
 }
 
 run_flow() {
@@ -341,9 +371,8 @@ run_flow() {
     assert_contains "$(cat "$state_dir/fake-sends.log")" "MEGABRAIN_STATE_DIR=$state_dir"
   fi
   timing_mark 'spawn and prompt'
-  receipt_message="$(find "$state_dir/dispatches/$dispatch_id/messages" -name '*-child-received.json' -print -quit)"
-  [ -n "$receipt_message" ] || fail 'spawn returned before the delayed child receipt reached the queue'
-  receipt_delivery="$(parent_watch)"
+  receipt_delivery="$(parent_watch 10)"
+  assert_parent_receipt "$receipt_delivery"
   receipt_delivery_id="$(jq -r '.deliveryId' <<<"$receipt_delivery")"
   parent_ack "$receipt_delivery_id" >/dev/null
   timing_mark 'initial receipt'
@@ -353,7 +382,7 @@ run_flow() {
     ask_pointer="$(megabrain_tmux_nudge_text_for_pane "$parent_pane" "mail: megabrain orchestrate watch $dispatch_id")"
     assert_contains "$ask_capture" "$ask_pointer"
   fi
-  delivery="$(parent_watch)"
+  delivery="$(parent_watch_actionable)"
   replay="$(parent_watch)"
   delivery_id="$(jq -r '.deliveryId' <<<"$delivery")"
   assert_equal "$(jq -r '.messages[0].text' <<<"$delivery")" "$runtime-question"

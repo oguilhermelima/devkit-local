@@ -13,11 +13,12 @@
 - Run megabrain terminal list [--worktree <path>] [--json].
 - Run megabrain terminal restart <selector> [--command <cmd>] [--wait-port <port>] [--timeout <seconds>] [--json].
 - Run megabrain terminal close <selector> [--json].
-- Run megabrain orchestrate spawn --repo <name|path> --branch <branch> [--agent <id>] [--chain <name>] [--model <id>] [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json].
+- Run megabrain orchestrate spawn --repo <name|path> --branch <branch> [--agent <id>] [--chain <name>] [--model <id>] [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--browser] [--agent-arg <flag>] [--json].
 - Run megabrain orchestrate list [--all|--orphans|--uncertain] [--json].
 - Run megabrain orchestrate prune [--older-than <days>] [--state <list>] [--archive|--delete] [--dry-run] [--json].
 - Run megabrain orchestrate reconcile <dispatch-id> [--all] [--json].
-- Run megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--consumer <id>] [--generation <number>] [--json].
+- Run megabrain orchestrate liveness <dispatch-id> [--json].
+- Run megabrain orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--consumer <id>] [--generation <number>] [--full] [--json].
 - Run megabrain orchestrate read <dispatch-id> [--lines <count>] [--json].
 - Run megabrain orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json].
 - Run megabrain orchestrate reply <dispatch-id> --text <answer> [--json].
@@ -25,7 +26,7 @@
 - Run megabrain ask "question".
 - Run megabrain done "summary".
 - Run megabrain received. Do this before starting work; prompt delivery depends on this receipt.
-- Run megabrain check [--timeout <seconds>] [--poll-interval <seconds>] [--consumer <id>] [--generation <number>] [--json].
+- Run megabrain check [--timeout <seconds>] [--poll-interval <seconds>] [--consumer <id>] [--generation <number>] [--full] [--json].
 - Run megabrain ack <delivery-id> [--consumer <id>] [--generation <number>] [--json].
 - Run megabrain chain list [--json].
 - Run megabrain chain limits [--json] [--enable <providers>] [--disable <providers>] [--notice-on|--notice-off] [--notice-interval <seconds>].
@@ -33,7 +34,7 @@
 - Run megabrain chain edit <name> [--allow-unknown-model] [--json].
 - Run megabrain chain delete <name> [--json].
 - Run megabrain chain repair <name> --step <number> --model <id> [--effort <level>] [--json].
-- Run megabrain chain run [name] [--chain <name>] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name|path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json].
+- Run megabrain chain run [name] [--chain <name>] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name|path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--browser] [--agent-arg <flag>] [--json].
 - Run megabrain model list [--json].
 - Run megabrain model add <agent> <model> --reasoning <levels>.
 - Run megabrain model refresh <agent>.

@@ -23,6 +23,18 @@ MODULE_RETAINED_TERMINALS=0
 MODULE_LEAKED_DISPATCH_SESSIONS=0
 MODULE_PRUNABLE_DISPATCHES=0
 MEGABRAIN_STATE_RECONCILIATION=""
+MEGABRAIN_DISPATCH_OPEN_STATES='spawning
+running
+waiting_for_reply'
+
+megabrain_dispatch_state_is_open() {
+  [ -n "${1:-}" ] || return 1
+  printf '%s\n' "$MEGABRAIN_DISPATCH_OPEN_STATES" | grep -Fx "$1" >/dev/null 2>&1
+}
+
+megabrain_dispatch_open_states_json() {
+  printf '%s\n' "$MEGABRAIN_DISPATCH_OPEN_STATES" | jq -Rsc 'split("\n") | map(select(length > 0))'
+}
 
 megabrain_error() {
   printf 'megabrain: %s\n' "$*" >&2
@@ -236,11 +248,12 @@ megabrain_usage_line() {
     terminal-list) printf 'terminal list [--worktree <path>] [--json]' ;;
     terminal-restart) printf 'terminal restart <selector> [--command <cmd>] [--wait-port <port>] [--timeout <seconds>] [--json]' ;;
     terminal-close) printf 'terminal close <selector> [--json]' ;;
-    orchestrate-spawn) printf 'orchestrate spawn --repo <name|path> --branch <branch> [--agent <id>] [--chain <name>] [--model <id>] [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
+    orchestrate-spawn) printf 'orchestrate spawn --repo <name|path> --branch <branch> [--agent <id>] [--chain <name>] [--model <id>] [--base <ref>] [--name <slug>] [--effort <level>] [--prompt <text>] [--label <text>] [--worktree <path>] [--tmux true|false] [--browser] [--agent-arg <flag>] [--json]' ;;
     orchestrate-list) printf 'orchestrate list [--all|--orphans|--uncertain] [--json]' ;;
     orchestrate-prune) printf 'orchestrate prune [--older-than <days>] [--state <list>] [--archive|--delete] [--dry-run] [--json]' ;;
     orchestrate-reconcile) printf 'orchestrate reconcile <dispatch-id> [--all] [--json]' ;;
-    orchestrate-watch) printf 'orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--consumer <id>] [--generation <number>] [--json]' ;;
+    orchestrate-liveness) printf 'orchestrate liveness <dispatch-id> [--json]' ;;
+    orchestrate-watch) printf 'orchestrate watch <dispatch-id> [--timeout <seconds>] [--poll-interval <seconds>] [--wait-mode nudge|poll] [--consumer <id>] [--generation <number>] [--full] [--json]' ;;
     orchestrate-read) printf 'orchestrate read <dispatch-id> [--lines <count>] [--json]' ;;
     orchestrate-ack) printf 'orchestrate ack <dispatch-id> <delivery-id> [--consumer <id>] [--generation <number>] [--json]' ;;
     orchestrate-reply) printf 'orchestrate reply <dispatch-id> --text <answer> [--json]' ;;
@@ -248,7 +261,7 @@ megabrain_usage_line() {
     ask) printf 'ask "question"' ;;
     done) printf 'done "summary"' ;;
     received) printf 'received' ;;
-    check) printf 'check [--timeout <seconds>] [--poll-interval <seconds>] [--consumer <id>] [--generation <number>] [--json]' ;;
+    check) printf 'check [--timeout <seconds>] [--poll-interval <seconds>] [--consumer <id>] [--generation <number>] [--full] [--json]' ;;
     ack) printf 'ack <delivery-id> [--consumer <id>] [--generation <number>] [--json]' ;;
     chain) printf 'chain list|limits|add|edit|delete|run|repair ...' ;;
     chain-list) printf 'chain list [--json]' ;;
@@ -257,7 +270,7 @@ megabrain_usage_line() {
     chain-edit) printf 'chain edit <name> [--allow-unknown-model] [--json]' ;;
     chain-delete) printf 'chain delete <name> [--json]' ;;
     chain-repair) printf 'chain repair <name> --step <number> --model <id> [--effort <level>] [--json]' ;;
-    chain-run) printf 'chain run [name] [--chain <name>] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name|path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--agent-arg <flag>] [--json]' ;;
+    chain-run) printf 'chain run [name] [--chain <name>] [--parent-agent <agent>] [--parent-model <model>] [--parent-effort <effort>] [--repo <name|path>] [--branch <branch>] [--base <ref>] [--name <slug>] [--worktree <path>] [--prompt <text>] [--label <text>] [--tmux true|false] [--browser] [--agent-arg <flag>] [--json]' ;;
     model) printf 'model list|add|refresh ...' ;;
     model-list) printf 'model list [--json]' ;;
     model-add) printf 'model add <agent> <model> --reasoning <levels>' ;;

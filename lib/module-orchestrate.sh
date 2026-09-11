@@ -15,9 +15,16 @@ MEGABRAIN_DISPATCH_CLOSE_OUTCOME=unknown
 MEGABRAIN_DISPATCH_CLOSE_ERROR=""
 MEGABRAIN_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS=60
 MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS=7
+MEGABRAIN_TRANSCRIPT_MAX_BYTES="${MEGABRAIN_TRANSCRIPT_MAX_BYTES:-10485760}"
+
+# Single source of truth for mail visibility, keyed "from:type". actionable mail
+# is surfaced by default and triggers a notify; protocol mail is durable evidence
+# surfaced only with --full. Every site that routes or filters mail consults this.
+MEGABRAIN_DISPATCH_MAIL_ACTIONABLE_KEYS=(child:ask child:done child:stalled megabrain:usage)
+MEGABRAIN_DISPATCH_MAIL_PROTOCOL_KEYS=(child:received child:ack)
 
 megabrain_dispatch_prune_states() {
-  printf 'closed,done,failed,orphaned,circuit_broken,timeout\n'
+  printf 'closed,done,failed,orphaned,circuit_broken\n'
 }
 
 if ! declare -F megabrain_dispatch_preamble >/dev/null 2>&1; then
@@ -32,14 +39,12 @@ megabrain_dispatch_transition_allowed() {
   local axis="$1" from="$2" to="$3"
   case "$axis:$from:$to" in
     dispatch:spawning:spawning|dispatch:spawning:running|dispatch:spawning:failed|dispatch:spawning:closed) return 0 ;;
-    dispatch:running:running|dispatch:running:waiting_for_reply|dispatch:running:done|dispatch:running:failed|dispatch:running:orphaned|dispatch:running:stalled|dispatch:running:timeout|dispatch:running:closed) return 0 ;;
-    dispatch:waiting_for_reply:waiting_for_reply|dispatch:waiting_for_reply:running|dispatch:waiting_for_reply:done|dispatch:waiting_for_reply:failed|dispatch:waiting_for_reply:orphaned|dispatch:waiting_for_reply:stalled|dispatch:waiting_for_reply:timeout|dispatch:waiting_for_reply:closed) return 0 ;;
+    dispatch:running:running|dispatch:running:waiting_for_reply|dispatch:running:done|dispatch:running:failed|dispatch:running:orphaned|dispatch:running:closed) return 0 ;;
+    dispatch:waiting_for_reply:waiting_for_reply|dispatch:waiting_for_reply:running|dispatch:waiting_for_reply:done|dispatch:waiting_for_reply:failed|dispatch:waiting_for_reply:orphaned|dispatch:waiting_for_reply:closed) return 0 ;;
     dispatch:done:done|dispatch:done:failed|dispatch:done:orphaned|dispatch:done:closed) return 0 ;;
     dispatch:failed:failed|dispatch:failed:circuit_broken|dispatch:failed:closed) return 0 ;;
     dispatch:orphaned:orphaned|dispatch:orphaned:running|dispatch:orphaned:waiting_for_reply|dispatch:orphaned:done|dispatch:orphaned:failed|dispatch:orphaned:circuit_broken|dispatch:orphaned:closed) return 0 ;;
     # WHY: A child proving it is alive must be able to complete after a stall classification.
-    dispatch:stalled:stalled|dispatch:stalled:running|dispatch:stalled:waiting_for_reply|dispatch:stalled:done|dispatch:stalled:failed|dispatch:stalled:circuit_broken|dispatch:stalled:closed) return 0 ;;
-    dispatch:timeout:timeout|dispatch:timeout:failed|dispatch:timeout:circuit_broken|dispatch:timeout:closed) return 0 ;;
     dispatch:closed:closed|dispatch:circuit_broken:circuit_broken) return 0 ;;
     process:starting:starting|process:starting:running|process:starting:start-unproven|process:starting:failed|process:starting:stopping|process:starting:stopped|process:starting:stop-unproven|process:starting:abandoned) return 0 ;;
     process:start-unproven:start-unproven|process:start-unproven:running|process:start-unproven:failed|process:start-unproven:stopping|process:start-unproven:stopped|process:start-unproven:stop-unproven|process:start-unproven:abandoned) return 0 ;;
@@ -193,6 +198,81 @@ megabrain_dispatch_delivery_write() {
   mv -f "$tmp" "$path"
 }
 
+megabrain_dispatch_delivery_create() {
+  local dispatch_id="$1" recipient="$2" message_seqs="$3"
+  local delivery_id deliveries_dir path tmp now
+  case "$recipient" in
+    parent|child) ;;
+    *) megabrain_error "invalid delivery recipient: $recipient"; return 1 ;;
+  esac
+  deliveries_dir="$(megabrain_dispatch_deliveries_dir "$dispatch_id")" || return 1
+  mkdir -p "$deliveries_dir" || return 1
+  delivery_id="$(megabrain_dispatch_new_delivery_id "$dispatch_id")" || return 1
+  path="$(megabrain_dispatch_delivery_path "$dispatch_id" "$delivery_id")" || return 1
+  now="$(megabrain_iso_now)"
+  tmp="$(mktemp "$deliveries_dir/.delivery.XXXXXX")" || return 1
+  if ! jq -n \
+    --arg id "$delivery_id" --arg dispatchId "$dispatch_id" --arg recipient "$recipient" \
+    --argjson messageSeqs "$message_seqs" --arg now "$now" \
+    '{id: $id, dispatchId: $dispatchId, recipient: $recipient, consumer: null, consumerGeneration: null, messageSeqs: $messageSeqs, status: "outstanding", createdAt: $now, updatedAt: $now, acknowledgedAt: null, fencedAt: null}' \
+    >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$path"
+  printf '%s\n' "$delivery_id"
+}
+
+megabrain_dispatch_delivery_claim() {
+  local path="$1" consumer="$2" generation="$3" tmp now
+  now="$(megabrain_iso_now)"
+  tmp="$(mktemp "$(dirname "$path")/.delivery.XXXXXX")" || return 1
+  if ! jq --arg consumer "$consumer" --argjson generation "$generation" --arg now "$now" \
+    '.consumer = $consumer | .consumerGeneration = $generation | .updatedAt = $now' \
+    "$path" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$path"
+}
+
+megabrain_dispatch_delivery_has_seq() {
+  local deliveries_dir="$1" message_seq="$2" path
+  for path in "$deliveries_dir"/*.json; do
+    [ -f "$path" ] || continue
+    jq -e --argjson seq "$message_seq" '(.messageSeqs // []) | index($seq) != null' \
+      "$path" >/dev/null 2>&1 && return 0
+  done
+  return 1
+}
+
+megabrain_dispatch_migrate_legacy_deliveries() {
+  local dispatch_id="$1" messages_dir deliveries_dir lock path from type seq recipient class
+  messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
+  [ -d "$messages_dir" ] || return 0
+  deliveries_dir="$(megabrain_dispatch_deliveries_dir "$dispatch_id")"
+  lock="$messages_dir/.lock"
+  megabrain_dispatch_lock_acquire "$lock" || return 1
+  while IFS=$'\t' read -r seq path; do
+    [ -n "$path" ] || continue
+    from="$(jq -r '.from // empty' "$path" 2>/dev/null || true)"
+    type="$(jq -r '.type // empty' "$path" 2>/dev/null || true)"
+    case "$from:$type" in
+      parent:reply) recipient=child ;;
+      *)
+        class="$(megabrain_dispatch_mail_class "$from:$type" 2>/dev/null || true)"
+        [ -n "$class" ] && recipient=parent || continue
+        ;;
+    esac
+    megabrain_dispatch_delivery_has_seq "$deliveries_dir" "$seq" && continue
+    megabrain_dispatch_delivery_create "$dispatch_id" "$recipient" "[$seq]" >/dev/null || {
+      rmdir "$lock"
+      return 1
+    }
+  done < <(megabrain_dispatch_message_paths "$messages_dir")
+  rmdir "$lock"
+}
+
 megabrain_dispatch_meta_write() {
   local dispatch_id="$1" parent_session="$2" parent_host="$3" child_host="$4"
   local workspace_id="$5" terminal_id="$6" worktree_path="$7" branch="$8"
@@ -314,16 +394,62 @@ megabrain_dispatch_transcript_path() {
   printf '%s/transcript\n' "$(megabrain_dispatch_dir "$1")"
 }
 
+# Streams path capped to at most max_bytes, keeping the END of the file
+# (front truncation). A file at or under max_bytes passes through unchanged.
+# When truncation happens, the first (possibly partial) line of the kept
+# slice is dropped, since a byte-boundary cut can land inside a line or an
+# escape sequence.
+megabrain_transcript_capped_stream() {
+  local path="$1" max_bytes="$2" size
+  size="$(wc -c <"$path" 2>/dev/null | tr -d ' ')"
+  case "$size" in
+    ''|*[!0-9]*)
+      cat "$path"
+      return $?
+      ;;
+  esac
+  if [ "$size" -gt "$max_bytes" ]; then
+    tail -c "$max_bytes" "$path" | tail -n +2
+  else
+    cat "$path"
+  fi
+}
+
+# Truncates path in place to at most max_bytes, front-truncating (keeping
+# the tail) via megabrain_transcript_capped_stream. A no-op when the file
+# is missing or already at or under max_bytes.
+megabrain_transcript_truncate_file() {
+  local path="$1" max_bytes="$2" size tmp
+  [ -f "$path" ] || return 0
+  size="$(wc -c <"$path" 2>/dev/null | tr -d ' ')"
+  case "$size" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$size" -gt "$max_bytes" ] || return 0
+  tmp="$(mktemp "${path}.XXXXXX")" || return 1
+  if ! megabrain_transcript_capped_stream "$path" "$max_bytes" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$path"
+}
+
 megabrain_dispatch_render_transcript() {
-  local path="$1" lines="$2" render_dir='' replay_path='' socket='' session='' marker='' start_marker='' history_limit=0 raw_line_count=0 attempts=0
-  local command_text="" rendered="" trimmed=""
+  local path="$1" lines="$2" render_dir='' replay_path='' captured_path='' socket='' session='' marker='' start_marker='' history_limit=0 raw_line_count=0 attempts=0
+  local command_text="" tmux_config=''
   render_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-transcript-render.XXXXXX")" || return 1
   replay_path="$render_dir/replay"
+  captured_path="$render_dir/captured"
   socket="$render_dir/tmux"
   session="megabrain-render-$$-${RANDOM:-0}"
   marker="$render_dir/complete"
   start_marker="$render_dir/start"
-  if ! awk -v esc="$(printf '\033')" '{ gsub(esc "\\[3J", ""); print }' "$path" >"$replay_path"; then
+  tmux_config="$render_dir/tmux.conf"
+  # Never load more than MEGABRAIN_TRANSCRIPT_MAX_BYTES of the source file: this is
+  # the bound that actually holds regardless of whether a lifecycle path ever
+  # truncated the persisted transcript on disk.
+  if ! megabrain_transcript_capped_stream "$path" "$MEGABRAIN_TRANSCRIPT_MAX_BYTES" |
+    awk -v esc="$(printf '\033')" '{ gsub(esc "\\[3J", ""); print }' >"$replay_path"; then
     rm -rf "$render_dir"
     return 1
   fi
@@ -336,15 +462,26 @@ megabrain_dispatch_render_transcript() {
   esac
   history_limit=$((raw_line_count + lines + 100))
 
+  # history-limit became a per-window option in tmux 3.2+: setting it with
+  # set-option after the window already exists is a no-op on some tmux builds
+  # (measured: tmux 3.3a silently keeps the compiled-in 2000-line default,
+  # while tmux 3.7c happens to grow the existing window anyway). It must be
+  # in place before new-session creates the window, so it goes in a minimal
+  # config file passed via -f instead of /dev/null. alternate-screen is a
+  # session option, applied dynamically regardless of when it is set
+  # (measured: setting it off after creation still suppresses an alternate-
+  # screen switch that arrives afterward), so it stays a post-creation
+  # set-option below rather than moving into this file.
+  printf 'set-option -g history-limit %s\n' "$history_limit" >"$tmux_config"
+
   command_text="stty -echo; while [ ! -f $(printf '%q' "$start_marker") ]; do sleep 0.01; done; cat $(printf '%q' "$replay_path"); touch $(printf '%q' "$marker"); exec sleep 60"
-  if ! tmux -S "$socket" -f /dev/null new-session -d -x 240 -y 100 -s "$session" "$command_text" >/dev/null 2>&1; then
+  if ! tmux -S "$socket" -f "$tmux_config" new-session -d -x 240 -y 100 -s "$session" "$command_text" >/dev/null 2>&1; then
     tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
     rm -rf "$render_dir"
     return 1
   fi
 
-  if ! tmux -S "$socket" -f /dev/null set-option -g history-limit "$history_limit" >/dev/null 2>&1 ||
-    ! tmux -S "$socket" -f /dev/null set-option -g alternate-screen off >/dev/null 2>&1 ||
+  if ! tmux -S "$socket" -f /dev/null set-option -g alternate-screen off >/dev/null 2>&1 ||
     ! touch "$start_marker"; then
     tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
     rm -rf "$render_dir"
@@ -366,22 +503,97 @@ megabrain_dispatch_render_transcript() {
     sleep 0.05
   done
 
-  if ! rendered="$(tmux -S "$socket" -f /dev/null capture-pane -J -p -t "$session":0.0 -S "-$history_limit" 2>/dev/null)"; then
+  if ! tmux -S "$socket" -f /dev/null capture-pane -J -p -t "$session":0.0 -S "-$history_limit" >"$captured_path" 2>/dev/null; then
     tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
     rm -rf "$render_dir"
     return 1
   fi
-  trimmed="$(printf '%s\n' "$rendered" | awk '
-    { lines[NR] = $0 }
-    END {
-      last = NR
-      while (last > 0 && lines[last] ~ /^[[:space:]]*$/) last--
-      for (i = 1; i <= last; i++) print lines[i]
-    }
-  ')"
   tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
+  # Streams the trailing-blank-line trim instead of loading the capture into an
+  # array: buffer only a run of blank lines, flush it once a non-blank line
+  # shows it wasn't trailing, and drop whatever is still buffered at EOF.
+  awk '
+    /^[[:space:]]*$/ { blank = blank $0 "\n"; next }
+    { if (blank != "") { printf "%s", blank; blank = "" } print }
+  ' "$captured_path"
   rm -rf "$render_dir"
-  printf '%s\n' "$trimmed"
+  return 0
+}
+
+MEGABRAIN_DISPATCH_LIVENESS_STATUS=unknown
+MEGABRAIN_DISPATCH_LIVENESS_REASON=''
+MEGABRAIN_DISPATCH_LIVENESS_SOURCE=unknown
+
+megabrain_dispatch_liveness_read() {
+  local dispatch_id="$1" json=false arg meta runtime pane agent output source state terminal_status
+  MEGABRAIN_DISPATCH_LIVENESS_STATUS=unknown
+  MEGABRAIN_DISPATCH_LIVENESS_REASON=''
+  MEGABRAIN_DISPATCH_LIVENESS_SOURCE=unknown
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=true; shift ;;
+      *) megabrain_error "unknown liveness option: $arg"; return "$MEGABRAIN_USAGE_ERROR" ;;
+    esac
+  done
+  meta="$(megabrain_dispatch_meta_read "$dispatch_id")" || return 1
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
+  agent="$(printf '%s' "$meta" | jq -r '.agent // empty')"
+  state="$(printf '%s' "$meta" | jq -r '.state // "unknown"')"
+  if [ "$runtime" = tmux ]; then
+    # WHY: a pane id can be recycled; classify only after the terminal helper proves ownership.
+    megabrain_dispatch_terminal_status "$meta"
+    terminal_status="$MEGABRAIN_TERMINAL_STATUS"
+    case "$state:$terminal_status" in
+      closed:*)
+        # WHY: a closed dispatch has no current agent, even if stale tmux state remains.
+        MEGABRAIN_DISPATCH_LIVENESS_STATUS=missing
+        MEGABRAIN_DISPATCH_LIVENESS_REASON='dispatch is closed'
+        ;;
+      *:missing)
+        MEGABRAIN_DISPATCH_LIVENESS_STATUS=missing
+        MEGABRAIN_DISPATCH_LIVENESS_REASON='terminal is no longer available'
+        ;;
+      *:unknown)
+        MEGABRAIN_DISPATCH_LIVENESS_STATUS=unknown
+        MEGABRAIN_DISPATCH_LIVENESS_REASON='terminal identity is unproven'
+        ;;
+      *:proven)
+        agent="$(megabrain_tmux_agent_for_pane "$pane" 2>/dev/null || printf '%s' "$agent")"
+        if output="$(megabrain_tmux_capture_pane "$pane" -200 2>/dev/null)" && [ -n "$output" ]; then
+          MEGABRAIN_DISPATCH_LIVENESS_SOURCE=tmux
+          if [ -n "$agent" ]; then
+            megabrain_tmux_liveness_classify "$agent" "$output"
+            MEGABRAIN_DISPATCH_LIVENESS_STATUS="${MEGABRAIN_TMUX_LIVENESS_STATUS:-unknown}"
+            MEGABRAIN_DISPATCH_LIVENESS_REASON="${MEGABRAIN_TMUX_LIVENESS_REASON:-}"
+          fi
+        fi
+        ;;
+    esac
+  fi
+  if [ "$json" = true ]; then
+    jq -n --arg dispatchId "$dispatch_id" --arg dispatchState "$(printf '%s' "$meta" | jq -r '.state // "unknown"')" \
+      --arg terminalLiveness "$MEGABRAIN_DISPATCH_LIVENESS_STATUS" --arg source "$MEGABRAIN_DISPATCH_LIVENESS_SOURCE" \
+      --arg reason "$MEGABRAIN_DISPATCH_LIVENESS_REASON" \
+      '{dispatchId: $dispatchId, dispatchState: $dispatchState, terminalLiveness: $terminalLiveness, source: $source, reason: (if $reason == "" then null else $reason end)}'
+  else
+    printf 'dispatch: %s\nstate: %s\nterminal liveness: %s\nsource: %s\n' \
+      "$dispatch_id" "$(printf '%s' "$meta" | jq -r '.state // "unknown"')" \
+      "$MEGABRAIN_DISPATCH_LIVENESS_STATUS" "$MEGABRAIN_DISPATCH_LIVENESS_SOURCE"
+    [ -n "$MEGABRAIN_DISPATCH_LIVENESS_REASON" ] && printf 'reason: %s\n' "$MEGABRAIN_DISPATCH_LIVENESS_REASON"
+  fi
+}
+
+megabrain_dispatch_liveness() {
+  local dispatch_id="${1:-}"
+  case "$dispatch_id" in
+    -h|--help) megabrain_usage_show orchestrate-liveness; return 0 ;;
+  esac
+  [ -n "$dispatch_id" ] || { megabrain_usage_fail orchestrate-liveness; return "$MEGABRAIN_USAGE_ERROR"; }
+  shift
+  megabrain_dispatch_liveness_read "$dispatch_id" "$@"
 }
 
 megabrain_dispatch_start_transcript() {
@@ -394,13 +606,21 @@ megabrain_dispatch_start_transcript() {
 }
 
 megabrain_dispatch_stop_transcript() {
-  local meta="$1" runtime pane
+  local meta="$1" runtime pane dispatch_id transcript_path
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"' 2>/dev/null || true)"
   [ "$runtime" = tmux ] || return 0
   pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty' 2>/dev/null || true)"
   [ -n "$pane" ] || return 0
   declare -F megabrain_tmux_pipe_pane_stop >/dev/null 2>&1 || return 0
   megabrain_tmux_pipe_pane_stop "$pane" >/dev/null 2>&1 || true
+  # Housekeeping for disk: bounds the file once its writer has stopped. This is not
+  # the bound that protects the render path's memory use, which caps on every read
+  # regardless of whether this ever runs (a pane that just dies never reaches here).
+  dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty' 2>/dev/null || true)"
+  if [ -n "$dispatch_id" ]; then
+    transcript_path="$(megabrain_dispatch_transcript_path "$dispatch_id")" || return 0
+    megabrain_transcript_truncate_file "$transcript_path" "$MEGABRAIN_TRANSCRIPT_MAX_BYTES" || true
+  fi
   return 0
 }
 
@@ -412,6 +632,9 @@ megabrain_dispatch_meta_read() {
     return 1
   fi
   jq -e . "$path" >/dev/null 2>&1 || { megabrain_error "dispatch metadata is not valid JSON: $dispatch_id"; return 1; }
+  # WHY: stalled and timeout were persisted by older versions on the contract axis;
+  # normalise them before any reader applies the current transition table.
+  megabrain_dispatch_meta_normalize "$dispatch_id" || return 1
   cat "$path"
 }
 
@@ -422,7 +645,30 @@ megabrain_dispatch_meta_update_state() {
   current_state="$(jq -r '.state // empty' "$path" 2>/dev/null || true)"
   [ -n "$current_state" ] || { megabrain_error "dispatch state is missing: $dispatch_id"; return 1; }
   megabrain_dispatch_validate_transition dispatch "$current_state" "$state" || return 1
-  megabrain_dispatch_meta_update_fields "$dispatch_id" "$state" "__keep__" "__keep__" "__keep__" "__keep__" "__keep__" "__keep__" "__keep__"
+  megabrain_dispatch_meta_update_fields "$dispatch_id" "$state" "__keep__" "__keep__" "__keep__" "__keep__" "__keep__" "__keep__" "__keep__" || return 1
+  case "$state" in
+    done|failed|circuit_broken) megabrain_dispatch_release_terminal_process "$dispatch_id" || return 1 ;;
+  esac
+}
+
+megabrain_dispatch_release_terminal_process() {
+  local dispatch_id="$1" meta runtime transcript_path process_state terminal_state
+  transcript_path="$(megabrain_dispatch_transcript_path "$dispatch_id")" || return 1
+  # WHY: the transcript is the durable record that makes releasing the live pane safe.
+  [ -f "$transcript_path" ] || return 0
+  meta="$(megabrain_dispatch_meta_read "$dispatch_id")" || return 1
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  [ "$runtime" = tmux ] || return 0
+  terminal_state="$(printf '%s' "$meta" | jq -r '.terminalState // "owned"')"
+  [ "$terminal_state" != released ] || return 0
+  megabrain_dispatch_release_tmux_process "$meta" || return 1
+  if [ "$MEGABRAIN_DISPATCH_RELEASED_TERMINAL" = true ]; then
+    process_state="$(printf '%s' "$meta" | jq -r '.processState // empty')"
+    case "$process_state" in
+      starting|start-unproven|running|stopping|stop-unproven) megabrain_dispatch_meta_update_process_state "$dispatch_id" stopped || return 1 ;;
+    esac
+    megabrain_dispatch_meta_update_terminal_state "$dispatch_id" released || return 1
+  fi
 }
 
 megabrain_dispatch_meta_update_fields() {
@@ -486,7 +732,8 @@ megabrain_dispatch_meta_normalize() {
   path="$(megabrain_dispatch_meta_path "$dispatch_id")" || return 1
   tmp="$(mktemp "$(megabrain_dispatch_dir "$dispatch_id")/.meta.XXXXXX")" || return 1
   if ! jq '
-    .processState //= (if .state == "spawning" then "starting" elif .state == "running" then "running" elif .state == "done" then "succeeded" elif .state == "failed" then "failed" elif .state == "closed" then "stopped" else "start-unproven" end)
+    if .state == "stalled" or .state == "timeout" then .state = "running" else . end
+    | .processState //= (if .state == "spawning" then "starting" elif .state == "running" then "running" elif .state == "done" then "succeeded" elif .state == "failed" then "failed" elif .state == "closed" then "stopped" else "start-unproven" end)
     | .terminalState //= "owned"
     | .terminalReason //= null
     | .failureCount //= 0
@@ -523,6 +770,24 @@ megabrain_dispatch_has_recent_child_activity() {
   [ "$latest" -gt 0 ] || return 1
   now="$(date +%s)"
   [ $((now - latest)) -le "$MEGABRAIN_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS" ]
+}
+
+# A proven terminal only tells us the process is alive, not that it is still
+# generating; the turn-end hook only runs once a turn has actually ended. So
+# proven gets the same recent-activity debounce as unknown, instead of an
+# unconditional skip: a live child that just spoke stays silent, but a live
+# child sitting idle after its turn ended is still reported stalled. missing
+# always reports, because there is nothing left to debounce against.
+megabrain_dispatch_stalled_is_due() {
+  local meta="$1" dispatch_id
+  dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty' 2>/dev/null)"
+  [ -n "$dispatch_id" ] || return 1
+  megabrain_dispatch_terminal_status "$meta"
+  case "${MEGABRAIN_TERMINAL_STATUS:-unknown}" in
+    missing) return 0 ;;
+    *) megabrain_dispatch_has_recent_child_activity "$dispatch_id" && return 1 ;;
+  esac
+  return 0
 }
 
 megabrain_dispatch_has_child_identity_proof() {
@@ -1031,7 +1296,7 @@ megabrain_dispatch_path_age_seconds() {
 
 megabrain_dispatch_message_append_locked() {
   local dispatch_id="$1" from="$2" type="$3" text="$4" session_id="$5"
-  local messages_dir path tmp seq file_name
+  local messages_dir path tmp seq file_name recipient meta notify=false class
   messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
   seq="$(find "$messages_dir" -maxdepth 1 -type f -name '*.json' -print 2>/dev/null | sed 's|.*/||; s|-.*||' | sort -n | tail -n 1)"
   [ -n "$seq" ] || seq=0
@@ -1047,6 +1312,33 @@ megabrain_dispatch_message_append_locked() {
   fi
   mv -f "$tmp" "$path"
   MEGABRAIN_LAST_MESSAGE_SEQ="$seq"
+  MEGABRAIN_LAST_MESSAGE_NUDGE=""
+  case "$from:$type" in
+    parent:reply) recipient=child; notify=true ;;
+    *)
+      class="$(megabrain_dispatch_mail_class "$from:$type" 2>/dev/null || true)"
+      case "$class" in
+        actionable) recipient=parent; notify=true ;;
+        protocol) recipient=parent ;;
+        *) recipient='' ;;
+      esac
+      ;;
+  esac
+  if [ -n "$recipient" ]; then
+    # WHY: the message write is the event. Addressing is durable before either side reads it;
+    # the reader claims the delivery and supplies the process-specific fence later.
+    megabrain_dispatch_delivery_create "$dispatch_id" "$recipient" "[$seq]" >/dev/null || return 1
+    meta="$(megabrain_dispatch_meta_read "$dispatch_id" 2>/dev/null || true)"
+    if [ -n "$meta" ] && [ "$notify" = true ]; then
+      if [ "$recipient" = parent ]; then
+        type megabrain_parent_notify_dispatch >/dev/null 2>&1 &&
+          megabrain_parent_notify_dispatch "$meta" >/dev/null 2>&1 || true
+      else
+        megabrain_dispatch_native_send "$meta" "$(megabrain_dispatch_reply_pointer "$dispatch_id")" >/dev/null 2>&1
+        MEGABRAIN_LAST_MESSAGE_NUDGE="${MEGABRAIN_DISPATCH_NATIVE_SEND_STATUS:-not-typed}"
+      fi
+    fi
+  fi
   printf '%s\n' "$seq"
 }
 
@@ -1083,18 +1375,15 @@ megabrain_dispatch_last_child_message() {
   jq -r '.text // empty' "$latest_path"
 }
 
-megabrain_dispatch_last_child_mail_seq() {
-  local dispatch_id="$1" messages_dir path seq latest=0
-  messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
-  while IFS=$'\t' read -r seq path; do
-    [ -n "$path" ] || continue
-    # received and ack are durable protocol evidence, but do not require a human
-    # decision. Keep them in the queue; only actionable child mail advances the
-    # interruption cursor used by the parent turn-end hook.
-    jq -e '.from == "child" and (.type == "ask" or .type == "done" or .type == "stalled")' "$path" >/dev/null 2>&1 || continue
-    [ "$seq" -gt "$latest" ] && latest="$seq"
-  done < <(megabrain_dispatch_message_paths "$messages_dir")
-  printf '%s\n' "$latest"
+megabrain_dispatch_mail_class() {
+  local key="$1" candidate
+  for candidate in "${MEGABRAIN_DISPATCH_MAIL_ACTIONABLE_KEYS[@]}"; do
+    [ "$candidate" = "$key" ] && { printf 'actionable\n'; return 0; }
+  done
+  for candidate in "${MEGABRAIN_DISPATCH_MAIL_PROTOCOL_KEYS[@]}"; do
+    [ "$candidate" = "$key" ] && { printf 'protocol\n'; return 0; }
+  done
+  return 1
 }
 
 megabrain_dispatch_delivery_is_reply() {
@@ -1210,6 +1499,42 @@ megabrain_dispatch_child_consumer() {
   fi
 }
 
+megabrain_dispatch_delivery_matches_mailbox() {
+  local dispatch_id="$1" delivery_path="$2" mailbox="$3" full="$4"
+  local recipient messages_dir message_seqs seq path from type class
+  recipient="$(jq -r '.recipient // empty' "$delivery_path" 2>/dev/null || true)"
+  if [ -n "$recipient" ]; then
+    [ "$recipient" = "$mailbox" ] || return 1
+  fi
+  # WHY: deliveries written before event-driven addressing have no recipient. Infer their
+  # side from the queued message so those durable records remain readable after migration.
+  messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
+  message_seqs="$(jq -c '.messageSeqs // []' "$delivery_path" 2>/dev/null || true)"
+  [ -n "$message_seqs" ] || return 1
+  while IFS=$'\t' read -r seq path; do
+    [ -n "$path" ] || continue
+    jq -n -e --argjson seqs "$message_seqs" --argjson seq "$seq" \
+      '$seqs | index($seq) != null' >/dev/null 2>&1 || continue
+    from="$(jq -r '.from // empty' "$path" 2>/dev/null || true)"
+    type="$(jq -r '.type // empty' "$path" 2>/dev/null || true)"
+    if [ "$mailbox" = parent ] && { [ "$from" = child ] || [ "$from" = megabrain ]; }; then
+      class="$(megabrain_dispatch_mail_class "$from:$type" 2>/dev/null || true)"
+      if [ "$full" = true ]; then
+        [ -n "$class" ] && return 0
+      else
+        [ "$class" = actionable ] && return 0
+      fi
+    elif [ "$mailbox" = child ] && [ "$from" = parent ]; then
+      if [ "$full" = true ]; then
+        case "$type" in reply|received|ack|ask|done|stalled) return 0 ;; esac
+      else
+        [ "$type" = reply ] && return 0
+      fi
+    fi
+  done < <(megabrain_dispatch_message_paths "$messages_dir")
+  return 1
+}
+
 megabrain_dispatch_require_session() {
   megabrain_session_id >/dev/null
   if [ -z "${MEGABRAIN_SESSION_ID:-}" ]; then
@@ -1304,7 +1629,8 @@ megabrain_dispatch_find_child() {
 }
 
 megabrain_dispatch_native_send() {
-  local meta="$1" text="$2" host workspace_id terminal_id runtime tmux_session tmux_pane agent
+  local meta="$1" text="$2" host workspace_id terminal_id runtime tmux_session tmux_pane agent rc
+  MEGABRAIN_DISPATCH_NATIVE_SEND_STATUS=not-typed
   host="$(printf '%s' "$meta" | jq -r '.childHost')"
   workspace_id="$(printf '%s' "$meta" | jq -r '.workspaceId // empty')"
   terminal_id="$(printf '%s' "$meta" | jq -r '.terminalId')"
@@ -1316,7 +1642,12 @@ megabrain_dispatch_native_send() {
     [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] || { megabrain_error "tmux dispatch metadata has no session or pane"; return 1; }
     megabrain_tmux_session_exists "$tmux_session" || { megabrain_error "tmux session is no longer available: $tmux_session"; return 1; }
     megabrain_tmux_send_nudge "$tmux_pane" "$text" "$agent"
-    return $?
+    rc=$?
+    # WHY: megabrain_tmux_send_text can return 0 after a failed type was merely
+    # cleaned up. MEGABRAIN_TMUX_SEND_STATUS is the only field that says whether
+    # the text actually reached the pane; the return code alone is not trustworthy.
+    [ "${MEGABRAIN_TMUX_SEND_STATUS:-not-typed}" = queued ] && MEGABRAIN_DISPATCH_NATIVE_SEND_STATUS=typed
+    return "$rc"
   fi
   case "$host" in
     superset)
@@ -1333,6 +1664,7 @@ megabrain_dispatch_native_send() {
       ;;
     *) megabrain_error "unsupported child host: $host"; return 1 ;;
   esac
+  MEGABRAIN_DISPATCH_NATIVE_SEND_STATUS=typed
 }
 
 megabrain_dispatch_reply_pointer() {
@@ -1391,7 +1723,7 @@ megabrain_dispatch_close_result() {
 }
 
 megabrain_dispatch_native_close() {
-  local meta="$1" host workspace_id terminal_id runtime tmux_session tmux_pane pane_count close_rc=0 close_output=""
+  local meta="$1" allow_caller="${2:-false}" host workspace_id terminal_id runtime tmux_session tmux_pane pane_count close_rc=0 close_output=""
   local parent_tmux_session caller_tmux_session shared_session=false
   MEGABRAIN_DISPATCH_CLOSE_LAST_PANE=false
   MEGABRAIN_DISPATCH_CLOSE_OUTCOME=unknown
@@ -1406,7 +1738,9 @@ megabrain_dispatch_native_close() {
     parent_tmux_session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
     [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] || { megabrain_error "tmux dispatch metadata has no session or pane"; return 1; }
     caller_tmux_session="$(megabrain_dispatch_tmux_caller_session || true)"
-    if [ "$tmux_session" = "$parent_tmux_session" ] || [ "$tmux_session" = "$caller_tmux_session" ]; then
+    if [ "$tmux_session" = "$parent_tmux_session" ] || {
+      [ "$allow_caller" != true ] && [ "$tmux_session" = "$caller_tmux_session" ];
+    }; then
       shared_session=true
     fi
     if [ "$shared_session" = true ]; then
@@ -1447,33 +1781,69 @@ megabrain_dispatch_native_close() {
 }
 
 megabrain_dispatch_tmux_session_owned() {
-  local meta="$1" tmux_session parent_tmux_session caller_tmux_session
+  local meta="$1" allow_caller="${2:-false}" tmux_session parent_tmux_session caller_tmux_session
   tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
   parent_tmux_session="$(printf '%s' "$meta" | jq -r '.parentTmuxSession // empty')"
   [ -n "$tmux_session" ] || return 1
   # A split dispatch records the parent's session, which owns the session and
   # only lends the child its pane. It is never safe for prune to release it.
   [ "$tmux_session" != "$parent_tmux_session" ] || return 1
+  [ "$allow_caller" = true ] && return 0
   caller_tmux_session="$(megabrain_dispatch_tmux_caller_session 2>/dev/null || true)"
   [ -z "$caller_tmux_session" ] || [ "$tmux_session" != "$caller_tmux_session" ]
 }
 
 megabrain_dispatch_release_tmux_session() {
-  local meta="$1" runtime tmux_session
+  local meta="$1" allow_caller="${2:-false}" runtime tmux_session terminal_status
+  MEGABRAIN_DISPATCH_RELEASED_TERMINAL=false
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
   [ "$runtime" = tmux ] || return 0
   tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
   [ -n "$tmux_session" ] || return 0
-  megabrain_dispatch_tmux_session_owned "$meta" || return 0
+  megabrain_dispatch_terminal_status "$meta"
+  terminal_status="${MEGABRAIN_TERMINAL_STATUS:-unknown}"
+  # WHY: tmux pane ids are recycled; never kill a session until its process tree
+  # proves that the pane still belongs to this dispatch.
+  [ "$terminal_status" = proven ] || return 0
+  megabrain_dispatch_tmux_session_owned "$meta" "$allow_caller" || return 0
   declare -F megabrain_tmux_session_exists >/dev/null 2>&1 || return 0
   megabrain_tmux_session_exists "$tmux_session" || return 0
-  megabrain_dispatch_close_refuse_caller "$meta" || return 1
+  if [ "$allow_caller" != true ]; then
+    megabrain_dispatch_close_refuse_caller "$meta" || return 1
+  fi
   megabrain_dispatch_stop_transcript "$meta"
-  megabrain_dispatch_native_close "$meta"
+  megabrain_dispatch_native_close "$meta" "$allow_caller"
+  MEGABRAIN_DISPATCH_RELEASED_TERMINAL=true
+}
+
+megabrain_dispatch_release_tmux_process() {
+  local meta="$1" runtime tmux_session tmux_pane pane_count terminal_status
+  MEGABRAIN_DISPATCH_RELEASED_TERMINAL=false
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  [ "$runtime" = tmux ] || return 0
+  tmux_session="$(printf '%s' "$meta" | jq -r '.tmuxSession // empty')"
+  tmux_pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty')"
+  [ -n "$tmux_session" ] && [ -n "$tmux_pane" ] || return 0
+  megabrain_dispatch_terminal_status "$meta"
+  terminal_status="${MEGABRAIN_TERMINAL_STATUS:-unknown}"
+  # WHY: tmux pane ids are recycled; never kill a process tree without proof
+  # that its current pane still belongs to this dispatch.
+  [ "$terminal_status" = proven ] || return 0
+  megabrain_dispatch_tmux_session_owned "$meta" true || return 0
+  declare -F megabrain_tmux_session_exists >/dev/null 2>&1 || return 0
+  megabrain_tmux_session_exists "$tmux_session" || return 0
+  megabrain_dispatch_stop_transcript "$meta"
+  if pane_count="$(tmux list-panes -t "$tmux_session" 2>/dev/null | wc -l | tr -d ' ')" && [ "$pane_count" -gt 1 ]; then
+    tmux kill-pane -t "$tmux_pane" || return 1
+  else
+    tmux kill-session -t "$tmux_session" >/dev/null 2>&1 || return 1
+  fi
+  MEGABRAIN_DISPATCH_RELEASED_TERMINAL=true
 }
 
 megabrain_dispatch_read() {
   local dispatch_id="${1:-}" lines=200 json=false arg meta runtime pane output source transcript_path
+  local truncated=false transcript_bytes
   case "$dispatch_id" in
     -h|--help) megabrain_usage_show orchestrate-read; return 0 ;;
   esac
@@ -1502,6 +1872,15 @@ megabrain_dispatch_read() {
         return 1
       }
       source=file
+      # The render path never loads more than MEGABRAIN_TRANSCRIPT_MAX_BYTES of the
+      # source file, so a transcript over that bound loses content the caller asked
+      # for; that fact must reach the caller rather than being promoted to a
+      # complete answer.
+      transcript_bytes="$(wc -c <"$transcript_path" 2>/dev/null | tr -d ' ')"
+      case "$transcript_bytes" in
+        ''|*[!0-9]*) ;;
+        *) [ "$transcript_bytes" -gt "$MEGABRAIN_TRANSCRIPT_MAX_BYTES" ] && truncated=true ;;
+      esac
     else
       megabrain_error "could not read tmux pane $pane and no persisted transcript exists"
       return 1
@@ -1509,9 +1888,11 @@ megabrain_dispatch_read() {
   fi
   if [ "$json" = true ]; then
     jq -n --arg dispatchId "$dispatch_id" --arg pane "$pane" --arg source "$source" --arg output "$output" \
-      '{dispatchId: $dispatchId, pane: $pane, source: $source, text: $output}'
+      --argjson truncated "$truncated" \
+      '{dispatchId: $dispatchId, pane: $pane, source: $source, truncated: $truncated, text: $output}'
   else
     printf 'source: %s\n' "$source"
+    [ "$truncated" = true ] && printf 'truncated: transcript exceeds %s bytes, oldest lines dropped\n' "$MEGABRAIN_TRANSCRIPT_MAX_BYTES"
     printf '%s\n' "$output"
   fi
 }
@@ -1526,9 +1907,9 @@ megabrain_dispatch_report() {
 }
 
 megabrain_dispatch_mailbox_watch() {
-  local mailbox="$1" dispatch_id timeout=120 poll_interval=3 wait_mode=nudge json=false arg meta start_time now remaining
+  local mailbox="$1" dispatch_id timeout=120 poll_interval=3 wait_mode=nudge json=false full=false arg meta start_time now remaining
   local consumer="${MEGABRAIN_CONSUMER_ID:-}" generation="${MEGABRAIN_CONSUMER_GENERATION:-1}"
-  local messages_dir deliveries_dir lock path seq from type message_seqs delivery_id outstanding_path outstanding_consumer outstanding_generation
+  local messages_dir deliveries_dir lock path seq from type message_seqs delivery_id outstanding_path outstanding_consumer outstanding_generation outstanding_seq candidate_seq
   shift
   case "${1:-}" in
     -h|--help)
@@ -1548,6 +1929,9 @@ megabrain_dispatch_mailbox_watch() {
     megabrain_dispatch_find_child || return 1
     dispatch_id="$MEGABRAIN_FOUND_DISPATCH"
   fi
+  # Legacy actionable mail is migrated before this reader claims deliveries; new writes never
+  # depend on this path, and a migration is scoped to the dispatch being read.
+  megabrain_dispatch_migrate_legacy_deliveries "$dispatch_id" || true
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -1557,6 +1941,7 @@ megabrain_dispatch_mailbox_watch() {
       --poll) wait_mode=poll; shift ;;
       --consumer) consumer="${2:-}"; shift 2 ;;
       --generation) generation="${2:-}"; shift 2 ;;
+      --full) full=true; shift ;;
       --json) json=true; shift ;;
       -h|--help)
         if [ "$mailbox" = parent ]; then
@@ -1593,18 +1978,37 @@ megabrain_dispatch_mailbox_watch() {
   while true; do
     megabrain_dispatch_lock_acquire "$lock" || return 1
     outstanding_path=""
+    outstanding_seq=""
     for path in "$deliveries_dir"/*.json; do
       [ -f "$path" ] || continue
-      if [ "$(jq -r '.status // empty' "$path" 2>/dev/null || true)" = outstanding ] &&
-        [ "$(jq -r '.consumer // empty' "$path" 2>/dev/null || true)" = "$consumer" ]; then
-        outstanding_path="$path"
-        break
+      [ "$(jq -r '.status // empty' "$path" 2>/dev/null || true)" = outstanding ] || continue
+      megabrain_dispatch_delivery_matches_mailbox "$dispatch_id" "$path" "$mailbox" "$full" || continue
+      outstanding_consumer="$(jq -r '.consumer // empty' "$path" 2>/dev/null || true)"
+      if [ -z "$outstanding_consumer" ] || [ "$outstanding_consumer" = "$consumer" ]; then
+        candidate_seq="$(jq -r '.messageSeqs[0] // empty' "$path" 2>/dev/null || true)"
+        if [[ "$candidate_seq" =~ ^[0-9]+$ ]] && {
+          [ -z "$outstanding_seq" ] || [ "$candidate_seq" -lt "$outstanding_seq" ]
+        }; then
+          outstanding_path="$path"
+          outstanding_seq="$candidate_seq"
+        fi
       fi
     done
     if [ -n "$outstanding_path" ]; then
       outstanding_consumer="$(jq -r '.consumer // empty' "$outstanding_path")"
       outstanding_generation="$(jq -r '.consumerGeneration // empty' "$outstanding_path")"
       delivery_id="$(jq -r '.id // empty' "$outstanding_path")"
+      if [ -z "$outstanding_consumer" ]; then
+        megabrain_dispatch_delivery_claim "$outstanding_path" "$consumer" "$generation" || {
+          rmdir "$lock"
+          [ "$mailbox" = parent ] && megabrain_parent_notify_waiter_unregister "$dispatch_id"
+          return 1
+        }
+        rmdir "$lock"
+        [ "$mailbox" = parent ] && megabrain_parent_notify_waiter_unregister "$dispatch_id"
+        megabrain_dispatch_delivery_report "$dispatch_id" "$delivery_id" false "$json"
+        return $?
+      fi
       if [ "$outstanding_consumer" = "$consumer" ] && [ "$outstanding_generation" = "$generation" ]; then
         rmdir "$lock"
         [ "$mailbox" = parent ] && megabrain_parent_notify_waiter_unregister "$dispatch_id"
@@ -1612,30 +2016,6 @@ megabrain_dispatch_mailbox_watch() {
         return $?
       fi
       megabrain_dispatch_delivery_fence "$outstanding_path" || { rmdir "$lock"; [ "$mailbox" = parent ] && megabrain_parent_notify_waiter_unregister "$dispatch_id"; return 1; }
-    fi
-    message_seqs='[]'
-    while IFS=$'\t' read -r seq path; do
-      [ -n "$path" ] || continue
-      from="$(jq -r '.from // empty' "$path")"
-      type="$(jq -r '.type // empty' "$path")"
-      if [ "$mailbox" = parent ]; then
-        [ "$from" = child ] || continue
-        case "$type" in ask|done|stalled|received|ack) ;; *) continue ;; esac
-      else
-        [ "$from" = parent ] || continue
-        [ "$type" = reply ] || continue
-      fi
-      megabrain_dispatch_seq_acknowledged "$deliveries_dir" "$seq" && continue
-      message_seqs="$(jq --argjson seq "$seq" '. + [$seq]' <<<"$message_seqs")" || { rmdir "$lock"; return 1; }
-      [ "$(jq 'length' <<<"$message_seqs")" -ge "$MEGABRAIN_DISPATCH_DELIVERY_BATCH_CAP" ] && break
-    done < <(megabrain_dispatch_message_paths "$messages_dir")
-    if [ "$(jq 'length' <<<"$message_seqs")" -gt 0 ]; then
-      delivery_id="$(megabrain_dispatch_new_delivery_id "$dispatch_id")" || { rmdir "$lock"; [ "$mailbox" = parent ] && megabrain_parent_notify_waiter_unregister "$dispatch_id"; return 1; }
-      megabrain_dispatch_delivery_write "$dispatch_id" "$delivery_id" "$consumer" "$generation" "$message_seqs" || { rmdir "$lock"; [ "$mailbox" = parent ] && megabrain_parent_notify_waiter_unregister "$dispatch_id"; return 1; }
-      rmdir "$lock"
-      [ "$mailbox" = parent ] && megabrain_parent_notify_waiter_unregister "$dispatch_id"
-      megabrain_dispatch_delivery_report "$dispatch_id" "$delivery_id" false "$json"
-      return $?
     fi
     rmdir "$lock"
     now="$(date +%s)"
@@ -1785,7 +2165,7 @@ megabrain_dispatch_child_ack() {
 }
 
 megabrain_dispatch_reply() {
-  local dispatch_id="${1:-}" answer="" json=false arg meta state status pointer
+  local dispatch_id="${1:-}" answer="" json=false arg meta state status nudge
   case "$dispatch_id" in
     -h|--help) megabrain_usage_show orchestrate-reply; return 0 ;;
   esac
@@ -1806,7 +2186,7 @@ megabrain_dispatch_reply() {
   state="$(printf '%s' "$meta" | jq -r '.state // empty')"
   if ! megabrain_dispatch_reply_state_allowed "$state"; then
     case "$state" in
-      done|failed|closed|circuit_broken|timeout)
+      done|failed|closed|circuit_broken)
         megabrain_error "dispatch $dispatch_id is settled in state $state; open a new dispatch for a reply"
         ;;
       *)
@@ -1817,15 +2197,19 @@ megabrain_dispatch_reply() {
   fi
   megabrain_dispatch_message_append "$dispatch_id" parent reply "$answer" "$MEGABRAIN_SESSION_ID" >/dev/null || return 1
   status=queued
+  # The reply is durable either way; the nudge is only a best-effort pointer into the
+  # pane. Report status=queued always, and say separately whether the nudge was typed,
+  # so a failed keystroke is never mistaken for a lost reply.
+  nudge="${MEGABRAIN_LAST_MESSAGE_NUDGE:-not-typed}"
   if [ "$state" != done ]; then
-    pointer="$(megabrain_dispatch_reply_pointer "$dispatch_id")"
-    megabrain_dispatch_native_send "$meta" "$pointer" || true
     megabrain_dispatch_meta_update_state "$dispatch_id" running || return 1
   fi
   if [ "$json" = true ]; then
-    jq -n --arg dispatchId "$dispatch_id" --arg status "$status" '{dispatchId: $dispatchId, status: $status}'
+    jq -n --arg dispatchId "$dispatch_id" --arg status "$status" --arg nudge "$nudge" \
+      '{dispatchId: $dispatchId, status: $status, nudge: $nudge}'
   else
     printf '%s: %s\n' "$status" "$dispatch_id"
+    [ "$nudge" = typed ] || printf 'nudge not typed; the child will still find this reply with megabrain check\n'
   fi
 }
 
@@ -1936,7 +2320,6 @@ megabrain_dispatch_child_message() {
     megabrain_dispatch_meta_update_process_state "$dispatch_id" succeeded || return 1
     megabrain_dispatch_meta_update_state "$dispatch_id" done || return 1
   fi
-  megabrain_parent_notify_dispatch "$meta" >/dev/null 2>&1 || true
   printf '%s sent: %s\n' "$type" "$dispatch_id"
 }
 
