@@ -159,6 +159,59 @@ read_result="$(command_orchestrate read read-fallback --lines 20 --json)"
 assert_equal "$(printf '%s' "$read_result" | jq -r '.source')" file
 assert_equal "$(printf '%s' "$read_result" | jq -r '.text')" 'persisted read output'
 printf 'read falls back to the persisted transcript and reports file source\n'
+
+write_dispatch rendered-fallback done rendered-fallback
+printf 'old one\nold two\n\033[2A\033[2K\033]0;ignored title\007\033[?2026h\033[1mfinal one\033[0m\033[1B\033[1G\033[2Kfinal two\033[?2026l\nplain three\n' >"$(transcript_path rendered-fallback)"
+scenario_failures=0
+scenario_equal() {
+  if [ "$1" != "$2" ]; then
+    printf 'SCENARIO FAIL: expected %s, got %s\n' "$2" "$1" >&2
+    scenario_failures=$((scenario_failures + 1))
+  fi
+}
+
+scenario_not_contains() {
+  case "$1" in
+    *"$2"*)
+      printf 'SCENARIO FAIL: did not expect %s in %s\n' "$2" "$1" >&2
+      scenario_failures=$((scenario_failures + 1))
+      ;;
+  esac
+}
+
+rendered_result="$(command_orchestrate read rendered-fallback --lines 3 --json)"
+assert_equal "$(printf '%s' "$rendered_result" | jq -r '.source')" file
+scenario_equal "$(printf '%s' "$rendered_result" | jq -r '.text')" $'final one\nfinal two\nplain three'
+scenario_not_contains "$(printf '%s' "$rendered_result" | jq -r '.text')" 'old one'
+scenario_not_contains "$(printf '%s' "$rendered_result" | jq -r '.text')" 'ignored title'
+if [ "$scenario_failures" -ne 0 ]; then
+  printf 'observed %s rendering scenario failure(s) before implementation\n' "$scenario_failures"
+fi
+printf 'read renders terminal controls and keeps the final overwritten lines\n'
+
+limited_result="$(command_orchestrate read rendered-fallback --lines 2 --json)"
+scenario_equal "$(printf '%s' "$limited_result" | jq -r '.text')" $'final two\nplain three'
+scenario_equal "$(printf '%s' "$limited_result" | jq -r '.text | split("\\n") | length')" 2
+if [ "$scenario_failures" -ne 0 ]; then
+  printf 'observed %s transcript scenario failure(s) before implementation\n' "$scenario_failures"
+  fail 'transcript rendering scenarios failed'
+fi
+printf 'read lines counts rendered lines\n'
+
+capture_available=true
+capture_output='live pane already rendered'
+write_dispatch read-live done read-live
+live_result="$(command_orchestrate read read-live --lines 20 --json)"
+assert_equal "$(printf '%s' "$live_result" | jq -r '.source')" tmux
+assert_equal "$(printf '%s' "$live_result" | jq -r '.text')" 'live pane already rendered'
+printf 'read keeps the live pane rendering path\n'
+
+write_dispatch plain-fallback done plain-fallback
+printf '%s\n' 'plain transcript one' 'plain transcript two' >"$(transcript_path plain-fallback)"
+capture_available=false
+plain_result="$(command_orchestrate read plain-fallback --lines 20 --json)"
+assert_equal "$(printf '%s' "$plain_result" | jq -r '.text')" $'plain transcript one\nplain transcript two'
+printf 'read passes through an already plain transcript\n'
 capture_available=true
 
 printf '%s\n' 'doctor-leak' >"$live_sessions"
