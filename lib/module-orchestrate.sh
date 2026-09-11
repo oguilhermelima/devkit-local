@@ -699,6 +699,24 @@ megabrain_dispatch_has_recent_child_activity() {
   [ $((now - latest)) -le "$MEGABRAIN_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS" ]
 }
 
+# A proven terminal only tells us the process is alive, not that it is still
+# generating; the turn-end hook only runs once a turn has actually ended. So
+# proven gets the same recent-activity debounce as unknown, instead of an
+# unconditional skip: a live child that just spoke stays silent, but a live
+# child sitting idle after its turn ended is still reported stalled. missing
+# always reports, because there is nothing left to debounce against.
+megabrain_dispatch_stalled_is_due() {
+  local meta="$1" dispatch_id
+  dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty' 2>/dev/null)"
+  [ -n "$dispatch_id" ] || return 1
+  megabrain_dispatch_terminal_status "$meta"
+  case "${MEGABRAIN_TERMINAL_STATUS:-unknown}" in
+    missing) return 0 ;;
+    *) megabrain_dispatch_has_recent_child_activity "$dispatch_id" && return 1 ;;
+  esac
+  return 0
+}
+
 megabrain_dispatch_has_child_identity_proof() {
   local dispatch_id="$1" messages_dir path
   messages_dir="$(megabrain_dispatch_messages_dir "$dispatch_id")" || return 1
