@@ -12,15 +12,18 @@ megabrain_hook_finish() {
 
 MEGABRAIN_HOOK_ROOT="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd -P)" || megabrain_hook_finish
 source "$MEGABRAIN_HOOK_ROOT/lib/common.sh" >/dev/null 2>&1 || megabrain_hook_finish
+source "$MEGABRAIN_HOOK_ROOT/lib/module-tmux-runtime.sh" >/dev/null 2>&1 || megabrain_hook_finish
 source "$MEGABRAIN_HOOK_ROOT/lib/module-orchestrate.sh" >/dev/null 2>&1 || megabrain_hook_finish
 source "$MEGABRAIN_HOOK_ROOT/lib/module-context.sh" >/dev/null 2>&1 || megabrain_hook_finish
 source "$MEGABRAIN_HOOK_ROOT/lib/module-parent-notify.sh" >/dev/null 2>&1 || megabrain_hook_finish
+source "$MEGABRAIN_HOOK_ROOT/lib/module-worktree.sh" >/dev/null 2>&1 || megabrain_hook_finish
+source "$MEGABRAIN_HOOK_ROOT/lib/module-chain.sh" >/dev/null 2>&1 || megabrain_hook_finish
 
 megabrain_session_id >/dev/null 2>&1 || megabrain_hook_finish
 [ -n "${MEGABRAIN_SESSION_ID:-}" ] || megabrain_hook_finish
 
 megabrain_hook_parent_notify() {
-  local meta_path dispatch_id meta state max_seq cursor open_ids
+  local meta_path dispatch_id meta state max_seq cursor open_ids refusal_reason
   local dispatch_ids="" dispatch_seq_pairs="" dispatch_count=0 first_meta="" pointer pair seq
   # WHY: this runs at the end of every turn of every agent, forever, and the dispatch
   # directory only grows. One jq per file cost 0.8s against the 83 dispatches on the
@@ -47,6 +50,17 @@ megabrain_hook_parent_notify() {
     [ -n "$meta" ] || continue
     megabrain_parent_notify_context_matches "$meta" || continue
     megabrain_parent_notify_waiter_active "$dispatch_id" && continue
+    if ! megabrain_dispatch_has_prompt_receipt "$dispatch_id"; then
+      megabrain_dispatch_limit_refusal_read "$dispatch_id"
+      if [ "${MEGABRAIN_DISPATCH_LIMIT_REFUSAL:-false}" = true ]; then
+        refusal_reason="${MEGABRAIN_DISPATCH_LIMIT_REFUSAL_REASON:-agent refused the dispatch for a usage limit}"
+        megabrain_dispatch_mark_limit_refused "$dispatch_id" "$refusal_reason" >/dev/null 2>&1 || continue
+        # The refusal is an event-backed failed step. A missing continuation context
+        # leaves the durable failure visible for a later operator decision.
+        megabrain_chain_continue_refused "$dispatch_id" >/dev/null 2>&1 || true
+        continue
+      fi
+    fi
     max_seq="$(megabrain_dispatch_last_child_mail_seq "$dispatch_id" 2>/dev/null || true)"
     [[ "$max_seq" =~ ^[0-9]+$ ]] || continue
     [ "$max_seq" -gt 0 ] || continue

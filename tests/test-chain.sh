@@ -21,6 +21,7 @@ mkdir -p "$rollouts_dir"
 
 source "$root/lib/common.sh"
 source "$root/lib/module-orchestrate.sh"
+source "$root/lib/module-tmux-runtime.sh"
 source "$root/lib/module-chain.sh"
 
 fail() {
@@ -40,6 +41,13 @@ assert_contains() {
   case "$1" in
     *"$2"*) ;;
     *) fail "expected '$1' to contain '$2'" ;;
+  esac
+}
+
+assert_not_contains() {
+  case "$1" in
+    *"$2"*) fail "expected '$1' not to contain '$2'" ;;
+    *) ;;
   esac
 }
 
@@ -86,6 +94,17 @@ write_rollout() {
   printf '%s\n' "{\"timestamp\":\"2026-09-07T08:15:21.790Z\",\"ordinal\":15,\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":19712,\"cached_input_tokens\":2816,\"cache_write_input_tokens\":0,\"output_tokens\":22,\"reasoning_output_tokens\":13,\"total_tokens\":19734},\"model_context_window\":258400},\"rate_limits\":{\"limit_id\":\"codex\",\"primary\":{\"used_percent\":$used,\"window_minutes\":300,\"resets_at\":$reset},\"secondary\":{\"used_percent\":19.0,\"window_minutes\":10080,\"resets_at\":$reset}}}}" >"$path"
 }
 
+set_mtime_offset() {
+  local path="$1" offset="$2" epoch stamp
+  epoch="$(($(date +%s) - offset))"
+  if stamp="$(date -r "$epoch" '+%Y%m%d%H%M.%S' 2>/dev/null)"; then
+    touch -t "$stamp" "$path"
+  else
+    stamp="$(date -d "@$epoch" '+%Y%m%d%H%M.%S')"
+    touch -t "$stamp" "$path"
+  fi
+}
+
 future_reset="$(($(date +%s) + 3600))"
 cp "$root/tests/fixtures/codex-rollout-rate-limits.jsonl" "$rollouts_dir/rollout-real-shaped.jsonl"
 megabrain_chain_limit_read codex 5h
@@ -94,12 +113,14 @@ assert_percent "$MEGABRAIN_CHAIN_LIMIT_USED" 73.0
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_RESETS" 4102444800
 assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" '73.0 percent'
 assert_equal "$(printf '%s' "$MEGABRAIN_CHAIN_LIMIT_RESULT" | jq -r '.windows[0].usedPercent | type')" number
+assert_equal "$(printf '%s' "$MEGABRAIN_CHAIN_LIMIT_RESULT" | jq -r '.reading.kind')" floor
+assert_equal "$(printf '%s' "$MEGABRAIN_CHAIN_LIMIT_RESULT" | jq -r '.reading.basis')" last-recorded-turn
 printf 'limit real-shaped sample guard: current at 73 percent\n'
 
 write_rollout "$rollouts_dir/rollout-current.jsonl" 97.0 "$future_reset"
 printf '%s\n' '{"timestamp":"2026-09-07T08:15:22.790Z","ordinal":16,"type":"event_msg","payload":{"type":"token_count","info":{"model_context_window":258400}}}' >>"$rollouts_dir/rollout-current.jsonl"
-touch -t 202609070101 "$rollouts_dir/rollout-real-shaped.jsonl"
-touch -t 202609070102 "$rollouts_dir/rollout-current.jsonl"
+set_mtime_offset "$rollouts_dir/rollout-real-shaped.jsonl" 180
+set_mtime_offset "$rollouts_dir/rollout-current.jsonl" 120
 megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
 assert_percent "$MEGABRAIN_CHAIN_LIMIT_USED" 97.0
@@ -107,7 +128,7 @@ assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" '97.0 percent'
 printf 'limit trailing non-snapshot line: last usable snapshot\n'
 
 printf '%s\n' '{"timestamp":"2026-09-07T08:15:23.790Z","ordinal":17,"type":"event_msg","payload":{"type":"token_count","info":{"model_context_window":258400}}}' >"$rollouts_dir/rollout-empty.jsonl"
-touch -t 202609070103 "$rollouts_dir/rollout-empty.jsonl"
+set_mtime_offset "$rollouts_dir/rollout-empty.jsonl" 60
 megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
 assert_percent "$MEGABRAIN_CHAIN_LIMIT_USED" 97.0
@@ -144,18 +165,20 @@ printf 'selection no match: defaultSteps\n'
 
 write_rollout "$rollouts_dir/rollout-under.jsonl" 40.0 "$future_reset"
 printf '%s\n' '{"timestamp":"2026-09-07T08:15:24.790Z","ordinal":18,"type":"event_msg","payload":{"type":"token_count","info":{"model_context_window":258400}}}' >>"$rollouts_dir/rollout-under.jsonl"
-touch -t 202609070104 "$rollouts_dir/rollout-under.jsonl"
+set_mtime_offset "$rollouts_dir/rollout-under.jsonl" 30
 megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" current
 assert_percent "$MEGABRAIN_CHAIN_LIMIT_USED" 40.0
 printf 'limit under threshold: current at 40 percent\n'
 past_reset="$(($(date +%s) - 60))"
 write_rollout "$rollouts_dir/rollout-stale.jsonl" 99.0 "$past_reset"
-touch -t 202609070105 "$rollouts_dir/rollout-stale.jsonl"
+set_mtime_offset "$rollouts_dir/rollout-stale.jsonl" 10
 megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
-assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'stale'
-printf 'limit stale snapshot: unknown\n'
+assert_not_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'stale'
+assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'already reset'
+assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'no information about the current window'
+printf 'limit reset snapshot: unknown without stale claim\n'
 megabrain_chain_limit_read claude 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
 printf 'limit unavailable provider: unknown and usable\n'
@@ -165,6 +188,13 @@ megabrain_chain_limit_read codex 5h
 assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
 assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'no rate limit snapshot'
 printf 'limit absent: unknown honestly\n'
+
+write_rollout "$rollouts_dir/rollout-reset-only.jsonl" 12.0 "$past_reset"
+megabrain_chain_limit_read codex 5h
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
+assert_not_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'stale'
+assert_contains "$MEGABRAIN_CHAIN_LIMIT_REASON" 'already reset'
+printf 'limit reset-only snapshot: distinct unknown reason\n'
 
 write_config '{"chains":{"run":{"when":{"parentAgent":"codex"},"steps":[{"agent":"codex","model":"m1","effort":"e1","until":{"usedPercent":95,"window":"5h"}},{"agent":"agy","model":"m2","effort":"e2"}]}},"defaultSteps":[]}'
 command_orchestrate() {
@@ -178,8 +208,22 @@ assert_equal "$(printf '%s' "$run_output" | jq -r '.agent')" codex
 assert_equal "$(printf '%s' "$run_output" | jq '.skipped | length')" 0
 printf 'limit unknown: step is usable, not exhausted\n'
 
+write_config '{"chains":{"unknown-skip":{"when":{"parentAgent":"codex"},"steps":[{"agent":"codex","model":"m1","effort":"e1","until":{"usedPercent":95,"window":"5h","onUnknown":"skip"}},{"agent":"agy","model":"m2","effort":"e2"}]}},"defaultSteps":[]}'
+unknown_skip_output="$(command_chain_run --parent-agent codex --worktree "$root" --prompt test --json)"
+assert_equal "$(printf '%s' "$unknown_skip_output" | jq -r '.step')" 2
+assert_equal "$(printf '%s' "$unknown_skip_output" | jq -r '.skipped[0].kind')" limit
+assert_contains "$(printf '%s' "$unknown_skip_output" | jq -r '.skipped[0].reason')" 'already reset'
+printf 'limit unknown skip policy: advanced to step 2\n'
+
+write_config '{"chains":{"unknown-take":{"when":{"parentAgent":"codex"},"steps":[{"agent":"codex","model":"m1","effort":"e1","until":{"usedPercent":95,"window":"5h","onUnknown":"take"}},{"agent":"agy","model":"m2","effort":"e2"}]}},"defaultSteps":[]}'
+unknown_take_stderr="$state_dir/unknown-take.stderr"
+command_chain_run --parent-agent codex --worktree "$root" --prompt test --json 2>"$unknown_take_stderr" >/dev/null
+assert_contains "$(cat "$unknown_take_stderr")" 'usage limit is unknown; taking step'
+printf 'limit unknown take policy: emits an explicit stderr decision\n'
+
+rm -f "$rollouts_dir/rollout-reset-only.jsonl"
 write_rollout "$rollouts_dir/rollout-run.jsonl" 97.0 "$future_reset"
-touch -t 202609070106 "$rollouts_dir/rollout-run.jsonl"
+set_mtime_offset "$rollouts_dir/rollout-run.jsonl" 30
 run_output="$(command_chain_run --parent-agent codex --worktree "$root" --prompt test --json)"
 assert_equal "$(printf '%s' "$run_output" | jq -r '.step')" 2
 assert_contains "$(printf '%s' "$run_output" | jq -r '.skipped[0].reason')" '97.0'
@@ -291,6 +335,8 @@ printf 'stale cache: expired entry refreshed\n'
 limits_output="$(command_chain_limits --json)"
 assert_equal "$(printf '%s' "$limits_output" | jq 'map(select(.provider == "codex")) | length')" 2
 assert_equal "$(printf '%s' "$limits_output" | jq 'map(select(.provider == "claude")) | length')" 2
+assert_equal "$(printf '%s' "$limits_output" | jq -r 'map(select(.provider == "codex"))[0].reading.kind')" floor
+assert_equal "$(printf '%s' "$limits_output" | jq -r 'map(select(.provider == "codex"))[0].reading.basis')" last-recorded-turn
 printf 'chain limits command: all providers and windows listed\n'
 
 write_config '{"chains":{"provider":{"when":{"parentAgent":"codex"},"steps":[{"agent":"claude","model":"m","effort":"e"}]}},"defaultSteps":[],"usageLimits":{"liveProviders":["claude"],"cacheTtlSeconds":30,"timeoutSeconds":5,"notice":{"enabled":true,"intervalSeconds":3600}}}'
@@ -332,5 +378,60 @@ kill -TERM "$interrupt_pid"
 wait "$interrupt_pid" 2>/dev/null || true
 assert_equal "$(find "$interrupt_state" -name 'chain-run.*' -type f -print 2>/dev/null | wc -l | tr -d ' ')" 0
 printf 'interrupted chain walk: scratch file removed\n'
+
+# The refusal reader requires both independent lines from the shared tmux pane.
+megabrain_dispatch_meta_write refusal-reading parent-terminal superset tmux workspace-test child-terminal \
+  "$root" main codex label running gpt-5 true codex refusal-session refusal-pane tmux tmux >/dev/null
+fake_pane_output="$(printf '%s\n%s\n' \
+  "You've hit your usage limit for this account." \
+  'Switch to another model now,')"
+megabrain_tmux_capture_pane() { printf '%s\n' "$fake_pane_output"; }
+megabrain_dispatch_limit_refusal_read refusal-reading
+assert_equal "$MEGABRAIN_DISPATCH_LIMIT_REFUSAL" true
+assert_contains "$MEGABRAIN_DISPATCH_LIMIT_REFUSAL_REASON" 'usage limit'
+fake_pane_output="You've hit your usage limit for this account."
+megabrain_dispatch_limit_refusal_read refusal-reading
+assert_equal "$MEGABRAIN_DISPATCH_LIMIT_REFUSAL" false
+printf 'limit refusal reader: anchored marker without second marker ignored\n'
+fake_pane_output="typed-in brief quotes: You've hit your usage limit for this account."
+megabrain_dispatch_limit_refusal_read refusal-reading
+assert_equal "$MEGABRAIN_DISPATCH_LIMIT_REFUSAL" false
+printf 'limit refusal reader: typed-in marker without refusal context ignored\n'
+fake_pane_output='normal agent output'
+megabrain_dispatch_limit_refusal_read refusal-reading
+assert_equal "$MEGABRAIN_DISPATCH_LIMIT_REFUSAL" false
+printf 'limit refusal reader: marker detected and absent output ignored\n'
+
+# A long run of recent rollouts without a snapshot is bounded by the relevance
+# window and a hard file ceiling before jq opens each file.
+scan_root="$HOME/.codex/sessions/scan"
+scan_count_file="$state_dir/scan-count"
+mkdir -p "$scan_root"
+: >"$scan_count_file"
+: >"$scan_root/rollout-outside.jsonl"
+: >"$scan_root/rollout-boundary.jsonl"
+set_mtime_offset "$scan_root/rollout-outside.jsonl" 18001
+set_mtime_offset "$scan_root/rollout-boundary.jsonl" 18000
+scan_relevant="$(megabrain_chain_codex_rollouts 5h)"
+assert_not_contains "$scan_relevant" 'rollout-outside.jsonl'
+assert_contains "$scan_relevant" 'rollout-boundary.jsonl'
+printf 'codex rollout relevance: outside excluded and boundary included\n'
+scan_index=1
+while [ "$scan_index" -le 55 ]; do
+  : >"$scan_root/rollout-$scan_index.jsonl"
+  touch "$scan_root/rollout-$scan_index.jsonl"
+  scan_index=$((scan_index + 1))
+done
+real_jq="$(command -v jq)"
+jq() {
+  case " $* " in
+    *"$scan_root"*) printf '%s\n' "$1" >>"$scan_count_file" ;;
+  esac
+  "$real_jq" "$@"
+}
+megabrain_chain_limit_read codex 5h
+assert_equal "$MEGABRAIN_CHAIN_LIMIT_STATUS" unknown
+assert_equal "$(wc -l <"$scan_count_file" | tr -d ' ')" 50
+printf 'codex rollout scan: bounded at 50 files\n'
 
 printf 'ok: chain selection, limits, failure advance, exhaustion, and reporting\n'

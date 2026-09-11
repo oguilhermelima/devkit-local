@@ -240,6 +240,10 @@ megabrain_chain_validate_config() {
         megabrain_error "invalid chain $chain step $index until.window: unsupported window $value"
         rc=1
         ;;
+      until_on_unknown)
+        megabrain_error "invalid chain $chain step $index until.onUnknown: expected take or skip"
+        rc=1
+        ;;
     esac
   done <<<"$validation_output"
   return "$rc"
@@ -486,21 +490,23 @@ megabrain_chain_limits_update_providers() {
 }
 
 megabrain_chain_limits_print_rows() {
-  local agent="$1" result="$2" source="$3" fetched_at="$4" reason="$5" requested_window="${6:-}" window used reset bucket
+  local agent="$1" result="$2" source="$3" fetched_at="$4" reason="$5" requested_window="${6:-}" window used reset bucket reading_kind reading_basis
+  reading_kind="$(printf '%s' "$result" | jq -r '.reading.kind // empty' 2>/dev/null || true)"
+  reading_basis="$(printf '%s' "$result" | jq -r '.reading.basis // empty' 2>/dev/null || true)"
   if [ -n "$result" ]; then
     while IFS=$'\t' read -r window bucket used reset; do
       if [ "${MEGABRAIN_CHAIN_LIMIT_STATUS:-unknown}" = current ]; then
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t%s\n' "$agent" "$window" current "$used" "$reset" "$source" "$fetched_at" "$bucket"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t%s\t%s\t%s\n' "$agent" "$window" current "$used" "$reset" "$source" "$fetched_at" "$bucket" "$reading_kind" "$reading_basis"
       else
-        printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\n' "$agent" "$window" "$fetched_at" "$reason"
+        printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\t%s\t%s\n' "$agent" "$window" "$fetched_at" "$reason" "$reading_kind" "$reading_basis"
       fi
     done < <(printf '%s' "$result" | jq -r '.windows[]? | [.name, (.bucket // "default"), .usedPercent, .resetsAt] | @tsv')
   else
     if [ -n "$requested_window" ]; then
-      printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\n' "$agent" "$requested_window" "$fetched_at" "$reason"
+      printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\t\t\n' "$agent" "$requested_window" "$fetched_at" "$reason"
     else
       for window in 5h weekly; do
-        printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\n' "$agent" "$window" "$fetched_at" "$reason"
+        printf '%s\t%s\tunknown\t\t\tunknown\t%s\t%s\t\t\t\n' "$agent" "$window" "$fetched_at" "$reason"
       done
     fi
   fi
@@ -558,7 +564,7 @@ command_chain_limits() {
     fi
   done
   if [ "$json" = true ]; then
-    jq -Rn '[inputs | split("\t") | {provider: .[0], window: .[1], status: .[2], usedPercent: (if .[3] == "" then null else (.[3] | tonumber) end), resetsAt: (if .[4] == "" then null else .[4] end), source: .[5], fetchedAt: (if .[6] == "" then null else (.[6] | tonumber) end), reason: (if .[7] == "" then null else .[7] end), bucket: (if .[8] == "" then null else .[8] end)}]' "$tmp_file"
+    jq -Rn '[inputs | split("\t") | {provider: .[0], window: .[1], status: .[2], usedPercent: (if .[3] == "" then null else (.[3] | tonumber) end), resetsAt: (if .[4] == "" then null else .[4] end), source: .[5], fetchedAt: (if .[6] == "" then null else (.[6] | tonumber) end), reason: (if .[7] == "" then null else .[7] end), bucket: (if .[8] == "" then null else .[8] end), reading: (if .[9] == "" then null else {kind: .[9], basis: (if .[10] == "" then null else .[10] end)} end)}]' "$tmp_file"
   else
     printf '%-8s %-8s %-9s %-12s %-28s %-8s %s\n' PROVIDER WINDOW STATUS USED RESET SOURCE REASON
     while IFS=$'\t' read -r agent window line used reset result fetched_at reason; do
@@ -577,8 +583,26 @@ MEGABRAIN_CHAIN_LIMIT_RESULT=""
 MEGABRAIN_CHAIN_LIMIT_FETCHED_AT=""
 
 megabrain_chain_codex_rollouts() {
-  local root="$HOME/.codex/sessions" path mtime
+  local window="${1:-5h}" root="$HOME/.codex/sessions" path="" mtime="" now="" cutoff="" max_age="" reference="" stamp=""
+  case "$window" in
+    5h) max_age=18000 ;;
+    weekly) max_age=604800 ;;
+    *) return 1 ;;
+  esac
   [ -d "$root" ] || return 1
+  now="$(date +%s)"
+  cutoff=$((now - max_age - 1))
+  reference="$(mktemp "${TMPDIR:-/tmp}/megabrain-chain-rollouts.XXXXXX")" || return 1
+  if ! stamp="$(date -r "$cutoff" '+%Y%m%d%H%M.%S' 2>/dev/null)"; then
+    stamp="$(date -d "@$cutoff" '+%Y%m%d%H%M.%S' 2>/dev/null)" || {
+      rm -f "$reference"
+      return 1
+    }
+  fi
+  if ! touch -t "$stamp" "$reference"; then
+    rm -f "$reference"
+    return 1
+  fi
   while IFS= read -r path; do
     [ -f "$path" ] || continue
     mtime="$(megabrain_path_mtime "$path" || printf '')"
@@ -586,7 +610,8 @@ megabrain_chain_codex_rollouts() {
       ''|*[!0-9]*) continue ;;
     esac
     printf '%s\t%s\n' "$mtime" "$path"
-  done < <(find "$root" -type f -name 'rollout-*.jsonl' -print 2>/dev/null)
+  done < <(find "$root" -type f -name 'rollout-*.jsonl' -newer "$reference" -print 2>/dev/null)
+  rm -f "$reference"
 }
 
 megabrain_chain_limit_unknown() {
@@ -765,7 +790,7 @@ megabrain_chain_percent_text() {
 megabrain_chain_limit_result_codex() {
   local snapshot="$1" fetched_at="$2"
   jq -cn --argjson snapshot "$snapshot" --argjson fetchedAt "$fetched_at" '
-    {provider: "codex", fetchedAt: $fetchedAt, windows: [
+    {provider: "codex", fetchedAt: $fetchedAt, reading: {kind: "floor", basis: "last-recorded-turn", fetchedAt: $fetchedAt}, windows: [
       {name: "5h", bucket: "default", usedPercent: $snapshot.primary.used_percent,
        remainingPercent: (100 - $snapshot.primary.used_percent),
        resetsAt: ($snapshot.primary.resets_at | tostring)},
@@ -1011,7 +1036,7 @@ megabrain_chain_limit_read() {
       break
     fi
     rollout=""
-  done < <(megabrain_chain_codex_rollouts 2>/dev/null | LC_ALL=C sort -k1,1nr -k2,2r | cut -f2- || true)
+  done < <(megabrain_chain_codex_rollouts "$window" 2>/dev/null | LC_ALL=C sort -k1,1nr -k2,2r | head -n "$MEGABRAIN_CHAIN_CODEX_ROLLOUT_SCAN_LIMIT" | cut -f2- || true)
   if [ -z "$snapshot" ]; then
     megabrain_chain_limit_unknown codex "$window" 'rollout has no rate limit snapshot'
     return 0
@@ -1023,9 +1048,9 @@ megabrain_chain_limit_read() {
     return 0
   fi
   now="$(date +%s)"
-  # WHY: current Codex snapshots nest rate_limits under payload.
+  # WHY: a recorded reset means the snapshot no longer describes the current window.
   if [ "$MEGABRAIN_CHAIN_LIMIT_RESETS" -le "$now" ]; then
-    megabrain_chain_limit_unknown codex "$window" "snapshot stale; reset $MEGABRAIN_CHAIN_LIMIT_RESETS"
+    megabrain_chain_limit_unknown codex "$window" "recorded window has already reset at $MEGABRAIN_CHAIN_LIMIT_RESETS and carries no information about the current window"
     return 0
   fi
   fetched_at="$(megabrain_path_mtime "$rollout" 2>/dev/null || printf '%s' "$now")"
@@ -1163,6 +1188,8 @@ MEGABRAIN_CHAIN_WALK_TOTAL=""
 MEGABRAIN_CHAIN_WALK_REASON=""
 MEGABRAIN_CHAIN_WALK_SKIPPED='[]'
 MEGABRAIN_CHAIN_WALK_DISPATCH_ID=""
+MEGABRAIN_CHAIN_WALK_START_INDEX=0
+MEGABRAIN_CHAIN_CODEX_ROLLOUT_SCAN_LIMIT=50
 
 # WHY: chain run and orchestrate spawn are two front doors to the same fallback
 # policy. Keeping the limit checks and launch retry in one walk prevents the front
@@ -1170,7 +1197,7 @@ MEGABRAIN_CHAIN_WALK_DISPATCH_ID=""
 megabrain_chain_walk() {
   local worktree="$1" repo="$2" branch="$3" base="$4" slug="$5" prompt="$6" label="$7" tmux_choice="$8"
   local model_override="$9" effort_override="${10}" model_explicit="${11}" effort_explicit="${12}"
-  local step_count index step agent model effort until_json threshold window limit_reason reason reset_text failure_reason final_reason report_chain
+  local step_count index step agent model effort until_json threshold window on_unknown limit_reason reason reset_text failure_reason final_reason report_chain start_index
   local spawn_output spawn_json spawn_error error_file dispatch_id spawn_succeeded
   local -a agent_args=()
   shift 12
@@ -1183,6 +1210,10 @@ megabrain_chain_walk() {
   MEGABRAIN_CHAIN_WALK_REASON=""
   MEGABRAIN_CHAIN_WALK_SKIPPED='[]'
   MEGABRAIN_CHAIN_WALK_DISPATCH_ID=""
+  start_index="${MEGABRAIN_CHAIN_WALK_START_INDEX:-0}"
+  case "$start_index" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
   step_count="$(printf '%s' "$MEGABRAIN_CHAIN_SELECTED_STEPS" | jq 'length')" || return 1
   report_chain="$MEGABRAIN_CHAIN_SELECTED_NAME"
   [ "$MEGABRAIN_CHAIN_SELECTION_DEFAULT" = true ] && report_chain=defaultSteps
@@ -1197,6 +1228,7 @@ megabrain_chain_walk() {
   index=0
   while IFS= read -r step; do
     index=$((index + 1))
+    [ "$index" -gt "$start_index" ] || continue
     agent="$(printf '%s' "$step" | jq -r '.agent')"
     model="$(printf '%s' "$step" | jq -r '.model')"
     effort="$(printf '%s' "$step" | jq -r '.effort // empty')"
@@ -1219,8 +1251,17 @@ megabrain_chain_walk() {
     if [ -n "$until_json" ]; then
       threshold="$(printf '%s' "$until_json" | jq -r '.usedPercent')"
       window="$(printf '%s' "$until_json" | jq -r '.window')"
+      on_unknown="$(printf '%s' "$until_json" | jq -r '.onUnknown // "take"')"
       megabrain_chain_limit_read "$agent" "$window"
       limit_reason="$MEGABRAIN_CHAIN_LIMIT_REASON"
+      if [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = unknown ]; then
+        if [ "$on_unknown" = skip ]; then
+          reason="$limit_reason"
+          MEGABRAIN_CHAIN_WALK_SKIPPED="$(printf '%s' "$MEGABRAIN_CHAIN_WALK_SKIPPED" | jq --argjson step "$index" --arg agent "$agent" --arg reason "$reason" '. + [{step: $step, agent: $agent, kind: "limit", reason: $reason}]')"
+          continue
+        fi
+        printf 'chain step %s (%s) usage limit is unknown; taking step (onUnknown=take)\n' "$index" "$agent" >&2
+      fi
       if [ "$MEGABRAIN_CHAIN_LIMIT_STATUS" = current ] && awk -v used="$MEGABRAIN_CHAIN_LIMIT_USED" -v threshold="$threshold" 'BEGIN { exit !(used >= threshold) }'; then
         reset_text=""
         [ -n "$MEGABRAIN_CHAIN_LIMIT_RESETS" ] && reset_text="; resets at $(megabrain_chain_reset_display "$MEGABRAIN_CHAIN_LIMIT_RESETS")"
@@ -1271,6 +1312,8 @@ megabrain_chain_walk() {
       MEGABRAIN_CHAIN_WALK_STEP="$index"
       MEGABRAIN_CHAIN_WALK_REASON="$final_reason"
       MEGABRAIN_CHAIN_WALK_DISPATCH_ID="$dispatch_id"
+      megabrain_dispatch_meta_update_chain_context "$dispatch_id" "$prompt" >/dev/null 2>&1 || true
+      MEGABRAIN_CHAIN_WALK_START_INDEX=0
       megabrain_chain_temp_end
       return 0
     fi
@@ -1283,7 +1326,52 @@ megabrain_chain_walk() {
   megabrain_chain_temp_end
   MEGABRAIN_CHAIN_WALK_REASON="$(printf '%s' "$MEGABRAIN_CHAIN_WALK_SKIPPED" | jq -r '[.[].reason] | join("; ")')"
   [ -n "$MEGABRAIN_CHAIN_WALK_REASON" ] || MEGABRAIN_CHAIN_WALK_REASON='chain has no usable steps; add a chain with megabrain chain add'
+  MEGABRAIN_CHAIN_WALK_START_INDEX=0
   return 1
+}
+
+megabrain_chain_continue_refused() {
+  local dispatch_id="$1" meta chain_name chain_step chain_total chain_default prompt worktree label runtime config
+  local selected_steps
+  meta="$(megabrain_dispatch_meta_read "$dispatch_id" 2>/dev/null || true)"
+  [ -n "$meta" ] || return 1
+  [ "$(printf '%s' "$meta" | jq -r '.reconcileOutcome // empty')" = limit-refused ] || return 1
+  chain_name="$(printf '%s' "$meta" | jq -r '.chain.name // empty')"
+  chain_step="$(printf '%s' "$meta" | jq -r '.chain.step // empty')"
+  chain_total="$(printf '%s' "$meta" | jq -r '.chain.total // empty')"
+  chain_default="$(printf '%s' "$meta" | jq -r '.chain.usedDefault // false')"
+  prompt="$(printf '%s' "$meta" | jq -r '.chain.prompt // empty')"
+  worktree="$(printf '%s' "$meta" | jq -r '.worktreePath // empty')"
+  label="$(printf '%s' "$meta" | jq -r '.label // empty')"
+  runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"')"
+  case "$chain_step" in
+    ''|*[!0-9]*|0) return 1 ;;
+  esac
+  case "$chain_total" in
+    ''|*[!0-9]*|0) return 1 ;;
+  esac
+  [ -n "$prompt" ] && [ -n "$worktree" ] || return 1
+  [ "$chain_step" -lt "$chain_total" ] || return 1
+  config="$(megabrain_chain_read)" || return 1
+  megabrain_chain_validate_config "$config" || return 1
+  if [ "$chain_default" = true ] || [ "$chain_name" = defaultSteps ]; then
+    selected_steps="$(printf '%s' "$config" | jq -c '.defaultSteps')"
+    MEGABRAIN_CHAIN_SELECTION_DEFAULT=true
+    MEGABRAIN_CHAIN_SELECTED_NAME=defaultSteps
+  else
+    selected_steps="$(printf '%s' "$config" | jq -c --arg name "$chain_name" '.chains[$name].steps // empty')"
+    MEGABRAIN_CHAIN_SELECTION_DEFAULT=false
+    MEGABRAIN_CHAIN_SELECTED_NAME="$chain_name"
+  fi
+  [ -n "$selected_steps" ] || return 1
+  MEGABRAIN_CHAIN_SELECTED_STEPS="$selected_steps"
+  MEGABRAIN_CHAIN_SELECTION_REASON="continued after limit refusal at step $chain_step"
+  MEGABRAIN_CHAIN_WALK_START_INDEX="$chain_step"
+  case "$runtime" in
+    tmux) runtime=tmux ;;
+    *) runtime=host ;;
+  esac
+  megabrain_chain_walk "$worktree" '' '' '' '' "$prompt" "$label" "$runtime" '' '' false false
 }
 
 command_chain_run() {
