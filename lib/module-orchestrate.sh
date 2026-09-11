@@ -15,6 +15,7 @@ MEGABRAIN_DISPATCH_CLOSE_OUTCOME=unknown
 MEGABRAIN_DISPATCH_CLOSE_ERROR=""
 MEGABRAIN_DISPATCH_LIVE_ACTIVITY_WINDOW_SECONDS=60
 MEGABRAIN_DISPATCH_PRUNE_DEFAULT_DAYS=7
+MEGABRAIN_TRANSCRIPT_MAX_BYTES="${MEGABRAIN_TRANSCRIPT_MAX_BYTES:-10485760}"
 
 # Single source of truth for mail visibility, keyed "from:type". actionable mail
 # is surfaced by default and triggers a notify; protocol mail is durable evidence
@@ -393,16 +394,62 @@ megabrain_dispatch_transcript_path() {
   printf '%s/transcript\n' "$(megabrain_dispatch_dir "$1")"
 }
 
+# Streams path capped to at most max_bytes, keeping the END of the file
+# (front truncation). A file at or under max_bytes passes through unchanged.
+# When truncation happens, the first (possibly partial) line of the kept
+# slice is dropped, since a byte-boundary cut can land inside a line or an
+# escape sequence.
+megabrain_transcript_capped_stream() {
+  local path="$1" max_bytes="$2" size
+  size="$(wc -c <"$path" 2>/dev/null | tr -d ' ')"
+  case "$size" in
+    ''|*[!0-9]*)
+      cat "$path"
+      return $?
+      ;;
+  esac
+  if [ "$size" -gt "$max_bytes" ]; then
+    tail -c "$max_bytes" "$path" | tail -n +2
+  else
+    cat "$path"
+  fi
+}
+
+# Truncates path in place to at most max_bytes, front-truncating (keeping
+# the tail) via megabrain_transcript_capped_stream. A no-op when the file
+# is missing or already at or under max_bytes.
+megabrain_transcript_truncate_file() {
+  local path="$1" max_bytes="$2" size tmp
+  [ -f "$path" ] || return 0
+  size="$(wc -c <"$path" 2>/dev/null | tr -d ' ')"
+  case "$size" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$size" -gt "$max_bytes" ] || return 0
+  tmp="$(mktemp "${path}.XXXXXX")" || return 1
+  if ! megabrain_transcript_capped_stream "$path" "$max_bytes" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$path"
+}
+
 megabrain_dispatch_render_transcript() {
-  local path="$1" lines="$2" render_dir='' replay_path='' socket='' session='' marker='' start_marker='' history_limit=0 raw_line_count=0 attempts=0
-  local command_text="" rendered="" trimmed=""
+  local path="$1" lines="$2" render_dir='' replay_path='' captured_path='' socket='' session='' marker='' start_marker='' history_limit=0 raw_line_count=0 attempts=0
+  local command_text="" tmux_config=''
   render_dir="$(mktemp -d "${TMPDIR:-/tmp}/megabrain-transcript-render.XXXXXX")" || return 1
   replay_path="$render_dir/replay"
+  captured_path="$render_dir/captured"
   socket="$render_dir/tmux"
   session="megabrain-render-$$-${RANDOM:-0}"
   marker="$render_dir/complete"
   start_marker="$render_dir/start"
-  if ! awk -v esc="$(printf '\033')" '{ gsub(esc "\\[3J", ""); print }' "$path" >"$replay_path"; then
+  tmux_config="$render_dir/tmux.conf"
+  # Never load more than MEGABRAIN_TRANSCRIPT_MAX_BYTES of the source file: this is
+  # the bound that actually holds regardless of whether a lifecycle path ever
+  # truncated the persisted transcript on disk.
+  if ! megabrain_transcript_capped_stream "$path" "$MEGABRAIN_TRANSCRIPT_MAX_BYTES" |
+    awk -v esc="$(printf '\033')" '{ gsub(esc "\\[3J", ""); print }' >"$replay_path"; then
     rm -rf "$render_dir"
     return 1
   fi
@@ -415,15 +462,26 @@ megabrain_dispatch_render_transcript() {
   esac
   history_limit=$((raw_line_count + lines + 100))
 
+  # history-limit became a per-window option in tmux 3.2+: setting it with
+  # set-option after the window already exists is a no-op on some tmux builds
+  # (measured: tmux 3.3a silently keeps the compiled-in 2000-line default,
+  # while tmux 3.7c happens to grow the existing window anyway). It must be
+  # in place before new-session creates the window, so it goes in a minimal
+  # config file passed via -f instead of /dev/null. alternate-screen is a
+  # session option, applied dynamically regardless of when it is set
+  # (measured: setting it off after creation still suppresses an alternate-
+  # screen switch that arrives afterward), so it stays a post-creation
+  # set-option below rather than moving into this file.
+  printf 'set-option -g history-limit %s\n' "$history_limit" >"$tmux_config"
+
   command_text="stty -echo; while [ ! -f $(printf '%q' "$start_marker") ]; do sleep 0.01; done; cat $(printf '%q' "$replay_path"); touch $(printf '%q' "$marker"); exec sleep 60"
-  if ! tmux -S "$socket" -f /dev/null new-session -d -x 240 -y 100 -s "$session" "$command_text" >/dev/null 2>&1; then
+  if ! tmux -S "$socket" -f "$tmux_config" new-session -d -x 240 -y 100 -s "$session" "$command_text" >/dev/null 2>&1; then
     tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
     rm -rf "$render_dir"
     return 1
   fi
 
-  if ! tmux -S "$socket" -f /dev/null set-option -g history-limit "$history_limit" >/dev/null 2>&1 ||
-    ! tmux -S "$socket" -f /dev/null set-option -g alternate-screen off >/dev/null 2>&1 ||
+  if ! tmux -S "$socket" -f /dev/null set-option -g alternate-screen off >/dev/null 2>&1 ||
     ! touch "$start_marker"; then
     tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
     rm -rf "$render_dir"
@@ -445,22 +503,21 @@ megabrain_dispatch_render_transcript() {
     sleep 0.05
   done
 
-  if ! rendered="$(tmux -S "$socket" -f /dev/null capture-pane -J -p -t "$session":0.0 -S "-$history_limit" 2>/dev/null)"; then
+  if ! tmux -S "$socket" -f /dev/null capture-pane -J -p -t "$session":0.0 -S "-$history_limit" >"$captured_path" 2>/dev/null; then
     tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
     rm -rf "$render_dir"
     return 1
   fi
-  trimmed="$(printf '%s\n' "$rendered" | awk '
-    { lines[NR] = $0 }
-    END {
-      last = NR
-      while (last > 0 && lines[last] ~ /^[[:space:]]*$/) last--
-      for (i = 1; i <= last; i++) print lines[i]
-    }
-  ')"
   tmux -S "$socket" -f /dev/null kill-server >/dev/null 2>&1 || true
+  # Streams the trailing-blank-line trim instead of loading the capture into an
+  # array: buffer only a run of blank lines, flush it once a non-blank line
+  # shows it wasn't trailing, and drop whatever is still buffered at EOF.
+  awk '
+    /^[[:space:]]*$/ { blank = blank $0 "\n"; next }
+    { if (blank != "") { printf "%s", blank; blank = "" } print }
+  ' "$captured_path"
   rm -rf "$render_dir"
-  printf '%s\n' "$trimmed"
+  return 0
 }
 
 MEGABRAIN_DISPATCH_LIVENESS_STATUS=unknown
@@ -549,13 +606,21 @@ megabrain_dispatch_start_transcript() {
 }
 
 megabrain_dispatch_stop_transcript() {
-  local meta="$1" runtime pane
+  local meta="$1" runtime pane dispatch_id transcript_path
   runtime="$(printf '%s' "$meta" | jq -r '.runtime // "host"' 2>/dev/null || true)"
   [ "$runtime" = tmux ] || return 0
   pane="$(printf '%s' "$meta" | jq -r '.tmuxPane // empty' 2>/dev/null || true)"
   [ -n "$pane" ] || return 0
   declare -F megabrain_tmux_pipe_pane_stop >/dev/null 2>&1 || return 0
   megabrain_tmux_pipe_pane_stop "$pane" >/dev/null 2>&1 || true
+  # Housekeeping for disk: bounds the file once its writer has stopped. This is not
+  # the bound that protects the render path's memory use, which caps on every read
+  # regardless of whether this ever runs (a pane that just dies never reaches here).
+  dispatch_id="$(printf '%s' "$meta" | jq -r '.dispatchId // empty' 2>/dev/null || true)"
+  if [ -n "$dispatch_id" ]; then
+    transcript_path="$(megabrain_dispatch_transcript_path "$dispatch_id")" || return 0
+    megabrain_transcript_truncate_file "$transcript_path" "$MEGABRAIN_TRANSCRIPT_MAX_BYTES" || true
+  fi
   return 0
 }
 
@@ -1778,6 +1843,7 @@ megabrain_dispatch_release_tmux_process() {
 
 megabrain_dispatch_read() {
   local dispatch_id="${1:-}" lines=200 json=false arg meta runtime pane output source transcript_path
+  local truncated=false transcript_bytes
   case "$dispatch_id" in
     -h|--help) megabrain_usage_show orchestrate-read; return 0 ;;
   esac
@@ -1806,6 +1872,15 @@ megabrain_dispatch_read() {
         return 1
       }
       source=file
+      # The render path never loads more than MEGABRAIN_TRANSCRIPT_MAX_BYTES of the
+      # source file, so a transcript over that bound loses content the caller asked
+      # for; that fact must reach the caller rather than being promoted to a
+      # complete answer.
+      transcript_bytes="$(wc -c <"$transcript_path" 2>/dev/null | tr -d ' ')"
+      case "$transcript_bytes" in
+        ''|*[!0-9]*) ;;
+        *) [ "$transcript_bytes" -gt "$MEGABRAIN_TRANSCRIPT_MAX_BYTES" ] && truncated=true ;;
+      esac
     else
       megabrain_error "could not read tmux pane $pane and no persisted transcript exists"
       return 1
@@ -1813,9 +1888,11 @@ megabrain_dispatch_read() {
   fi
   if [ "$json" = true ]; then
     jq -n --arg dispatchId "$dispatch_id" --arg pane "$pane" --arg source "$source" --arg output "$output" \
-      '{dispatchId: $dispatchId, pane: $pane, source: $source, text: $output}'
+      --argjson truncated "$truncated" \
+      '{dispatchId: $dispatchId, pane: $pane, source: $source, truncated: $truncated, text: $output}'
   else
     printf 'source: %s\n' "$source"
+    [ "$truncated" = true ] && printf 'truncated: transcript exceeds %s bytes, oldest lines dropped\n' "$MEGABRAIN_TRANSCRIPT_MAX_BYTES"
     printf '%s\n' "$output"
   fi
 }

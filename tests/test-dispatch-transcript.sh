@@ -27,6 +27,12 @@ for candidate in "$source_state_dir"/dispatches/*/transcript; do
   fi
 done
 
+# The default byte cap the render path enforces (matches
+# MEGABRAIN_TRANSCRIPT_MAX_BYTES in lib/module-orchestrate.sh). Cap and
+# truncation scenarios below build their own fixture instead of depending on
+# operator state, so they run the same way on any machine.
+transcript_cap_default=10485760
+
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
   exit 1
@@ -245,6 +251,149 @@ if [ -n "$real_transcript" ]; then
 else
   printf 'read history scenario skipped because no suitable real transcript is available\n'
 fi
+
+# Cap and truncation scenarios only need a file whose size crosses
+# MEGABRAIN_TRANSCRIPT_MAX_BYTES, not any particular content, so they build
+# their own fixture from the committed agent-liveness pane captures (real
+# captured frames, not hand-invented bytes) instead of scanning the
+# operator's megabrain state directory for an archived transcript. That
+# fixture exists on any machine, so these scenarios are never skipped.
+build_capped_transcript_fixture() {
+  local target_bytes="$1" out="$2" seed
+  seed="$(mktemp "$state_dir/fixture-seed.XXXXXX")"
+  cat "$root"/tests/fixtures/agent-liveness/*.transcript >"$seed"
+  while [ "$(wc -c <"$seed" | tr -d ' ')" -lt "$target_bytes" ]; do
+    cat "$seed" "$seed" >"$seed.next"
+    mv -f "$seed.next" "$seed"
+  done
+  mv -f "$seed" "$out"
+}
+
+small_slice="$state_dir/small.transcript"
+big_slice="$state_dir/big.transcript"
+build_capped_transcript_fixture $((transcript_cap_default + 65536)) "$big_slice"
+head -c 2048 "$big_slice" >"$small_slice"
+mechanism_cap=4096
+
+megabrain_transcript_capped_stream "$small_slice" 1000000 >"$state_dir/out-passthrough"
+cmp -s "$state_dir/out-passthrough" "$small_slice" ||
+  fail 'capped stream altered a file under the cap'
+printf 'capped stream passes an under-cap file through unchanged\n'
+
+megabrain_transcript_capped_stream "$big_slice" "$mechanism_cap" >"$state_dir/out-capped"
+tail -c "$mechanism_cap" "$big_slice" | tail -n +2 >"$state_dir/expected-capped"
+cmp -s "$state_dir/out-capped" "$state_dir/expected-capped" ||
+  fail 'capped stream did not match the expected tail slice'
+out_capped_size="$(wc -c <"$state_dir/out-capped" | tr -d ' ')"
+[ "$out_capped_size" -le "$mechanism_cap" ] || fail 'capped stream exceeded the byte cap'
+printf 'capped stream truncates an over-cap file to the tail, dropping the partial first line\n'
+
+cp "$small_slice" "$state_dir/trunc-small"
+megabrain_transcript_truncate_file "$state_dir/trunc-small" 1000000
+cmp -s "$state_dir/trunc-small" "$small_slice" ||
+  fail 'truncate_file modified a file under the cap'
+printf 'truncate_file leaves an under-cap transcript untouched\n'
+
+cp "$big_slice" "$state_dir/trunc-big"
+megabrain_transcript_truncate_file "$state_dir/trunc-big" "$mechanism_cap"
+trunc_big_size="$(wc -c <"$state_dir/trunc-big" | tr -d ' ')"
+[ "$trunc_big_size" -le "$mechanism_cap" ] || fail 'truncate_file left the transcript over the cap'
+cmp -s "$state_dir/trunc-big" "$state_dir/expected-capped" ||
+  fail 'truncate_file result did not match the expected tail slice'
+printf 'truncate_file shrinks an over-cap transcript in place to the capped tail\n'
+
+printf '%s\n' 'stop-cap-session' >"$live_sessions"
+write_dispatch stop-cap-session running stop-cap-session
+megabrain_dispatch_start_transcript stop-cap-session %99
+cp "$big_slice" "$(transcript_path stop-cap-session)"
+pre_stop_size="$(wc -c <"$(transcript_path stop-cap-session)" | tr -d ' ')"
+[ "$pre_stop_size" -gt "$MEGABRAIN_TRANSCRIPT_MAX_BYTES" ] ||
+  fail 'fixture too small to exercise the default cap at stop'
+stop_meta="$(jq -c . "$MEGABRAIN_DISPATCH_DIR/stop-cap-session/meta.json")"
+megabrain_dispatch_stop_transcript "$stop_meta"
+post_stop_size="$(wc -c <"$(transcript_path stop-cap-session)" | tr -d ' ')"
+[ "$post_stop_size" -le "$MEGABRAIN_TRANSCRIPT_MAX_BYTES" ] ||
+  fail 'stop did not bound the persisted transcript to the cap'
+assert_contains "$(cat "$pipe_log")" 'stop'
+printf 'stopping a dispatch bounds its persisted transcript to the byte cap\n'
+
+write_dispatch capped-render done capped-render
+cp "$big_slice" "$(transcript_path capped-render)"
+capped_render_src_size="$(wc -c <"$(transcript_path capped-render)" | tr -d ' ')"
+[ "$capped_render_src_size" -gt "$MEGABRAIN_TRANSCRIPT_MAX_BYTES" ] ||
+  fail 'fixture transcript no longer exceeds the default cap'
+
+# Calls the render function directly rather than through command_orchestrate
+# read: the uncapped baseline call below is over ten megabytes, and routing
+# that through the --json/jq --arg path exceeds the OS argv limit. That is a
+# real ceiling this scenario's own baseline hits, not something under test here.
+MEGABRAIN_TRANSCRIPT_MAX_BYTES=$((capped_render_src_size + 1))
+baseline_render_text="$(megabrain_dispatch_render_transcript "$(transcript_path capped-render)" 100000)"
+[ -n "$baseline_render_text" ] || fail 'baseline (uncapped) render produced no output'
+
+MEGABRAIN_TRANSCRIPT_MAX_BYTES=10485760
+capped_render_text="$(megabrain_dispatch_render_transcript "$(transcript_path capped-render)" 100000)"
+[ -n "$capped_render_text" ] || fail 'capped render produced no output'
+
+# The cap must actually engage: with far less scrollback fed into the replay,
+# the capped render has to come out smaller than the uncapped baseline, not
+# merely equal to it.
+[ "${#capped_render_text}" -lt "${#baseline_render_text}" ] ||
+  fail 'capped render was not smaller than the uncapped baseline; the cap did not engage'
+
+baseline_render_tail="$(printf '%s\n' "$baseline_render_text" | tail -n 5)"
+capped_render_tail="$(printf '%s\n' "$capped_render_text" | tail -n 5)"
+assert_equal "$capped_render_tail" "$baseline_render_tail"
+
+if ! cmp -s "$(transcript_path capped-render)" "$big_slice"; then
+  fail 'rendering mutated the persisted transcript'
+fi
+printf 'render caps a fixture over-limit transcript to the tail and keeps the final frame stable\n'
+
+# The truncation-reporting scenarios route the full rendered text through
+# command_orchestrate read --json, which hands it to jq as a single --arg.
+# The built fixture carries no escape sequences (unlike a real transcript,
+# where they are about 80 percent of the bytes and collapse during replay),
+# so its rendered output is roughly the same size as its input. Measured:
+# with MEGABRAIN_TRANSCRIPT_MAX_BYTES at the 10485760 default, the built
+# fixture's render output overruns the OS argv limit for a single jq
+# argument ("jq: Argument list too long"). A much smaller cap here exercises
+# the same truncated-flag logic without hitting that ceiling.
+truncation_report_cap=65536
+MEGABRAIN_TRANSCRIPT_MAX_BYTES="$truncation_report_cap"
+truncation_big="$state_dir/truncation-big.transcript"
+build_capped_transcript_fixture $((truncation_report_cap + 65536)) "$truncation_big"
+
+capture_available=false
+write_dispatch truncated-report done truncated-report
+cp "$truncation_big" "$(transcript_path truncated-report)"
+truncated_json="$(command_orchestrate read truncated-report --lines 50 --json)"
+scenario_equal "$(printf '%s' "$truncated_json" | jq -r '.truncated')" true
+truncated_plain="$(command_orchestrate read truncated-report --lines 50)"
+case "$truncated_plain" in
+  *truncated:*) ;;
+  *)
+    printf 'SCENARIO FAIL: expected plain output to report truncation\n' >&2
+    scenario_failures=$((scenario_failures + 1))
+    ;;
+esac
+if [ "$scenario_failures" -ne 0 ]; then
+  fail 'over-cap truncation reporting scenario failed'
+fi
+printf 'read reports truncation when the persisted transcript exceeds the cap\n'
+
+write_dispatch untruncated-report done untruncated-report
+cp "$small_slice" "$(transcript_path untruncated-report)"
+untruncated_json="$(command_orchestrate read untruncated-report --lines 50 --json)"
+scenario_equal "$(printf '%s' "$untruncated_json" | jq -r '.truncated')" false
+untruncated_plain="$(command_orchestrate read untruncated-report --lines 50)"
+scenario_not_contains "$untruncated_plain" 'truncated:'
+if [ "$scenario_failures" -ne 0 ]; then
+  fail 'under-cap truncation reporting scenario failed'
+fi
+printf 'read does not report truncation for a transcript under the cap\n'
+MEGABRAIN_TRANSCRIPT_MAX_BYTES=10485760
+capture_available=true
 
 capture_available=true
 capture_output='live pane already rendered'
