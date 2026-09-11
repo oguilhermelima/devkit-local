@@ -99,6 +99,12 @@ Close only dispatches you started, one at a time. In tmux the pane is removed ou
 leaves it visible as `Desconectado` until the human dismisses it with the pane X, because no CLI
 verb removes it.
 
+Every tmux dispatch starts a persisted transcript stream when its pane is spawned. `orchestrate
+read` uses the live pane while available and falls back to that transcript after the pane is gone;
+the response identifies the source. Closing and pruning stop the stream before releasing the
+dispatch session. `orchestrate reply` rejects a settled dispatch with a non-zero status and asks
+you to open a new dispatch rather than queueing an undeliverable message.
+
 ## If you are the child
 
 ```
@@ -141,6 +147,13 @@ An unknown limit counts as usable. Codex limits come from the newest rollout on 
 agy are unknown stubs, so a chain that depends on their windows will always see them as usable.
 New providers belong in `lib/module-chain.sh` under `megabrain_chain_limit_read`.
 
+An `until` clause accepts `usedPercent` and `window`, with optional `onUnknown` set to `take` or
+`skip`. The default is `take`. Codex usage read from disk is a floor from the last recorded turn,
+because the turn that exhausts a window is never recorded. If a recorded reset time has passed,
+the code reports the reading as unknown and explains that the window has reset. The turn-end hook
+detects a usage-limit refusal in the agent's own output, marks the dispatch as refused, and resumes
+the chain at the next step.
+
 ## Worktrees and terminals
 
 ```
@@ -175,7 +188,10 @@ from unauthenticated gh. The command requires gh only when opening the PR.
 Human `worktree list` prints the stack as a tree; `--flat` preserves the path/branch table and JSON
 remains flat with parent and optional pull-request fields. Pull-request state is best-effort and does
 not make listing depend on gh or Orca.
-`finish` refuses an unmerged branch unless `--force` is given. `terminal create` with no
+`finish` performs all refusal checks before removing the worktree. An unmerged branch is refused
+unless `--force` is given, and a refusal leaves the worktree and branch intact. Under `--json`, the
+remover's output is captured and reported as megabrain's own error on failure; successful remover
+JSON is not passed through as megabrain output. `terminal create` with no
 `--command` runs the worktree's `.superset/config.json` run script. Superset tabs come back
 untitled; only Orca tabs carry a title. Terminal identities, commands and creation times are
 recorded under `$MEGABRAIN_STATE_DIR/terminals/`, so `terminal list` reports `alive` or `dead`,
@@ -197,6 +213,16 @@ megabrain fact list|add|edit|remove ...
 `doctor --json` is machine readable for every module; operator advice goes to stderr so it stays
 out of the JSON. Install `orchestration-hooks` to get the child turn-end safety hook, which
 reports a child whose turn ended without `ask` or `done`.
+
+The installable module ids include `tv-adb` and `skill-sync`. During normal command invocations,
+`skill-sync` compares the shipped skill with each registered agent copy and repairs drift; `--help`
+and `doctor` skip that runtime repair. A per-target stamp makes unchanged copies nearly free.
+`megabrain doctor skill-sync` reports drift as `skill-sync`.
+
+`doctor` also counts `leakedDispatchSessions`: tmux sessions still held by finished dispatches.
+`orchestrate prune` can release those sessions while archiving or deleting eligible dispatch
+records. A split dispatch that shares the coordinator's tmux session does not own that session, so
+it is never counted or released.
 
 ## Devices and browsers
 

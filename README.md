@@ -53,6 +53,19 @@ worktree, and tmux-runtime when tmux is already on PATH.
 > Clone only to work on megabrain itself: `git clone … && ./install.sh` installs from the
 > checkout instead of downloading, so your edits are what gets linked.
 
+### Homebrew
+
+The personal tap installs the CLI:
+
+```sh
+brew tap oguilhermelima/megabrain
+brew install oguilhermelima/megabrain/megabrain
+```
+
+This is a tap formula, not a Homebrew-core package. Homebrew cannot write to an agent's home
+directory, so it installs the CLI and megabrain keeps the agent skill synchronized at runtime.
+That is why a `brew upgrade` also keeps registered agent copies of the skill current.
+
 ```sh
 megabrain doctor          # what is installed and what is missing
 megabrain context --json  # tmux, orca, or superset
@@ -102,6 +115,7 @@ megabrain chain add my-chain --parent-agent codex \
 megabrain chain list --json      # the steps, in order, with their selectors
 megabrain chain limits --json    # what each provider window says right now
 megabrain chain repair <name> --step 2 --model <id> --effort high
+megabrain model list             # the registered models and reasoning levels
 ```
 
 Pass `--chain <name>` to either spawn command to bypass selector matching. An explicit `--agent`
@@ -111,8 +125,15 @@ may override those fields when the agent comes from a chain.
 > [!NOTE]
 > A limit condition skips a step; a launch failure advances to the next one. An unknown limit
 > counts as usable, so a provider megabrain cannot read is tried rather than skipped. Codex
-> windows come from the newest rollout on disk; Claude and agy are stubs and always report
-> unknown.
+> windows come from the newest rollout on disk and are a floor from the last recorded turn: the
+> turn that exhausts a window is never recorded. Claude and agy are stubs and always report
+> unknown. A Codex snapshot whose reset time has passed is reported as unknown with a reason that
+> the recorded window has reset.
+
+An `until` clause accepts `usedPercent` and `window`, with optional `onUnknown: take` or
+`onUnknown: skip`. The default is `take`; `skip` moves to the next step when the usage reading is
+not trustworthy. If the agent itself prints the usage-limit refusal, the turn-end hook marks that
+dispatch as refused and the chain continues at the next step.
 
 ## Orchestration: the conversation that outlives the terminal
 
@@ -160,6 +181,7 @@ From inside a child, the same queue from the other side:
 megabrain received              # confirm that the prompt was received
 megabrain ask "question"        # ask, then poll for the answer
 megabrain check --timeout 120
+megabrain ack <delivery-id>      # acknowledge a child-side delivery
 megabrain done "what I verified"
 ```
 
@@ -175,6 +197,15 @@ Three properties do the work:
 > Closing a finished child is the coordinator's job. Nothing does it for you, and the child cannot:
 > it would be killing the pane it runs in. Read the pane first — closing destroys the scrollback,
 > and a `done` is a claim the transcript is where you check.
+
+Every tmux dispatch starts recording its pane output when it is spawned. `orchestrate read` reads
+the live pane while it exists and falls back to the persisted transcript after the pane is gone;
+its output says which source it used. Closing or pruning stops that recording before releasing the
+dispatch session.
+
+`orchestrate reply` refuses a dispatch already in a settled state such as `done`, `failed`,
+`closed`, `circuit_broken`, or `timeout`. It exits non-zero and tells you to open a new dispatch,
+instead of queuing a reply that cannot be delivered.
 
 ## Where it runs
 
@@ -276,6 +307,11 @@ stacked worktree; a root worktree uses the repository default. Pass `--base <ref
 the recorded base. If the recorded parent was already deleted, finish falls back to the
 repository default and reports both the missing parent and the base it judged.
 
+`worktree finish` performs every refusal check, including branch merge status, before removing
+anything. A refusal leaves the worktree and branch intact. Under `--json`, output from the
+orchestrator or Git remover is captured and converted into megabrain's own error instead of being
+printed as if it were megabrain's JSON.
+
 `megabrain worktree list` shows the stack as a tree and includes pull-request state when gh can
 answer cheaply. Use `--flat` for the original path/branch table; JSON remains a flat, scriptable
 array and does not require gh or Orca to list the local stack.
@@ -313,6 +349,11 @@ megabrain tv connect 192.168.1.50           # pair an Android TV
 megabrain tv disconnect
 megabrain doctor simulator-native           # what is missing and how to get it
 ```
+
+`megabrain doctor skill-sync` checks the installed copies of this skill. During normal command
+invocations, megabrain compares and repairs registered agent copies when needed; `--help` and
+`doctor` skip that runtime repair. A per-target stamp makes an unchanged copy a no-op. Drift is
+reported as `skill-sync` rather than being hidden behind another module's status.
 
 `native sim ensure` waits until `simctl` reports the selected device as `Booted`, bounded by
 `--timeout`; a boot failure and a wait timeout are reported separately. The optional
