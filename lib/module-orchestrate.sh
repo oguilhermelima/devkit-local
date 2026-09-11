@@ -497,6 +497,7 @@ megabrain_dispatch_render_transcript() {
     { if (blank != "") { printf "%s", blank; blank = "" } print }
   ' "$captured_path"
   rm -rf "$render_dir"
+  return 0
 }
 
 MEGABRAIN_DISPATCH_LIVENESS_STATUS=unknown
