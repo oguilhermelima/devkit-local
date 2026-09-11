@@ -60,7 +60,7 @@ case "$help_output" in
 esac
 printf 'scenario 1: release help describes arguments and operator commands\n'
 
-mismatch_tag="v\${version}-mismatch"
+mismatch_tag="v$version-mismatch"
 if mismatch_output="$("$release_script" "$mismatch_tag" --output "$archive" --formula-output "$work/mismatch-formula.rb" 2>&1)"; then
   mismatch_status=0
 else
