@@ -169,7 +169,9 @@ printf 'child branch: covered by tests/test-e2e-findings.sh\n'
 
 megabrain_dispatch_meta_write refused parent-terminal superset tmux workspace-test refused-terminal \
   "$root" main codex label running gpt-5 true codex refusal-session refusal-pane tmux tmux >/dev/null
-printf '%s\n' "You've hit your usage limit for this account." >"$MEGABRAIN_TEST_PANE_OUTPUT"
+printf '%s\n%s\n' \
+  "You've hit your usage limit for this account." \
+  'Switch to another model now,' >"$MEGABRAIN_TEST_PANE_OUTPUT"
 run_hook
 assert_equal "$(jq -r '.state' "$MEGABRAIN_DISPATCH_DIR/refused/meta.json")" failed
 assert_equal "$(jq -r '.processState' "$MEGABRAIN_DISPATCH_DIR/refused/meta.json")" failed
