@@ -172,11 +172,47 @@ scenario_explicit_base_overrides_recorded_parent() {
   printf 'an explicit base overrides recorded lineage\n'
 }
 
+branch_delete_mode=false
+git() {
+  local arg="" saw_branch=false
+  if [ "$branch_delete_mode" = true ]; then
+    for arg in "$@"; do
+      [ "$arg" = branch ] && saw_branch=true
+      if [ "$saw_branch" = true ] && [ "$arg" = -D ]; then
+        printf 'fatal: simulated branch deletion refusal\n' >&2
+        return 1
+      fi
+    done
+  fi
+  command git "$@"
+}
+
+scenario_branch_delete_failure_returns_json() {
+  local output finish_rc finish_err
+  setup_root_fixture
+  branch_delete_mode=true
+  set +e
+  output="$(megabrain_worktree_finish "$work_dir/shared/root" --delete-branch --force --json 2>"$work_dir/branch-delete.err")"
+  finish_rc=$?
+  set -e
+  finish_err="$(cat "$work_dir/branch-delete.err")"
+  [ "$finish_rc" -ne 0 ] || fail 'a simulated branch deletion failure succeeded'
+  printf '%s' "$output" | jq -e '.deleted == true and .branchDeleted == false and .branch == "stack/root" and (.error | contains("simulated branch deletion refusal"))' >/dev/null ||
+    fail "partial finish did not return a JSON outcome: $output"
+  assert_contains "$finish_err" 'simulated branch deletion refusal'
+  [ ! -e "$work_dir/shared/root" ] || fail 'the worktree survived a successful removal'
+  git -C "$work_dir/repo" branch --list stack/root | grep -q stack/root ||
+    fail 'the branch disappeared despite the simulated deletion failure'
+  branch_delete_mode=false
+  printf 'branch deletion failure returns a partial JSON outcome\n'
+}
+
 scenario_stacked_branch_uses_recorded_parent
 scenario_unmerged_branch_is_still_refused
 scenario_root_branch_uses_repository_default
 scenario_missing_parent_falls_back_loudly
 scenario_explicit_base_overrides_recorded_parent
+scenario_branch_delete_failure_returns_json
 
 (
   rm -rf "$work_dir/repo" "$work_dir/shared" "$work_dir/state"
