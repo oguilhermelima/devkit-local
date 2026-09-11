@@ -173,7 +173,7 @@ for attempt in $(seq 1 100); do
   sleep 0.05
 done
 [ -n "$automatic_child_pid" ] || fail 'timed out waiting for automatic-release process'
-megabrain_dispatch_meta_write "$automatic_dispatch_id" "$session_name:$parent_pane" tmux orca workspace-test automatic-terminal \
+megabrain_dispatch_meta_write "$automatic_dispatch_id" parent-terminal orca orca workspace-test automatic-terminal \
   "$root" fix/dispatch-process-lifetime codex label running gpt-5 true codex "$automatic_session_name" "$automatic_pane" tmux tmux \
   "$session_name" "$parent_pane" workspace-test >/dev/null
 megabrain_dispatch_meta_update_state "$automatic_dispatch_id" done
@@ -196,7 +196,7 @@ unproven_pane="$(tmux_cmd display-message -p -t "$unproven_session_name" '#{pane
 unproven_transcript="$state_dir/dispatches/$unproven_dispatch_id/transcript"
 mkdir -p "$(dirname "$unproven_transcript")"
 touch "$unproven_transcript"
-megabrain_dispatch_meta_write "$unproven_dispatch_id" "$session_name:$parent_pane" tmux orca workspace-test unproven-terminal \
+megabrain_dispatch_meta_write "$unproven_dispatch_id" parent-terminal orca orca workspace-test unproven-terminal \
   "$root" fix/dispatch-process-lifetime codex label running gpt-5 true codex "$unproven_session_name" "$unproven_pane" tmux tmux \
   "$session_name" "$parent_pane" workspace-test >/dev/null
 megabrain_dispatch_meta_update_state "$unproven_dispatch_id" done
