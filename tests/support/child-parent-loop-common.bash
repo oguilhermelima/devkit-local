@@ -286,7 +286,7 @@ child_ack() {
 }
 
 parent_watch() {
-  megabrain_dispatch_watch "$dispatch_id" --timeout 0 --poll-interval 0 --wait-mode poll --json
+  megabrain_dispatch_watch "$dispatch_id" --timeout 0 --poll-interval 0 --wait-mode poll --full --json
 }
 
 parent_ack() {
