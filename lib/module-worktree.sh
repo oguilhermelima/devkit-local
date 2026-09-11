@@ -23,6 +23,7 @@ codex|--dangerously-bypass-approvals-and-sandbox
 claude|--dangerously-skip-permissions
 agy|--dangerously-skip-permissions'
 MEGABRAIN_AGENT_READY_TIMEOUT_MS="${MEGABRAIN_AGENT_READY_TIMEOUT_MS:-10000}"
+MEGABRAIN_TERMINAL_KILLED_TREE='[]'
 
 megabrain_worktree_root() {
   local raw read_only=false
@@ -1350,7 +1351,7 @@ megabrain_terminal_process_tree_belongs_to() {
 }
 
 megabrain_terminal_kill_process_tree() {
-  local pid="$1" children child
+  local pid="$1" children="" child=""
   children="$(megabrain_terminal_process_children "$pid")"
   # Signal the recorded root first. This is the supervisor that can respawn a listener;
   # killing only the port holder leaves the old command alive.
