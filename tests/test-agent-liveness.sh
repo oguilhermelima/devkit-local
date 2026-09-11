@@ -36,6 +36,7 @@ source "$root/lib/common.sh"
 source "$root/lib/module-tmux-runtime.sh"
 source "$root/lib/module-orchestrate.sh"
 source "$root/lib/module-context.sh"
+source "$root/lib/module-parent-notify.sh"
 
 megabrain_tmux_capture_pane() {
   cat "$pane_output"
