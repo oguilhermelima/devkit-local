@@ -416,6 +416,7 @@ megabrain_dispatch_liveness_read() {
         output=''
       fi
     fi
+    MEGABRAIN_DISPATCH_LIVENESS_SOURCE="$source"
     if [ -n "$output" ] && [ -n "$agent" ]; then
       megabrain_tmux_liveness_classify "$agent" "$output"
       MEGABRAIN_DISPATCH_LIVENESS_STATUS="${MEGABRAIN_TMUX_LIVENESS_STATUS:-unknown}"
