@@ -8,10 +8,71 @@ template="$root/Formula/megabrain.rb.in"
 output=""
 formula_output=""
 tag="${1:-}"
+release_version=""
+release_version_file=""
+release_version_path=""
 
 fail() {
   printf 'release: %s\n' "$*" >&2
   exit 1
+}
+
+record_release_version() {
+  local file="$1" path="$2" value="$3"
+  [ -n "$value" ] || fail "release version is empty in $file$path"
+  if [ -z "$release_version_file" ]; then
+    release_version="$value"
+    release_version_file="$file"
+    release_version_path="$path"
+  elif [ "$value" != "$release_version" ]; then
+    fail "version mismatch: $release_version_file$release_version_path=$release_version versus $file$path=$value"
+  fi
+}
+
+validate_release_versions() {
+  local file='' declarations='' declaration_path='' declaration_value=''
+  while IFS= read -r file; do
+    case "$file" in
+      .megabrain/facts.json) continue ;; # facts.json version 1 is the facts schema, not a release version.
+      .megabrain/models.json) continue ;; # models.json version 1 is the models schema, not a release version.
+      .megabrain/native.json) continue ;; # native.json version 1 is the native schema, not a release version.
+    esac
+    declarations="$(jq -r '
+      if type == "object" and has("version") then
+        [".version", (.version | tostring)] | @tsv
+      else empty end,
+      if type == "object" then
+        .plugins[]?
+        | select(type == "object" and .name == "megabrain" and has("version"))
+        | [".plugins[].version", (.version | tostring)] | @tsv
+      else empty end
+    ' "$root/$file")" || fail "could not read version declarations from $file"
+    while IFS="$(printf '\t')" read -r declaration_path declaration_value; do
+      [ -n "$declaration_path" ] || continue
+      record_release_version "$file" "$declaration_path" "$declaration_value"
+    done <<EOF
+$declarations
+EOF
+  done <<EOF
+$(git -C "$root" ls-files '*.json')
+EOF
+  [ -n "$release_version_file" ] || fail 'no release version declarations found'
+}
+
+print_help() {
+  cat <<EOF
+Usage: scripts/release.sh v<version> [--output <path>] [--formula-output <path>]
+
+Build a release archive and render the Homebrew formula.
+  v<version>                 release tag; must match the manifest version
+  --output <path>            archive destination
+  --formula-output <path>    rendered formula destination
+  -h, --help                 show this help
+
+The script prints the commands for the operator to run. It does not tag,
+push, or create a GitHub release itself.
+The rendered formula commit must be the last commit before tagging.
+EOF
 }
 
 sha256_file() {
@@ -43,8 +104,15 @@ archive_release_tree() {
 
 [ -f "$manifest" ] || fail "manifest is missing: $manifest"
 [ -f "$template" ] || fail "formula template is missing: $template"
+validate_release_versions
 version="$(jq -er '.version | strings | select(length > 0)' "$manifest")" ||
   fail "could not read a version from $manifest"
+case "$tag" in
+  -h|--help)
+    print_help
+    exit 0
+    ;;
+esac
 [ -n "$tag" ] || fail "usage: scripts/release.sh v$version [--output <path>]"
 expected_tag="v$version"
 [ "$tag" = "$expected_tag" ] ||
