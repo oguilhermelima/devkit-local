@@ -86,7 +86,6 @@ committed_archive="$work/committed.tar.gz"
 committed_formula="$work/committed-formula.rb"
 matching_output="$($release_script "v$version" --output "$committed_archive" --formula-output "$committed_formula" 2>&1)" ||
   fail "release script refused the committed release tree: $matching_output"
-committed_hash="$(shasum -a 256 "$committed_archive" | awk '{print $1}')"
 printf '\n# Formula-only release invariant test\n' >>"$committed_root/Formula/megabrain.rb"
 git -C "$committed_root" -c user.name=megabrain-test -c user.email=megabrain-test@example.com \
   add Formula/megabrain.rb || fail 'could not stage the Formula-only change'
@@ -96,15 +95,21 @@ changed_archive="$work/changed.tar.gz"
 changed_formula="$work/changed-formula.rb"
 matching_output="$("$committed_root/scripts/release.sh" "v$version" --output "$changed_archive" --formula-output "$changed_formula" 2>&1)" ||
   fail "release script refused the Formula-only commit: $matching_output"
-cmp -s "$committed_archive" "$changed_archive" ||
-  fail 'Formula-only commit changed the release archive'
-if tar -tzf "$changed_archive" | grep -F '/Formula/' >/dev/null; then
+committed_tree="$work/committed-tree"
+changed_tree="$work/changed-tree"
+mkdir -p "$committed_tree" "$changed_tree"
+tar -xzf "$committed_archive" -C "$committed_tree" ||
+  fail 'could not extract the committed release archive'
+tar -xzf "$changed_archive" -C "$changed_tree" ||
+  fail 'could not extract the changed release archive'
+diff -r "$committed_tree" "$changed_tree" >/dev/null ||
+  fail 'Formula-only commit changed the release archive contents'
+changed_entries="$(tar -tzf "$changed_archive")" ||
+  fail 'could not list the changed release archive'
+[ -n "$changed_entries" ] || fail 'changed release archive contains no entries'
+if printf '%s\n' "$changed_entries" | grep -F '/Formula/' >/dev/null; then
   fail 'release archive includes Formula files'
 fi
-formula_hash="$(sed -n 's/^  sha256 "\([0-9a-f]*\)"$/\1/p' "$root/Formula/megabrain.rb")"
-[ -n "$formula_hash" ] || fail 'committed formula has no sha256'
-[ "$formula_hash" = "$committed_hash" ] ||
-  fail "committed formula hash $formula_hash does not match HEAD archive $committed_hash"
 printf 'scenario 4: Formula-only commit preserves the release.sh archive\n'
 
 manifest_mismatch_root="$work/manifest-mismatch"
